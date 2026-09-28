@@ -40,7 +40,7 @@ export default function LoginForm() {
     <div className="flex min-h-screen items-center justify-center bg-navy-950 px-4">
       <div className="w-full max-w-[380px]">
         <div className="mb-6 flex flex-col items-center gap-3">
-          <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-12 w-auto" />
+          <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-20 w-auto" />
           <div className="text-center text-[12px] text-brand-300">
             Controle Agrícola · Unidade Capinópolis-MG
           </div>

@@ -87,7 +87,7 @@ export default function Sidebar({ usuario }: { usuario?: UsuarioLogado }) {
     >
       <div className="flex items-center gap-2 px-3 py-4">
         {!collapsed && (
-          <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-10 w-auto flex-shrink-0" />
+          <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-16 w-auto flex-shrink-0" />
         )}
         <button
           type="button"
