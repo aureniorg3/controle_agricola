@@ -1,4 +1,4 @@
-import { Lancamento, OrdemCorte, Periodo } from "./types";
+import { Lancamento, OrdemCorte, Periodo, Talhao } from "./types";
 
 export function toDateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -39,6 +39,41 @@ function somaLancamentos(lancamentos: Lancamento[], inicio: string, fim: string)
   return lancamentos
     .filter((l) => l.data >= inicio && l.data <= fim)
     .reduce((s, l) => s + l.toneladas, 0);
+}
+
+/**
+ * Entrada de um talhão no período selecionado — mesma lógica de
+ * `calcOrdemMetrics`, só que por talhão em vez de pela ordem inteira. Sem
+ * isso, a coluna "Últ. entrada" da tela mostrava sempre o último
+ * lançamento registrado (`talhao.ultimaEntradaT`), sem reagir ao filtro
+ * de Dia/Semana/Mês — dava a impressão de que a tela não atualizava ao
+ * trocar a data.
+ *
+ * Um lançamento sem detalhe por talhão (`porTalhao` vazio — é o caso da
+ * carga inicial de exemplo, ou de um apontamento "total da ordem" lançado
+ * pela tela) é rateado proporcionalmente pela área de cada talhão, a
+ * mesma regra já usada para distribuir esse tipo de lançamento ao criá-lo
+ * (ver `app/api/ordens-corte/[id]/lancamentos/route.ts`).
+ */
+export function calcTalhaoEntradaPeriodo(
+  ordem: OrdemCorte,
+  talhao: Talhao,
+  period: Periodo,
+  referencia: string
+): number {
+  const range = rangeForPeriod(period, referencia);
+  if (range === null) return Math.round(talhao.acumSafraT * 100) / 100;
+
+  const areaTotal = ordem.talhoes.reduce((s, t) => s + t.areaHa, 0) || 1;
+  const total = ordem.lancamentos
+    .filter((l) => l.data >= range.inicio && l.data <= range.fim)
+    .reduce((s, l) => {
+      if (l.porTalhao && l.porTalhao.length > 0) {
+        return s + (l.porTalhao.find((p) => p.talhao === talhao.talhao)?.toneladas ?? 0);
+      }
+      return s + (talhao.areaHa / areaTotal) * l.toneladas;
+    }, 0);
+  return Math.round(total * 100) / 100;
 }
 
 export interface OrdemMetrics {

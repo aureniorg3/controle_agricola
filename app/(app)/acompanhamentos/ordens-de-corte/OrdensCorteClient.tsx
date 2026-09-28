@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { OrdemCorte, Periodo, StatusOrdem } from "@/lib/types";
 import {
   calcOrdemMetrics,
+  calcTalhaoEntradaPeriodo,
   endOfMonth,
   endOfWeekMonday,
   rangeForPeriod,
@@ -384,7 +385,7 @@ export default function OrdensCorteClient({ initialOrdens }: { initialOrdens: Or
                 </span>
               </button>
               {aberto && (
-                <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-4">
                   {lista.map((ordem) => (
                     <OrdemCard
                       key={ordem.id}
@@ -503,13 +504,13 @@ function OrdemCard({
       <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted">
         {ordem.regiao} · Talhões
       </div>
-      <div className="max-h-[168px] overflow-y-auto px-4">
+      <div className="px-4">
         <table className="w-full text-[12px]">
-          <thead className="sticky top-0 bg-card">
+          <thead className="bg-card">
             <tr className="text-left text-muted">
               <th className="py-1 font-semibold">Talhão</th>
               <th className="py-1 text-right font-semibold">Área</th>
-              <th className="py-1 text-right font-semibold">Últ. entrada</th>
+              <th className="py-1 text-right font-semibold">Entrada</th>
               <th className="py-1 text-right font-semibold">Acum(t)</th>
             </tr>
           </thead>
@@ -525,7 +526,9 @@ function OrdemCard({
               <tr key={t.talhao} className="border-t border-line/70">
                 <td className="py-1 font-medium text-ink">{t.talhao}</td>
                 <td className="py-1 text-right tabular text-muted">{fmtHa(t.areaHa)}</td>
-                <td className="py-1 text-right tabular text-muted">{fmtT(t.ultimaEntradaT)}</td>
+                <td className="py-1 text-right tabular text-muted">
+                  {fmtT(calcTalhaoEntradaPeriodo(ordem, t, period, referencia))}
+                </td>
                 <td className="py-1 text-right tabular font-medium text-ink">{fmtT(t.acumSafraT)}</td>
               </tr>
             ))}
