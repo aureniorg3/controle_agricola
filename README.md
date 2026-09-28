@@ -115,18 +115,42 @@ ordem, dia por dia.
 
 Como funciona:
 
+- **Escolhe a aba certa sozinho.** O arquivo pode ter dezenas de abas (é o
+  caso do relatório oficial da safra, com ~34) — o sistema procura um
+  cabeçalho reconhecível em cada uma e usa a que reconhecer mais colunas；
+  em caso de empate entre abas com o mesmo layout (comum quando o arquivo
+  mantém uma aba por ano/safra lado a lado, ex. `Tb_Ord_Corte_24`,
+  `..._25`, `Tb_Ord_Colheita_26`), desempata pela que tiver mais linhas com
+  produção de fato em "hoje" — a safra corrente, não as já encerradas.
 - **Reconhecimento tolerante de colunas.** O cabeçalho é procurado nas
-  primeiras 15 linhas do arquivo (não precisa estar na linha 1), e nomes de
+  primeiras 15 linhas de cada aba (não precisa estar na linha 1), e nomes de
   coluna são reconhecidos por uma lista de apelidos (ex.: "Ordem", "Nº Ordem",
-  "OS" e "Ordem de Corte" são todos aceitos como a coluna de ordem). Um botão
-  "Baixar modelo de planilha" no próprio modal mostra o formato recomendado
-  (`public/templates/modelo-importacao-ordens-corte.xlsx`), mas o arquivo real
-  não precisa seguir esse modelo à risca.
-- **Colunas obrigatórias**: Ordem, Talhão, Data e Toneladas do dia. As demais
-  (Frente, Região, Código/Nome da fazenda, Área, Acumulado da safra, TCH,
-  Safra) são opcionais e, quando ausentes numa linha, herdam o valor da linha
-  anterior do mesmo grupo (comum em relatórios onde a ordem só é repetida na
-  primeira linha de cada bloco de talhões).
+  "OS", "Ordem de Corte" e "Ord. Q/C" são todos aceitos como a coluna de
+  ordem). Um botão "Baixar modelo de planilha" no próprio modal mostra o
+  formato recomendado (`public/templates/modelo-importacao-ordens-corte.xlsx`),
+  mas o arquivo real não precisa seguir esse modelo à risca.
+- **Duas formas de dizer "quando/quanto".** A maioria dos relatórios tem uma
+  coluna Data e uma coluna Toneladas (um lançamento por linha). O relatório
+  oficial do CHBWEB (aba `Tb_Ord_Colheita_XX`) é diferente: é um retrato do
+  dia, com colunas fixas "Ent_Cana Ontem" e "Ent_Cana Hoje" em vez de uma
+  data por linha. Quando só esse par é encontrado (sem coluna de Data), o
+  sistema entende que o arquivo está sendo importado no dia a que ele se
+  refere e grava "hoje" na data da importação e "ontem" no dia anterior —
+  por isso reimportar esse tipo de arquivo em outro dia sempre traz a
+  produção do novo dia, sem duplicar nem apagar os dias já lançados
+  (apontamentos são identificados por ordem+data). Um aviso no resultado da
+  importação sempre mostra em que datas o "ontem"/"hoje" foram gravados.
+- **Colunas obrigatórias**: Ordem, Talhão, e (Data + Toneladas) ou (Ent_Cana
+  Ontem/Hoje). As demais (Frente, Região, Código/Nome da fazenda, Área,
+  Acumulado da safra, TCH, Safra) são opcionais e, quando ausentes numa
+  linha, herdam o valor da linha anterior do mesmo grupo (comum em
+  relatórios onde a ordem só é repetida na primeira linha de cada bloco de
+  talhões).
+- **A coluna "Fazenda" sozinha é ambígua** (no modelo do sistema é o nome;
+  no relatório do CHBWEB é o código, e o nome mora em "Fundo Agrícola") — o
+  sistema resolve isso olhando se uma coluna de nome mais específica
+  ("Fundo Agrícola", "Nome Fazenda"...) já apareceu na mesma planilha antes
+  de decidir o que "Fazenda" sozinha significa ali.
 - **A planilha nunca apaga o que já está cadastrado.** Se uma ordem já existe
   no sistema, campos como frente, fazenda ou área de um talhão só são
   **completados** quando estão vazios — nunca sobrescritos. Se o valor da
@@ -146,6 +170,24 @@ Como funciona:
   motivo) — a planilha é tratada como uma base de apoio para preencher o
   sistema, não como a verdade final sobre como os dados devem aparecer na
   tela.
+
+**Testado com o arquivo oficial real** (aba `Tb_Ord_Colheita_26`, ~2.000
+linhas, 34 abas no total): importa sem nenhum erro. Duas limitações valem a
+pena conhecer antes de importar em produção:
+
+- **Nome de frente sem normalização.** O relatório do CHBWEB escreve
+  "FRENTE I", "FRENTE II"...; o cadastro inicial deste sistema usa
+  "FRENTE-1", "FRENTE-2". Como o sistema nunca decide sozinho qual dos dois
+  nomes está certo, uma ordem **nova** (que a planilha cria pela primeira
+  vez) fica com o nome de frente exatamente como veio da planilha — o que
+  pode criar uma frente "duplicada" (com grafia diferente) na tela até
+  alguém padronizar o nome direto na ordem.
+- **Talhão com mais de uma "Parte" gera avisos repetidos.** O relatório do
+  CHBWEB tem uma coluna "Parte" (plantios/variedades diferentes dentro do
+  mesmo número de talhão) que este sistema ainda não modela — as duas
+  partes de um talhão viram avisos de "área diferente da cadastrada"
+  (inofensivo: a área cadastrada é mantida, é só ruído a mais na lista de
+  avisos).
 
 ## Por que um filtro de data pode aparecer zerado
 

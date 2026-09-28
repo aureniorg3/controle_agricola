@@ -27,3 +27,4 @@ next-env.d.ts
 
 # dados locais (persistência de desenvolvimento)
 /data/db.json
+dev.log
