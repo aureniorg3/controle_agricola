@@ -37,14 +37,32 @@ npm start
 
 ## Deploy no Render
 
-1. **New → Web Service**, aponte para este repositório.
-2. Build Command: `npm install && npm run build`
-3. Start Command: `npm start`
-4. **Disco persistente (recomendado):** por padrão o arquivo `data/db.json`
-   fica no disco do serviço. Em um Web Service comum do Render o disco não é
-   persistente entre deploys — para não perder as ordens cadastradas, adicione
-   um **Persistent Disk** montado em `data/` (Settings → Disks) ou troque a
-   persistência por um banco gerenciado (ver seção acima).
+Isso precisa ser feito pela sua conta do Render (eu não tenho como criar conta
+ou acessar deploy por você) — mas o repositório já está pronto para isso, é só
+seguir os passos:
+
+1. Em https://dashboard.render.com → **New → Web Service**, conecte a conta do
+   GitHub e escolha o repositório `aureniorg3/controle_agricola`, branch `main`.
+2. **Runtime:** Node. **Build Command:** `npm install && npm run build`.
+   **Start Command:** `npm start`.
+3. **Environment** (aba Environment do serviço) → adicione:
+   - `AUTH_SECRET` — um valor aleatório, só seu, usado para assinar o cookie
+     de login. Pode usar este (gerado agora), ou qualquer string longa e
+     aleatória:
+     ```
+     MCyed2WYMhzXmYr3LFWpRIMA55TL9LocbIUjEZfZvMI
+     ```
+   - `DATA_DIR` — `/var/data` (ver disco persistente no próximo passo).
+4. **Disco persistente (obrigatório para não perder dados a cada deploy):**
+   Settings → **Disks** → Add Disk → *Mount Path* `/var/data` (mesmo caminho
+   do `DATA_DIR` acima), qualquer tamanho pequeno (1 GB já sobra). Sem isso, a
+   cada novo deploy o Render apaga o disco do serviço e o sistema volta para
+   os dados de exemplo (seed) e recria o usuário admin com a senha padrão.
+5. **Create Web Service.** O primeiro deploy demora alguns minutos (build do
+   Next.js); depois disso o Render mostra a URL pública do serviço no topo da
+   página (algo como `https://controle-agricola.onrender.com`) — esse é o
+   link para compartilhar com o time. O login pede o e-mail/senha da seção
+   **Login** abaixo.
 
 ## Login
 

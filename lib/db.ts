@@ -8,7 +8,12 @@ import { hashSenha } from "./auth";
 // Se o disco não for persistente entre deploys, trocar este arquivo por um
 // adaptador de banco real (Postgres/Supabase) mantendo a mesma interface
 // (getDb/saveDb) é a única mudança necessária — nenhuma tela precisa mudar.
-const DATA_DIR = path.join(process.cwd(), "data");
+//
+// DATA_DIR pode ser sobrescrito pela variável de ambiente `DATA_DIR` — use
+// isso para apontar para o Persistent Disk do Render (ver README, seção
+// "Deploy no Render") sem depender de adivinhar o caminho de build do
+// serviço.
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
 
 /**
