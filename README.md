@@ -8,7 +8,8 @@ pela própria tela.
 
 ## Stack
 
-- **Next.js 14** (App Router) + **TypeScript** + **Tailwind CSS**
+- **Next.js 16** (App Router, Turbopack) + **TypeScript** + **Tailwind CSS**
+  — exige **Node 20.9+** (fixado em `package.json` → `engines.node`)
 - Persistência em **arquivo JSON no servidor** (`data/db.json`), lido e
   gravado pelas rotas de API — não é mock: criar uma ordem ou lançar um
   apontamento grava de verdade e a tela atualiza sozinha.
@@ -63,6 +64,11 @@ seguir os passos:
    página (algo como `https://controle-agricola.onrender.com`) — esse é o
    link para compartilhar com o time. O login pede o e-mail/senha da seção
    **Login** abaixo.
+
+   O Next.js 16 exige **Node 20.9 ou mais novo** (já fixado em `package.json`
+   → `engines.node`, que o Render lê para escolher a versão). Se um deploy já
+   existente estiver preso numa versão antiga do Node, confira/ajuste em
+   **Settings → Environment → Node Version** no painel do serviço.
 
 ## Login
 
