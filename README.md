@@ -46,6 +46,27 @@ npm start
    um **Persistent Disk** montado em `data/` (Settings → Disks) ou troque a
    persistência por um banco gerenciado (ver seção acima).
 
+## Login
+
+O sistema agora exige login (`middleware.ts` + `app/(app)/layout.tsx`). Um
+usuário administrador é criado automaticamente na primeira vez que o servidor
+sobe (ou na primeira vez que rodar depois desta atualização, mesmo com um
+`data/db.json` já existente):
+
+- **E-mail:** `aureniorg3@gmail.com`
+- **Senha inicial:** `crv@2026`
+
+Troque essa senha assim que possível — ainda não existe tela de troca de
+senha; por ora, para gerar uma nova senha do admin, apague o usuário de
+`data/db.json` e reinicie o servidor (ele recria com a senha padrão), ou peça
+para eu adicionar uma tela de gerenciamento de usuários.
+
+Sessão fica em um cookie assinado (HMAC-SHA256, `httpOnly`), válido por 7
+dias, sem depender de nenhum pacote novo (usa só o módulo `crypto` do Node).
+Em produção, defina a variável de ambiente `AUTH_SECRET` (Render → Environment)
+com um valor aleatório — sem isso o sistema usa um segredo padrão de
+desenvolvimento.
+
 ## O que já funciona no Acompanhamento de Ordens de Corte
 
 - Cards por ordem de corte (um "quadrado" por ordem, igual ao relatório
@@ -67,24 +88,37 @@ npm start
 ## Estrutura
 
 ```
+middleware.ts                    gate leve (checa cookie) antes de cada rota
 app/
-  layout.tsx                     shell com o menu lateral
-  page.tsx                       redireciona para Ordens de Corte
-  acompanhamentos/ordens-de-corte/
-    page.tsx                     carrega os dados no servidor
-    OrdensCorteClient.tsx        tela inteira (filtros, cards, modais)
-  api/ordens-corte/
-    route.ts                     GET (listar) / POST (nova ordem)
-    [id]/route.ts                GET / PATCH (status, áreas, TCH) / DELETE
-    [id]/lancamentos/route.ts    POST (novo apontamento diário)
-  painel/, contencioso/, agricultura/, planejamento/, configuracoes/
+  layout.tsx                     layout raiz (html/body, sem menu)
+  login/
+    page.tsx                     redireciona pra dentro se já logado
+    LoginForm.tsx                formulário de login
+  (app)/                         grupo de rotas autenticadas (mesma URL, só
+                                  organização de pastas — não aparece no link)
+    layout.tsx                   valida a sessão de verdade e renderiza o menu
+    page.tsx                     redireciona para Ordens de Corte
+    acompanhamentos/ordens-de-corte/
+      page.tsx                   carrega os dados no servidor
+      OrdensCorteClient.tsx      tela inteira (filtros, cards, modais)
+    painel/, contencioso/, agricultura/, planejamento/, configuracoes/
                                   demais itens do menu (em construção)
+  api/
+    ordens-corte/
+      route.ts                   GET (listar) / POST (nova ordem)
+      [id]/route.ts              GET / PATCH (status, áreas, TCH) / DELETE
+      [id]/lancamentos/route.ts  POST (novo apontamento diário)
+    auth/
+      login/route.ts             POST — confere e-mail/senha, grava cookie
+      logout/route.ts            POST — limpa o cookie
+      me/route.ts                GET — usuário da sessão atual
 components/
-  Sidebar.tsx                    menu lateral (cores CRV Industrial)
+  Sidebar.tsx                    menu lateral (cores CRV Industrial) + usuário/sair
   PlaceholderPage.tsx            tela-padrão dos módulos ainda não construídos
 lib/
   types.ts                       modelo de dados
   db.ts                          persistência em data/db.json
+  auth.ts                        hash de senha e cookie de sessão (sem libs externas)
   period.ts                      cálculo de dia/semana/mês/safra
   seed-data.ts                   carga inicial (ver abaixo)
   format.ts                      formatação de número/data em pt-BR
@@ -113,4 +147,29 @@ cartões brancos, indicador verde "Salvo no servidor", destaques em azul).
 1. Acompanhamento de Colheita (própria) e Colheita Terceiro.
 2. Acompanhamento de Insumos.
 3. Cadastros (fazendas/talhões, equipamentos, funcionários, fornecedores).
-4. Autenticação e perfis de acesso — hoje o sistema não tem login.
+4. Tela de gerenciamento de usuários (criar/editar/desativar, trocar senha) —
+   hoje o único jeito de mexer nos usuários é editando `data/db.json`.
+
+## Colocando no ar (o "link do programa")
+
+Este ambiente onde eu trabalho não tem acesso de deploy (Render/Vercel/etc.) —
+só ao repositório do GitHub. Não existe hoje um link público rodando; para ter
+um, é um dos dois caminhos abaixo:
+
+- **Rodar localmente**, só pra testar na sua máquina:
+  ```bash
+  npm install
+  npm run dev
+  ```
+  e abrir `http://localhost:3000` (o login pede o e-mail/senha padrão da
+  seção **Login** acima).
+- **Publicar no Render** (é o que o restante deste README já documenta em
+  "Deploy no Render", com o disco persistente para não perder as ordens
+  cadastradas a cada deploy). Depois de criar o Web Service lá, o próprio
+  Render gera a URL pública (algo como
+  `https://controle-agricola.onrender.com`) — esse é o link que dá pra
+  compartilhar com o time.
+
+Se preferir, me diga em qual dessas contas (Render, Vercel, outra) você quer
+publicar e, se me der acesso a ela, posso configurar o deploy diretamente
+daqui.

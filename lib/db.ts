@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
-import { Database, OrdemCorte } from "./types";
+import { Database, OrdemCorte, Usuario } from "./types";
 import { buildSeedOrdens } from "./seed-data";
+import { hashSenha } from "./auth";
 
 // Em produção (Render/qualquer Node host) isso grava no disco do serviço.
 // Se o disco não for persistente entre deploys, trocar este arquivo por um
@@ -10,29 +11,57 @@ import { buildSeedOrdens } from "./seed-data";
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
 
+/**
+ * Usuário administrador padrão, criado automaticamente na primeira execução
+ * (ou na primeira execução após esta atualização, para bancos já existentes).
+ * Login: e-mail abaixo. Senha inicial: "crv@2026" — troque assim que possível
+ * (ainda não há tela de troca de senha; por ora, apague o usuário em
+ * data/db.json e reinicie o servidor para gerar um novo, ou peça para eu
+ * adicionar uma tela de gerenciamento de usuários).
+ */
+function buildAdminPadrao(): Usuario {
+  return {
+    id: "usr-admin-1",
+    nome: "Administrador",
+    email: "aureniorg3@gmail.com",
+    senhaHash: hashSenha("crv@2026"),
+    perfil: "admin",
+    criadoEm: new Date().toISOString(),
+  };
+}
+
+function buildSeedDb(): Database {
+  return {
+    ordens: buildSeedOrdens(),
+    usuarios: [buildAdminPadrao()],
+    ultimaAtualizacao: new Date().toISOString(),
+  };
+}
+
 function ensureDb(): Database {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   if (!fs.existsSync(DB_PATH)) {
-    const seeded: Database = {
-      ordens: buildSeedOrdens(),
-      ultimaAtualizacao: new Date().toISOString(),
-    };
+    const seeded = buildSeedDb();
     fs.writeFileSync(DB_PATH, JSON.stringify(seeded, null, 2), "utf-8");
     return seeded;
   }
   const raw = fs.readFileSync(DB_PATH, "utf-8");
+  let db: Database;
   try {
-    return JSON.parse(raw) as Database;
+    db = JSON.parse(raw) as Database;
   } catch {
-    const seeded: Database = {
-      ordens: buildSeedOrdens(),
-      ultimaAtualizacao: new Date().toISOString(),
-    };
-    fs.writeFileSync(DB_PATH, JSON.stringify(seeded, null, 2), "utf-8");
-    return seeded;
+    db = buildSeedDb();
+    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+    return db;
   }
+  // Migração leve: bancos gravados antes da tela de login não têm `usuarios`.
+  if (!db.usuarios || db.usuarios.length === 0) {
+    db.usuarios = [buildAdminPadrao()];
+    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+  }
+  return db;
 }
 
 export function getDb(): Database {
@@ -79,4 +108,17 @@ export function deleteOrdem(id: string): boolean {
   db.ordens = db.ordens.filter((o) => o.id !== id);
   saveDb(db);
   return db.ordens.length < before;
+}
+
+export function listUsuarios(): Usuario[] {
+  return getDb().usuarios;
+}
+
+export function getUsuarioPorId(id: string): Usuario | undefined {
+  return listUsuarios().find((u) => u.id === id);
+}
+
+export function getUsuarioPorEmail(email: string): Usuario | undefined {
+  const alvo = email.trim().toLowerCase();
+  return listUsuarios().find((u) => u.email.toLowerCase() === alvo);
 }

@@ -40,8 +40,21 @@ export interface OrdemCorte {
   atualizadoEm: string;
 }
 
+export type PerfilUsuario = "admin" | "operacional";
+
+export interface Usuario {
+  id: string;
+  nome: string;
+  email: string;
+  /** formato "salt:hash" (scrypt) — nunca a senha em texto puro */
+  senhaHash: string;
+  perfil: PerfilUsuario;
+  criadoEm: string;
+}
+
 export interface Database {
   ordens: OrdemCorte[];
+  usuarios: Usuario[];
   ultimaAtualizacao: string;
 }
 

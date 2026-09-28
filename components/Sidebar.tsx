@@ -1,8 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
+
+interface UsuarioLogado {
+  nome: string;
+  email: string;
+  perfil: string;
+}
 
 interface Item {
   label: string;
@@ -50,9 +56,28 @@ const SECTIONS: Section[] = [
   },
 ];
 
-export default function Sidebar() {
+function iniciais(nome: string): string {
+  const partes = nome.trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "?";
+  if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
+  return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+}
+
+export default function Sidebar({ usuario }: { usuario?: UsuarioLogado }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [saindo, setSaindo] = useState(false);
+
+  async function handleLogout() {
+    setSaindo(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  }
 
   return (
     <aside
@@ -146,17 +171,48 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {!collapsed && (
-        <div className="flex items-center gap-2.5 border-t border-white/10 px-3 py-3">
-          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-500 text-[11px] font-bold text-white">
-            CA
+      <div className="border-t border-white/10 px-2 py-3">
+        <div className={`flex items-center gap-2.5 ${collapsed ? "justify-center" : "px-1"}`}>
+          <div
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-500 text-[11px] font-bold text-white"
+            title={usuario ? `${usuario.nome} · ${usuario.email}` : undefined}
+          >
+            {usuario ? iniciais(usuario.nome) : "CA"}
           </div>
-          <div className="min-w-0 leading-tight">
-            <div className="truncate text-[12.5px] font-semibold text-white">Controle Agrícola</div>
-            <div className="truncate text-[11px] text-slate-400">Unidade Capinópolis-MG</div>
-          </div>
+          {!collapsed && (
+            <div className="min-w-0 leading-tight">
+              <div className="truncate text-[12.5px] font-semibold text-white">
+                {usuario?.nome ?? "Controle Agrícola"}
+              </div>
+              <div className="truncate text-[11px] text-slate-400">
+                {usuario?.email ?? "Unidade Capinópolis-MG"}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+        {usuario && (
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={saindo}
+            title="Sair"
+            className={`mt-2 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] font-medium text-slate-400 transition-colors hover:bg-white/8 hover:text-white disabled:opacity-60 ${
+              collapsed ? "justify-center" : ""
+            }`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="flex-shrink-0">
+              <path
+                d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {!collapsed && <span>{saindo ? "Saindo..." : "Sair"}</span>}
+          </button>
+        )}
+      </div>
     </aside>
   );
 }
