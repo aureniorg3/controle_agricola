@@ -536,7 +536,7 @@ function OrdemCard({
         </table>
       </div>
 
-      <div className="mx-4 my-3 grid grid-cols-2 gap-2 rounded-lg bg-surface p-2.5 text-[12px]">
+      <div className="mx-4 my-3 mt-auto grid grid-cols-2 gap-2 rounded-lg bg-surface p-2.5 text-[12px]">
         <div>
           <div className="text-muted">Área colhida</div>
           <div className="font-semibold tabular text-ink">{fmtHa(ordem.areaColhidaHa)} ha</div>
@@ -567,7 +567,7 @@ function OrdemCard({
         </span>
       </div>
 
-      <div className="mt-auto flex gap-2 border-t border-line px-4 py-2.5">
+      <div className="flex gap-2 border-t border-line px-4 py-2.5">
         <button
           type="button"
           onClick={onLancar}
