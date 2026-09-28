@@ -85,14 +85,18 @@ export default function Sidebar({ usuario }: { usuario?: UsuarioLogado }) {
         collapsed ? "w-[68px]" : "w-[252px]"
       }`}
     >
-      <div className="flex items-center gap-2 px-3 py-4">
+      <div className="px-3 pb-3 pt-4">
         {!collapsed && (
-          <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-16 w-auto flex-shrink-0" />
+          <Link href="/" aria-label="Ir para o início" className="block">
+            <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-auto w-full" />
+          </Link>
         )}
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
-          className="ml-auto flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white/10 hover:text-white"
+          className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white/10 hover:text-white ${
+            collapsed ? "" : "ml-auto mt-2"
+          }`}
           aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none">

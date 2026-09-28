@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function LoginForm() {
@@ -40,7 +41,9 @@ export default function LoginForm() {
     <div className="flex min-h-screen items-center justify-center bg-navy-950 px-4">
       <div className="w-full max-w-[380px]">
         <div className="mb-6 flex flex-col items-center gap-3">
-          <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-20 w-auto" />
+          <Link href="/" aria-label="Ir para o início">
+            <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-auto w-64" />
+          </Link>
           <div className="text-center text-[12px] text-brand-300">
             Controle Agrícola · Unidade Capinópolis-MG
           </div>
