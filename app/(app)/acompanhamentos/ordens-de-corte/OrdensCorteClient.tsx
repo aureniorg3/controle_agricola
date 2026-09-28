@@ -45,6 +45,7 @@ export default function OrdensCorteClient({ initialOrdens }: { initialOrdens: Or
   const [statusFiltro, setStatusFiltro] = useState<"todas" | StatusOrdem>("todas");
   const [busca, setBusca] = useState("");
   const [novaOrdemAberta, setNovaOrdemAberta] = useState(false);
+  const [importarAberto, setImportarAberto] = useState(false);
   const [lancamentoAlvo, setLancamentoAlvo] = useState<OrdemCorte | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [ultimoSalvamento, setUltimoSalvamento] = useState<string>(() => new Date().toISOString());
@@ -195,6 +196,22 @@ export default function OrdensCorteClient({ initialOrdens }: { initialOrdens: Or
         </div>
         <button
           type="button"
+          onClick={() => setImportarAberto(true)}
+          className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-ink shadow-card hover:bg-surface"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 15V4M12 4l-4 4M12 4l4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Importar planilha
+        </button>
+        <button
+          type="button"
           onClick={() => setNovaOrdemAberta(true)}
           className="flex items-center gap-1.5 rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
         >
@@ -281,6 +298,17 @@ export default function OrdensCorteClient({ initialOrdens }: { initialOrdens: Or
             destaque
           />
         </div>
+
+        {period !== "safra" && totalGeral.entradaPeriodoT === 0 && totalGeral.total > 0 && (
+          <p className="-mt-2 mb-4 text-[12px] text-muted">
+            Nenhum apontamento registrado para {periodoTexto(period, referencia, safraLabel).toLowerCase()}. Os
+            filtros só mostram as datas em que houve um lançamento — use{" "}
+            <button type="button" onClick={() => setImportarAberto(true)} className="font-semibold text-brand-700">
+              Importar planilha
+            </button>{" "}
+            ou lance um apontamento manual nessa data.
+          </p>
+        )}
 
         {/* Resumo por frente (como a tabela Frente x Total do relatório) */}
         {resumoFrentes.length > 0 && (
@@ -395,6 +423,10 @@ export default function OrdensCorteClient({ initialOrdens }: { initialOrdens: Or
           onFechar={() => setLancamentoAlvo(null)}
           onSalvar={(payload) => lancarApontamento(lancamentoAlvo.id, payload)}
         />
+      )}
+
+      {importarAberto && (
+        <ImportarModal onFechar={() => setImportarAberto(false)} onImportado={refetch} />
       )}
     </div>
   );
@@ -825,6 +857,146 @@ function LancamentoModal({
     </ModalShell>
   );
 }
+
+interface ResultadoImportacaoUI {
+  ordensCriadas: number;
+  ordensAtualizadas: number;
+  talhoesCriados: number;
+  lancamentosCriados: number;
+  lancamentosAtualizados: number;
+  linhasLidas: number;
+  totalLinhasPlanilha: number;
+  avisos: string[];
+  erros: string[];
+}
+
+function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImportado: () => void }) {
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [resultado, setResultado] = useState<ResultadoImportacaoUI | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function enviar() {
+    if (!arquivo) return;
+    setEnviando(true);
+    setErro(null);
+    setResultado(null);
+    try {
+      const form = new FormData();
+      form.append("arquivo", arquivo);
+      const res = await fetch("/api/ordens-corte/importar", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        setErro(data?.error ?? "Não foi possível importar o arquivo.");
+        if (data?.erros || data?.avisos) setResultado({ ...emptyResultado, ...data });
+        return;
+      }
+      setResultado(data);
+      onImportado();
+    } catch {
+      setErro("Não foi possível enviar o arquivo. Verifique a conexão e tente novamente.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <ModalShell titulo="Importar planilha de ordens de corte" onFechar={onFechar}>
+      <p className="mb-3 text-[12.5px] text-muted">
+        Envie a planilha de origem (.xlsx, .xls ou .csv). O sistema reconhece colunas como Ordem, Talhão, Área,
+        Data e Toneladas mesmo com nomes um pouco diferentes do modelo — o que não for entendido aparece listado
+        abaixo, sem travar o restante da importação. A planilha é tratada como referência: valores já cadastrados
+        no sistema não são apagados, só completados.
+      </p>
+
+      <a
+        href="/templates/modelo-importacao-ordens-corte.xlsx"
+        download
+        className="mb-4 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-brand-700 hover:underline"
+      >
+        ↓ Baixar modelo de planilha
+      </a>
+
+      <Campo label="Arquivo (.xlsx, .xls ou .csv)">
+        <input
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
+          className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
+        />
+      </Campo>
+
+      {erro && (
+        <div className="mt-3 rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">
+          {erro}
+        </div>
+      )}
+
+      {resultado && !erro && (
+        <div className="mt-3 rounded-lg border border-good-500/30 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">
+          <p className="font-semibold">
+            {resultado.ordensCriadas} ordem(ns) nova(s), {resultado.ordensAtualizadas} atualizada(s) ·{" "}
+            {resultado.lancamentosCriados} apontamento(s) novo(s), {resultado.lancamentosAtualizados} atualizado(s).
+          </p>
+          <p className="mt-1 text-good-600">
+            {resultado.linhasLidas} de {resultado.totalLinhasPlanilha} linhas da planilha foram usadas nesta
+            importação.
+          </p>
+        </div>
+      )}
+
+      {resultado && resultado.avisos.length > 0 && (
+        <div className="mt-3 max-h-[140px] overflow-y-auto rounded-lg border border-line bg-surface p-2.5 text-[12px] text-muted">
+          <p className="mb-1 font-semibold text-ink">
+            Avisos ({resultado.avisos.length}) — mantido o que já estava cadastrado no sistema:
+          </p>
+          <ul className="list-disc space-y-0.5 pl-4">
+            {resultado.avisos.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {resultado && resultado.erros.length > 0 && (
+        <div className="mt-3 max-h-[140px] overflow-y-auto rounded-lg border border-alert-500/20 bg-alert-50/60 p-2.5 text-[12px] text-alert-600">
+          <p className="mb-1 font-semibold">Linhas ignoradas ({resultado.erros.length}):</p>
+          <ul className="list-disc space-y-0.5 pl-4">
+            {resultado.erros.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button type="button" onClick={onFechar} className="rounded-lg border border-line px-4 py-2 text-[13px] font-semibold text-ink">
+          {resultado && !erro ? "Fechar" : "Cancelar"}
+        </button>
+        <button
+          type="button"
+          disabled={!arquivo || enviando}
+          onClick={enviar}
+          className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
+        >
+          {enviando ? "Importando…" : "Importar"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+const emptyResultado: ResultadoImportacaoUI = {
+  ordensCriadas: 0,
+  ordensAtualizadas: 0,
+  talhoesCriados: 0,
+  lancamentosCriados: 0,
+  lancamentosAtualizados: 0,
+  linhasLidas: 0,
+  totalLinhasPlanilha: 0,
+  avisos: [],
+  erros: [],
+};
 
 function Campo({ label, children }: { label: string; children: ReactNode }) {
   return (

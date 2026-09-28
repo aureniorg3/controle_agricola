@@ -101,7 +101,63 @@ desenvolvimento.
   total da ordem (distribuído proporcionalmente pela área dos talhões) ou
   detalhar talhão a talhão. Atualiza a tela na hora e passa a contar nos
   filtros de dia/semana/mês.
+- **Importar planilha**: lê um .xlsx/.xls/.csv (o mesmo tipo de relatório que
+  já foi usado para a carga inicial) e cria/atualiza ordens, talhões e
+  apontamentos diários a partir dele — ver seção própria abaixo.
 - Encerrar/reabrir ordem.
+
+## Importar planilha (Ordens de Corte)
+
+Na tela de Ordens de Corte, o botão **Importar planilha** abre um envio de
+arquivo .xlsx/.xls/.csv. É a forma de trazer, para dentro do sistema, dados
+que hoje só existem numa planilha de origem — sem precisar digitar ordem por
+ordem, dia por dia.
+
+Como funciona:
+
+- **Reconhecimento tolerante de colunas.** O cabeçalho é procurado nas
+  primeiras 15 linhas do arquivo (não precisa estar na linha 1), e nomes de
+  coluna são reconhecidos por uma lista de apelidos (ex.: "Ordem", "Nº Ordem",
+  "OS" e "Ordem de Corte" são todos aceitos como a coluna de ordem). Um botão
+  "Baixar modelo de planilha" no próprio modal mostra o formato recomendado
+  (`public/templates/modelo-importacao-ordens-corte.xlsx`), mas o arquivo real
+  não precisa seguir esse modelo à risca.
+- **Colunas obrigatórias**: Ordem, Talhão, Data e Toneladas do dia. As demais
+  (Frente, Região, Código/Nome da fazenda, Área, Acumulado da safra, TCH,
+  Safra) são opcionais e, quando ausentes numa linha, herdam o valor da linha
+  anterior do mesmo grupo (comum em relatórios onde a ordem só é repetida na
+  primeira linha de cada bloco de talhões).
+- **A planilha nunca apaga o que já está cadastrado.** Se uma ordem já existe
+  no sistema, campos como frente, fazenda ou área de um talhão só são
+  **completados** quando estão vazios — nunca sobrescritos. Se o valor da
+  planilha for diferente do já cadastrado, o sistema mantém o que já estava
+  no sistema e mostra um aviso, em vez de decidir sozinho qual dos dois está
+  certo.
+- **Reimportar é seguro (idempotente).** Cada apontamento importado recebe um
+  identificador fixo por ordem+data; reimportar o mesmo arquivo, ou uma
+  versão atualizada dele, atualiza os apontamentos existentes em vez de
+  duplicá-los. O acumulado por talhão (`acumSafraT`) usa a coluna "Acum" da
+  planilha como valor oficial quando ela existe; quando não existe, é
+  incrementado apenas pela produção realmente nova (nunca soma a mesma linha
+  duas vezes).
+- **Nada é escondido.** Ao final da importação, o modal mostra quantas ordens
+  e apontamentos foram criados/atualizados, além da lista de avisos (dados
+  mantidos como já estavam) e de linhas ignoradas (com o número da linha e o
+  motivo) — a planilha é tratada como uma base de apoio para preencher o
+  sistema, não como a verdade final sobre como os dados devem aparecer na
+  tela.
+
+## Por que um filtro de data pode aparecer zerado
+
+Os filtros de **Dia / Semana / Mês** só somam os apontamentos que existem de
+fato para aquele intervalo — não existe nenhum cálculo escondido nem entrada
+"estimada". Se a base de dados só tem um apontamento por ordem (é o caso da
+carga inicial, ver seção seguinte), qualquer outra data mostra zero
+corretamente, porque não há registro nenhum para ela. A tela também mostra um
+aviso nesse caso, com um atalho para **Importar planilha** ou lançar um
+apontamento manual naquela data. Assim que existirem apontamentos em mais de
+uma data (por importação ou lançamento manual), os filtros passam a mostrar
+os valores de cada uma normalmente.
 
 ## Estrutura
 
@@ -124,6 +180,7 @@ app/
   api/
     ordens-corte/
       route.ts                   GET (listar) / POST (nova ordem)
+      importar/route.ts          POST (importação de planilha)
       [id]/route.ts              GET / PATCH (status, áreas, TCH) / DELETE
       [id]/lancamentos/route.ts  POST (novo apontamento diário)
     auth/
@@ -135,11 +192,14 @@ components/
   PlaceholderPage.tsx            tela-padrão dos módulos ainda não construídos
 lib/
   types.ts                       modelo de dados
-  db.ts                          persistência em data/db.json
+  db.ts                          persistência em data/db.json + importarLinhas()
+  import-ordens.ts               leitura/interpretação tolerante da planilha
   auth.ts                        hash de senha e cookie de sessão (sem libs externas)
   period.ts                      cálculo de dia/semana/mês/safra
   seed-data.ts                   carga inicial (ver abaixo)
   format.ts                      formatação de número/data em pt-BR
+public/templates/
+  modelo-importacao-ordens-corte.xlsx  modelo oferecido no botão "Importar planilha"
 ```
 
 ## Sobre os dados de carga inicial (seed)
@@ -153,6 +213,14 @@ inconsistências internas entre o corpo do relatório e o resumo por frente
 (comum nesse tipo de relatório de impressão paginada); onde havia divergência,
 foi priorizado o resumo consolidado por Frente/Ordem/Fazenda. Vale revisar as
 15 ordens carregadas na primeira tela e corrigir o que precisar direto por lá.
+
+Importante: essa carga tem **um único apontamento por ordem**, todos na mesma
+data (27/09/2026) — é a foto do relatório recebido, não um histórico diário
+real. Por isso, filtrar por qualquer outra data nos mostra zero (ver seção
+"Por que um filtro de data pode aparecer zerado" acima); isso é o esperado, e
+não indica erro no cálculo. Histórico de datas de verdade só existe a partir
+de novos lançamentos manuais ou de uma planilha importada com mais de uma
+data por ordem/talhão.
 
 ## Cores
 
