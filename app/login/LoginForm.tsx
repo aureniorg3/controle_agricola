@@ -40,18 +40,9 @@ export default function LoginForm() {
     <div className="flex min-h-screen items-center justify-center bg-navy-950 px-4">
       <div className="w-full max-w-[380px]">
         <div className="mb-6 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-white shadow-card">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M12 21V6" stroke="#1d54b8" strokeWidth="2" strokeLinecap="round" />
-              <path d="M12 10c-4-1-6.5-3.2-7.5-6.5C8.5 3.8 11.3 6 12 10z" fill="#1d54b8" />
-              <path d="M12 15c4-1 6.5-3.2 7.5-6.5C15.5 8.8 12.7 11 12 15z" fill="#2a6bd6" />
-            </svg>
-          </div>
-          <div className="text-center">
-            <div className="text-[15px] font-bold tracking-wide text-white">CRV INDUSTRIAL</div>
-            <div className="text-[12px] text-brand-300">
-              Controle Agrícola · Unidade Capinópolis-MG
-            </div>
+          <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-12 w-auto" />
+          <div className="text-center text-[12px] text-brand-300">
+            Controle Agrícola · Unidade Capinópolis-MG
           </div>
         </div>
 

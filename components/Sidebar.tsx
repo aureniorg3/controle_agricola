@@ -86,31 +86,8 @@ export default function Sidebar({ usuario }: { usuario?: UsuarioLogado }) {
       }`}
     >
       <div className="flex items-center gap-2 px-3 py-4">
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-white">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M12 21V6"
-              stroke="#1d54b8"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-            <path
-              d="M12 10c-4-1-6.5-3.2-7.5-6.5C8.5 3.8 11.3 6 12 10z"
-              fill="#1d54b8"
-            />
-            <path
-              d="M12 15c4-1 6.5-3.2 7.5-6.5C15.5 8.8 12.7 11 12 15z"
-              fill="#2a6bd6"
-            />
-          </svg>
-        </div>
         {!collapsed && (
-          <div className="min-w-0 leading-tight">
-            <div className="truncate text-[13px] font-bold tracking-wide text-white">
-              CRV INDUSTRIAL
-            </div>
-            <div className="truncate text-[10.5px] text-brand-300">Açúcar · Etanol · Energia</div>
-          </div>
+          <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-10 w-auto flex-shrink-0" />
         )}
         <button
           type="button"
