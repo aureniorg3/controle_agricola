@@ -8,7 +8,8 @@ interface NovoLancamentoBody {
   porTalhao?: { talhao: string; toneladas: number }[];
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const body = (await req.json()) as NovoLancamentoBody;
 
   if (!body.data || !/^\d{4}-\d{2}-\d{2}$/.test(body.data)) {
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: "Informe uma tonelagem maior que zero." }, { status: 400 });
   }
 
-  const updated = updateOrdem(params.id, (o) => {
+  const updated = updateOrdem(id, (o) => {
     const lancamento: Lancamento = {
       id: `lanc-${o.id}-${Date.now()}`,
       data: body.data,

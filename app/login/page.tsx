@@ -6,8 +6,8 @@ import LoginForm from "./LoginForm";
 
 export const dynamic = "force-dynamic";
 
-export default function LoginPage() {
-  const token = cookies().get(SESSION_COOKIE_NAME)?.value;
+export default async function LoginPage() {
+  const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   const uid = verificarTokenSessao(token);
   const usuario = uid ? getUsuarioPorId(uid) : undefined;
 

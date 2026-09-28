@@ -4,8 +4,8 @@ import Sidebar from "@/components/Sidebar";
 import { SESSION_COOKIE_NAME, verificarTokenSessao } from "@/lib/auth";
 import { getUsuarioPorId } from "@/lib/db";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const token = cookies().get(SESSION_COOKIE_NAME)?.value;
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   const uid = verificarTokenSessao(token);
   const usuario = uid ? getUsuarioPorId(uid) : undefined;
 
