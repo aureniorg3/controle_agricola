@@ -1,9 +1,10 @@
-import { listOrdens } from "@/lib/db";
+import { listOrdens, usuarioAtual } from "@/lib/db";
 import OrdensCorteClient from "./OrdensCorteClient";
 
 export const dynamic = "force-dynamic";
 
-export default function OrdensDeCortePage() {
+export default async function OrdensDeCortePage() {
   const ordens = listOrdens();
-  return <OrdensCorteClient initialOrdens={ordens} />;
+  const usuario = await usuarioAtual();
+  return <OrdensCorteClient initialOrdens={ordens} perfil={usuario?.perfil ?? "leitura"} />;
 }

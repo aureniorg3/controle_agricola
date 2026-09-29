@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { importarLinhas } from "@/lib/db";
+import { importarLinhas, usuarioDaRequisicao } from "@/lib/db";
 import { parseWorkbook } from "@/lib/import-ordens";
+import { podeEditar } from "@/lib/permissoes";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const usuario = usuarioDaRequisicao(req);
+  if (!usuario || !podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para importar planilha." }, { status: 403 });
+  }
+
   let form: FormData;
   try {
     form = await req.formData();

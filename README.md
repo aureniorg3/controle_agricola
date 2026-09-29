@@ -80,16 +80,40 @@ sobe (ou na primeira vez que rodar depois desta atualização, mesmo com um
 - **E-mail:** `aureniorg3@gmail.com`
 - **Senha inicial:** `crv@2026`
 
-Troque essa senha assim que possível — ainda não existe tela de troca de
-senha; por ora, para gerar uma nova senha do admin, apague o usuário de
-`data/db.json` e reinicie o servidor (ele recria com a senha padrão), ou peça
-para eu adicionar uma tela de gerenciamento de usuários.
+Troque essa senha assim que possível — em **Configurações → Cadastros** (só
+administradores veem essa tela), editando o próprio usuário.
 
 Sessão fica em um cookie assinado (HMAC-SHA256, `httpOnly`), válido por 7
 dias, sem depender de nenhum pacote novo (usa só o módulo `crypto` do Node).
 Em produção, defina a variável de ambiente `AUTH_SECRET` (Render → Environment)
 com um valor aleatório — sem isso o sistema usa um segredo padrão de
 desenvolvimento.
+
+### Usuários e níveis de acesso
+
+**Configurações → Cadastros** (visível a todos no menu, mas o conteúdo só
+aparece para administradores — os demais veem um aviso) lista, cria, edita,
+desativa e exclui usuários. Três níveis, cada um contendo o anterior:
+
+| Nível | Pode |
+|---|---|
+| **Leitura** | Ver todas as telas e dados. Nada mais — os botões de criar/editar/lançar/importar ficam escondidos, e a API recusa (`403`) qualquer tentativa de gravação mesmo que alguém chame direto. |
+| **Gravação** | Tudo de Leitura, mais criar ordens, lançar apontamentos, encerrar/reabrir e importar planilha. |
+| **Administrador** | Tudo de Gravação, mais gerenciar usuários (criar, editar nível/senha, desativar, excluir). |
+
+A permissão é checada **nos dois lados**: a tela esconde/desativa o que o
+nível não permite (`lib/permissoes.ts`, `podeEditar`/`ehAdmin`), e cada rota
+de API que grava dado confere de novo antes de gravar (`usuarioDaRequisicao`
+em `lib/db.ts`) — esconder o botão na tela nunca é, sozinho, controle de
+acesso de verdade.
+
+Travas de segurança em `updateUsuario`/`deleteUsuario` (`lib/db.ts`): ninguém
+desativa, rebaixa ou exclui o próprio usuário logado, e o último administrador
+ativo não pode ser desativado, rebaixado nem excluído — promova outro usuário
+a admin antes.
+
+Usuário desativado (`ativo: false`) mantém o cadastro e o histórico, só não
+consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
 
 ## O que já funciona no Acompanhamento de Ordens de Corte
 
@@ -223,14 +247,20 @@ app/
     acompanhamentos/ordens-de-corte/
       page.tsx                   carrega os dados no servidor
       OrdensCorteClient.tsx      tela inteira (filtros, cards, modais)
-    painel/, contencioso/, agricultura/, planejamento/, configuracoes/
+    configuracoes/cadastros/
+      page.tsx                   busca o usuário logado; só admin vê a tela
+      UsuariosClient.tsx         tabela de usuários + modais novo/editar
+    painel/, contencioso/, agricultura/, planejamento/
                                   demais itens do menu (em construção)
   api/
     ordens-corte/
-      route.ts                   GET (listar) / POST (nova ordem)
-      importar/route.ts          POST (importação de planilha)
-      [id]/route.ts              GET / PATCH (status, áreas, TCH) / DELETE
-      [id]/lancamentos/route.ts  POST (novo apontamento diário)
+      route.ts                   GET (listar) / POST (nova ordem, exige gravação+)
+      importar/route.ts          POST (importação de planilha, exige gravação+)
+      [id]/route.ts              GET / PATCH / DELETE (exige gravação+)
+      [id]/lancamentos/route.ts  POST (novo apontamento, exige gravação+)
+    usuarios/
+      route.ts                   GET (listar) / POST (criar) — só admin
+      [id]/route.ts              PATCH (editar) / DELETE (excluir) — só admin
     auth/
       login/route.ts             POST — confere e-mail/senha, grava cookie
       logout/route.ts            POST — limpa o cookie
@@ -238,9 +268,12 @@ app/
 components/
   Sidebar.tsx                    menu lateral (cores CRV Industrial) + usuário/sair
   PlaceholderPage.tsx            tela-padrão dos módulos ainda não construídos
+  ui.tsx                         ModalShell e Campo, compartilhados entre telas
 lib/
-  types.ts                       modelo de dados
-  db.ts                          persistência em data/db.json + importarLinhas()
+  types.ts                       modelo de dados (inclui PerfilUsuario, UsuarioPublico)
+  db.ts                          persistência em data/db.json + importarLinhas() +
+                                  CRUD de usuários + usuarioAtual()/usuarioDaRequisicao()
+  permissoes.ts                  podeEditar()/ehAdmin() — checados na tela E na API
   import-ordens.ts               leitura/interpretação tolerante da planilha
   auth.ts                        hash de senha e cookie de sessão (sem libs externas)
   period.ts                      cálculo de dia/semana/mês/safra
@@ -280,9 +313,8 @@ cartões brancos, indicador verde "Salvo no servidor", destaques em azul).
 
 1. Acompanhamento de Colheita (própria) e Colheita Terceiro.
 2. Acompanhamento de Insumos.
-3. Cadastros (fazendas/talhões, equipamentos, funcionários, fornecedores).
-4. Tela de gerenciamento de usuários (criar/editar/desativar, trocar senha) —
-   hoje o único jeito de mexer nos usuários é editando `data/db.json`.
+3. Cadastro de fazendas/talhões, equipamentos, funcionários, fornecedores
+   (a parte de usuários já está pronta, ver "Usuários e níveis de acesso").
 
 ## Colocando no ar (o "link do programa")
 

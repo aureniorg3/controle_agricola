@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateOrdem } from "@/lib/db";
+import { updateOrdem, usuarioDaRequisicao } from "@/lib/db";
+import { podeEditar } from "@/lib/permissoes";
 import { Lancamento } from "@/lib/types";
 
 interface NovoLancamentoBody {
@@ -9,6 +10,11 @@ interface NovoLancamentoBody {
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const usuario = usuarioDaRequisicao(req);
+  if (!usuario || !podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para lançar apontamentos." }, { status: 403 });
+  }
+
   const { id } = await params;
   const body = (await req.json()) as NovoLancamentoBody;
 

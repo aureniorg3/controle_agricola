@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { OrdemCorte, Periodo, StatusOrdem } from "@/lib/types";
+import { useMemo, useState } from "react";
+import { OrdemCorte, PerfilUsuario, Periodo, StatusOrdem } from "@/lib/types";
 import {
   calcOrdemMetrics,
   calcTalhaoEntradaPeriodo,
@@ -13,6 +13,8 @@ import {
   startOfWeekMonday,
 } from "@/lib/period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, todayISO } from "@/lib/format";
+import { Campo, ModalShell } from "@/components/ui";
+import { podeEditar } from "@/lib/permissoes";
 
 const PERIODOS: { key: Periodo; label: string }[] = [
   { key: "dia", label: "Dia" },
@@ -38,7 +40,14 @@ function periodoTexto(period: Periodo, referencia: string, safraLabel: string): 
   return `Safra ${safraLabel} · acumulado`;
 }
 
-export default function OrdensCorteClient({ initialOrdens }: { initialOrdens: OrdemCorte[] }) {
+export default function OrdensCorteClient({
+  initialOrdens,
+  perfil,
+}: {
+  initialOrdens: OrdemCorte[];
+  perfil: PerfilUsuario;
+}) {
+  const podeGravar = podeEditar(perfil);
   const [ordens, setOrdens] = useState<OrdemCorte[]>(initialOrdens);
   const [period, setPeriod] = useState<Periodo>("dia");
   const [referencia, setReferencia] = useState<string>(() => ultimaDataComMovimento(initialOrdens));
@@ -195,32 +204,41 @@ export default function OrdensCorteClient({ initialOrdens }: { initialOrdens: Or
           <span className="h-1.5 w-1.5 rounded-full bg-good-500" />
           {salvando ? "Salvando…" : "Salvo no servidor"}
         </div>
-        <button
-          type="button"
-          onClick={() => setImportarAberto(true)}
-          className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-ink shadow-card hover:bg-surface"
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 15V4M12 4l-4 4M12 4l4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Importar planilha
-        </button>
-        <button
-          type="button"
-          onClick={() => setNovaOrdemAberta(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-          </svg>
-          Nova Ordem de Corte
-        </button>
+        {!podeGravar && (
+          <div className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
+            Somente leitura
+          </div>
+        )}
+        {podeGravar && (
+          <>
+            <button
+              type="button"
+              onClick={() => setImportarAberto(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-ink shadow-card hover:bg-surface"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 15V4M12 4l-4 4M12 4l4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Importar planilha
+            </button>
+            <button
+              type="button"
+              onClick={() => setNovaOrdemAberta(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+              </svg>
+              Nova Ordem de Corte
+            </button>
+          </>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -392,6 +410,7 @@ export default function OrdensCorteClient({ initialOrdens }: { initialOrdens: Or
                       ordem={ordem}
                       period={period}
                       referencia={referencia}
+                      podeGravar={podeGravar}
                       onLancar={() => setLancamentoAlvo(ordem)}
                       onAlternarStatus={() => alternarStatus(ordem)}
                     />
@@ -477,12 +496,14 @@ function OrdemCard({
   ordem,
   period,
   referencia,
+  podeGravar,
   onLancar,
   onAlternarStatus,
 }: {
   ordem: OrdemCorte;
   period: Periodo;
   referencia: string;
+  podeGravar: boolean;
   onLancar: () => void;
   onAlternarStatus: () => void;
 }) {
@@ -567,6 +588,7 @@ function OrdemCard({
         </span>
       </div>
 
+      {podeGravar && (
       <div className="flex gap-2 border-t border-line px-4 py-2.5">
         <button
           type="button"
@@ -583,6 +605,7 @@ function OrdemCard({
           {ordem.status === "Aberta" ? "Encerrar" : "Reabrir"}
         </button>
       </div>
+      )}
     </div>
   );
 }
@@ -1001,40 +1024,3 @@ const emptyResultado: ResultadoImportacaoUI = {
   erros: [],
 };
 
-function Campo({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[12px] font-semibold text-muted">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function ModalShell({
-  titulo,
-  onFechar,
-  children,
-}: {
-  titulo: string;
-  onFechar: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl2 bg-card p-5 shadow-pop">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[16px] font-bold text-ink">{titulo}</h2>
-          <button
-            type="button"
-            onClick={onFechar}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface"
-            aria-label="Fechar"
-          >
-            ×
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}

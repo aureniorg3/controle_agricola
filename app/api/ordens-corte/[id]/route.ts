@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteOrdem, getOrdem, updateOrdem } from "@/lib/db";
+import { deleteOrdem, getOrdem, updateOrdem, usuarioDaRequisicao } from "@/lib/db";
+import { podeEditar } from "@/lib/permissoes";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -18,6 +19,11 @@ interface PatchBody {
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const usuario = usuarioDaRequisicao(req);
+  if (!usuario || !podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para editar ordens." }, { status: 403 });
+  }
+
   const { id } = await params;
   const body = (await req.json()) as PatchBody;
   const nowDate = new Date().toISOString().slice(0, 10);
@@ -40,7 +46,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   return NextResponse.json({ ordem: updated });
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const usuario = usuarioDaRequisicao(req);
+  if (!usuario || !podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para excluir ordens." }, { status: 403 });
+  }
+
   const { id } = await params;
   const ok = deleteOrdem(id);
   if (!ok) return NextResponse.json({ error: "Ordem não encontrada." }, { status: 404 });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { insertOrdem, listOrdens } from "@/lib/db";
+import { insertOrdem, listOrdens, usuarioDaRequisicao } from "@/lib/db";
+import { podeEditar } from "@/lib/permissoes";
 import { OrdemCorte, Talhao } from "@/lib/types";
 
 export async function GET() {
@@ -20,6 +21,11 @@ interface NovaOrdemBody {
 }
 
 export async function POST(req: NextRequest) {
+  const usuario = usuarioDaRequisicao(req);
+  if (!usuario || !podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para criar ordens." }, { status: 403 });
+  }
+
   const body = (await req.json()) as NovaOrdemBody;
 
   if (!body.numero?.trim() || !body.fazendaNome?.trim() || !body.frente?.trim()) {

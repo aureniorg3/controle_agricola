@@ -40,7 +40,13 @@ export interface OrdemCorte {
   atualizadoEm: string;
 }
 
-export type PerfilUsuario = "admin" | "operacional";
+/**
+ * Três níveis, cada um contendo o anterior:
+ *  - leitura: vê todo o sistema, não cria nem edita nada;
+ *  - gravacao: leitura + cria ordens, lança apontamentos, importa planilha;
+ *  - admin: gravacao + gerencia usuários (Configurações → Cadastros).
+ */
+export type PerfilUsuario = "leitura" | "gravacao" | "admin";
 
 export interface Usuario {
   id: string;
@@ -49,8 +55,13 @@ export interface Usuario {
   /** formato "salt:hash" (scrypt) — nunca a senha em texto puro */
   senhaHash: string;
   perfil: PerfilUsuario;
+  /** desativado não consegue mais logar, mas o cadastro/histórico é mantido */
+  ativo: boolean;
   criadoEm: string;
 }
+
+/** Usuario sem o hash de senha — o que trafega entre API e tela. */
+export type UsuarioPublico = Omit<Usuario, "senhaHash">;
 
 export interface Database {
   ordens: OrdemCorte[];

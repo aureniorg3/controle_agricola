@@ -1,8 +1,10 @@
 import fs from "fs";
 import path from "path";
+import { cookies } from "next/headers";
+import type { NextRequest } from "next/server";
 import { Database, Lancamento, OrdemCorte, Talhao, Usuario } from "./types";
 import { buildSeedOrdens } from "./seed-data";
-import { hashSenha } from "./auth";
+import { hashSenha, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
 import { LinhaImportada } from "./import-ordens";
 
 // Em produção (Render/qualquer Node host) isso grava no disco do serviço.
@@ -32,6 +34,7 @@ function buildAdminPadrao(): Usuario {
     email: "aureniorg3@gmail.com",
     senhaHash: hashSenha("crv@2026"),
     perfil: "admin",
+    ativo: true,
     criadoEm: new Date().toISOString(),
   };
 }
@@ -65,6 +68,23 @@ function ensureDb(): Database {
   // Migração leve: bancos gravados antes da tela de login não têm `usuarios`.
   if (!db.usuarios || db.usuarios.length === 0) {
     db.usuarios = [buildAdminPadrao()];
+    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+    return db;
+  }
+  // Migração leve: bancos gravados antes dos níveis leitura/gravação/admin
+  // tinham só "admin" | "operacional", e nenhum usuário tinha `ativo`.
+  let migrou = false;
+  for (const u of db.usuarios) {
+    if ((u.perfil as string) === "operacional") {
+      u.perfil = "gravacao";
+      migrou = true;
+    }
+    if (u.ativo === undefined) {
+      u.ativo = true;
+      migrou = true;
+    }
+  }
+  if (migrou) {
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
   }
   return db;
@@ -127,6 +147,104 @@ export function getUsuarioPorId(id: string): Usuario | undefined {
 export function getUsuarioPorEmail(email: string): Usuario | undefined {
   const alvo = email.trim().toLowerCase();
   return listUsuarios().find((u) => u.email.toLowerCase() === alvo);
+}
+
+/** Usuário da sessão atual, para Server Components (usa `cookies()` de `next/headers`). */
+export async function usuarioAtual(): Promise<Usuario | undefined> {
+  const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+  const uid = verificarTokenSessao(token);
+  return uid ? getUsuarioPorId(uid) : undefined;
+}
+
+/** Mesma coisa, para Route Handlers — lê o cookie direto do `NextRequest`. */
+export function usuarioDaRequisicao(req: NextRequest): Usuario | undefined {
+  const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
+  const uid = verificarTokenSessao(token);
+  return uid ? getUsuarioPorId(uid) : undefined;
+}
+
+function contarAdminsAtivos(db: Database, ignorarId?: string): number {
+  return db.usuarios.filter((u) => u.perfil === "admin" && u.ativo && u.id !== ignorarId).length;
+}
+
+export interface NovoUsuarioInput {
+  nome: string;
+  email: string;
+  senha: string;
+  perfil: Usuario["perfil"];
+}
+
+export function insertUsuario(input: NovoUsuarioInput): Usuario | { erro: string } {
+  const db = getDb();
+  if (getUsuarioPorEmail(input.email)) {
+    return { erro: "Já existe um usuário com esse e-mail." };
+  }
+  const usuario: Usuario = {
+    id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    nome: input.nome.trim(),
+    email: input.email.trim().toLowerCase(),
+    senhaHash: hashSenha(input.senha),
+    perfil: input.perfil,
+    ativo: true,
+    criadoEm: new Date().toISOString(),
+  };
+  db.usuarios.push(usuario);
+  saveDb(db);
+  return usuario;
+}
+
+export interface EditarUsuarioInput {
+  nome?: string;
+  perfil?: Usuario["perfil"];
+  ativo?: boolean;
+  senha?: string; // se informado, troca a senha
+}
+
+/**
+ * Retorna o usuário atualizado, ou `{ erro }` quando a mudança violaria uma
+ * das travas de segurança: ninguém desativa/rebaixa/exclui a si mesmo, e o
+ * último administrador ativo não pode ser desativado, rebaixado nem excluído
+ * — senão o sistema fica sem ninguém para gerenciar usuários.
+ */
+export function updateUsuario(
+  id: string,
+  input: EditarUsuarioInput,
+  solicitanteId: string
+): Usuario | { erro: string } {
+  const db = getDb();
+  const usuario = db.usuarios.find((u) => u.id === id);
+  if (!usuario) return { erro: "Usuário não encontrado." };
+
+  const vaiDesativar = input.ativo === false && usuario.ativo;
+  const vaiRebaixar = input.perfil !== undefined && input.perfil !== "admin" && usuario.perfil === "admin";
+
+  if (id === solicitanteId && (vaiDesativar || vaiRebaixar)) {
+    return { erro: "Você não pode desativar nem rebaixar o próprio usuário." };
+  }
+  if ((vaiDesativar || vaiRebaixar) && usuario.perfil === "admin" && contarAdminsAtivos(db, id) === 0) {
+    return { erro: "Este é o último administrador ativo — promova outro usuário antes de mudar isso." };
+  }
+
+  if (input.nome !== undefined) usuario.nome = input.nome.trim();
+  if (input.perfil !== undefined) usuario.perfil = input.perfil;
+  if (input.ativo !== undefined) usuario.ativo = input.ativo;
+  if (input.senha) usuario.senhaHash = hashSenha(input.senha);
+
+  saveDb(db);
+  return usuario;
+}
+
+export function deleteUsuario(id: string, solicitanteId: string): true | { erro: string } {
+  const db = getDb();
+  const usuario = db.usuarios.find((u) => u.id === id);
+  if (!usuario) return { erro: "Usuário não encontrado." };
+  if (id === solicitanteId) return { erro: "Você não pode excluir o próprio usuário." };
+  if (usuario.perfil === "admin" && usuario.ativo && contarAdminsAtivos(db, id) === 0) {
+    return { erro: "Este é o último administrador ativo — promova outro usuário antes de excluir." };
+  }
+  db.usuarios = db.usuarios.filter((u) => u.id !== id);
+  saveDb(db);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
