@@ -7,6 +7,8 @@ import {
   calcAreaColhidaHa,
   calcAreaTotalHa,
   calcOrdemMetrics,
+  calcTalhaoDiaAnterior,
+  calcTalhaoDiaAtualAte6h,
   calcTalhaoEntradaPeriodo,
   endOfMonth,
   endOfWeekMonday,
@@ -17,7 +19,7 @@ import {
   startOfWeekMonday,
 } from "@/lib/period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, todayISO } from "@/lib/format";
-import { gerarRelatorioResumoPdf } from "@/lib/relatorio-pdf";
+import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
 import { Campo, ModalShell } from "@/components/ui";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -210,12 +212,15 @@ export default function OrdensCorteClient({
   async function imprimirRelatorio() {
     setGerandoPdf(true);
     try {
-      await gerarRelatorioResumoPdf({
+      await gerarRelatorioCompletoPdf({
         titulo: "Resumo por Frente — Ordens de Corte",
         safraLabel,
         referencia,
+        period,
+        periodLabel: PERIODOS.find((p) => p.key === period)?.label ?? "Dia",
         resumoFrentes,
         resumoTotais,
+        porFrente,
         nomeUsuario,
       });
     } finally {
@@ -706,14 +711,15 @@ function OrdemCard({
             <tr className="text-left text-muted">
               <th className="py-1 font-semibold">Talhão</th>
               <th className="py-1 text-right font-semibold">Área</th>
-              <th className="py-1 text-right font-semibold">Entrada</th>
+              <th className="py-1 text-right font-semibold">Dia Anterior</th>
+              <th className="py-1 text-right font-semibold">Dia Atual</th>
               <th className="py-1 text-right font-semibold">Acum(t)</th>
             </tr>
           </thead>
           <tbody>
             {ordem.talhoes.length === 0 && (
               <tr>
-                <td colSpan={4} className="py-2 text-center text-muted">
+                <td colSpan={5} className="py-2 text-center text-muted">
                   Sem talhões cadastrados.
                 </td>
               </tr>
@@ -722,7 +728,7 @@ function OrdemCard({
               <Fragment key={g.fazendaCodigo}>
                 {gruposFazenda.length > 1 && (
                   <tr className="border-t border-line/70 bg-surface">
-                    <td colSpan={4} className="py-1 text-[10.5px] font-semibold text-muted">
+                    <td colSpan={5} className="py-1 text-[10.5px] font-semibold text-muted">
                       {g.fazendaCodigo} · {g.fazendaNome}
                     </td>
                   </tr>
@@ -732,7 +738,10 @@ function OrdemCard({
                     <td className="py-1 font-medium text-ink">{t.talhao}</td>
                     <td className="py-1 text-right tabular text-muted">{fmtHa(t.areaHa)}</td>
                     <td className="py-1 text-right tabular text-muted">
-                      {fmtT(calcTalhaoEntradaPeriodo(ordem, t, period, referencia))}
+                      {fmtT(calcTalhaoDiaAnterior(ordem, t, referencia))}
+                    </td>
+                    <td className="py-1 text-right tabular text-muted">
+                      {fmtT(calcTalhaoDiaAtualAte6h(ordem, t, referencia))}
                     </td>
                     <td className="py-1 text-right tabular font-medium text-ink">
                       {fmtT(calcTalhaoEntradaPeriodo(ordem, t, "safra", referencia))}

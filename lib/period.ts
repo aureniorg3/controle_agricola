@@ -92,6 +92,23 @@ export function calcAreaColhidaHa(ordem: OrdemCorte): number {
   return Math.round(ordem.talhoes.reduce((s, t) => s + t.areaColhidaHa, 0) * 100) / 100;
 }
 
+/** Entrada do talhão no dia anterior à referência (dia civil inteiro). */
+export function calcTalhaoDiaAnterior(ordem: OrdemCorte, talhao: TalhaoOrdem, referencia: string): number {
+  const diaAnterior = addDays(referencia, -1);
+  const total = ordem.entradas
+    .filter((e) => e.talhao === talhao.talhao && e.fazendaCodigo === talhao.fazendaCodigo && e.data === diaAnterior)
+    .reduce((s, e) => s + e.toneladas, 0);
+  return Math.round(total * 100) / 100;
+}
+
+/** Entrada do talhão no dia da referência, só a fração pesada até 06:00. */
+export function calcTalhaoDiaAtualAte6h(ordem: OrdemCorte, talhao: TalhaoOrdem, referencia: string): number {
+  const total = ordem.entradas
+    .filter((e) => e.talhao === talhao.talhao && e.fazendaCodigo === talhao.fazendaCodigo && e.data === referencia)
+    .reduce((s, e) => s + e.toneladasAte6h, 0);
+  return Math.round(total * 100) / 100;
+}
+
 export function calcOrdemMetrics(ordem: OrdemCorte, period: Periodo, referencia: string): OrdemMetrics {
   const acumSafraT = calcAcumSafraT(ordem);
   const areaTotalHa = calcAreaTotalHa(ordem);

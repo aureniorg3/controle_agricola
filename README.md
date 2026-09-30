@@ -128,10 +128,12 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
 ## O que já funciona no Acompanhamento de Ordens de Corte
 
 - Cards por ordem de corte (um "quadrado" por ordem, igual ao relatório
-  impresso), agrupados por frente, com o mini-relatório de talhões, área
-  total, acumulado da safra e o TCH geral realizado. Status **Aberta** em
-  verde, **Encerrada** em âmbar; tipo de cana **queimada** em laranja claro,
-  as demais em azul.
+  impresso), agrupados por frente, com o mini-relatório de talhões (Talhão /
+  Área / **Dia Anterior** / **Dia Atual** até 06h / Acum(t) — essas duas
+  últimas colunas usam sempre esse recorte fixo, independente dos botões
+  Dia/Semana/Mês/Safra), área total, acumulado da safra e o TCH geral
+  realizado. Status **Aberta** em verde, **Encerrada** em âmbar; tipo de
+  cana **queimada** em laranja claro, as demais em azul.
 - **Ordens com mais de uma fazenda**: o arquivo "Ordem de Colheita.xlsx" pode
   ter mais de um bloco "Propriedade" dentro da mesma ordem (uma fazenda por
   bloco, cada uma com seus próprios talhões) — e o número do talhão sozinho
@@ -163,8 +165,11 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
   mostradas nos cards abaixo (já com os filtros de frente/status/busca
   aplicados) — nunca nas 314 ordens importadas inteiras; um aviso acima da
   tabela deixa isso explícito.
-- **Imprimir / PDF**: baixa um PDF do resumo por frente (mesmas colunas e
-  valores da tela), com cabeçalho (título + safra + data de referência) e
+- **Imprimir / PDF**: baixa um PDF completo — a tabela de resumo por frente
+  (mesmas colunas e valores da tela) seguida de um bloco por ordem (mesmo
+  conteúdo dos cards: talhões, área/área colhida/acumulado, TCH, tipo de
+  cana), agrupados por frente, paginando automaticamente conforme o
+  conteúdo cresce. Cabeçalho com título + safra + data de referência, e
   rodapé em toda página — empresa/usuário/data-hora à esquerda, nome do
   relatório ao centro, "Página X de Y" à direita. Gerado no navegador
   (`jspdf` + `jspdf-autotable`, ver `lib/relatorio-pdf.ts`), sem precisar de
