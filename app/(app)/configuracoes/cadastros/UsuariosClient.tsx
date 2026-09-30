@@ -254,14 +254,13 @@ function NovoUsuarioModal({ onFechar, onCriado }: { onFechar: () => void; onCria
             E-mail enviado para <b>{resultado.email}</b> com o link do sistema, usuário e senha provisória.
           </div>
         ) : (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2.5 text-[12.5px] text-amber-700">
-            <p className="font-semibold">
-              Não foi possível enviar o e-mail automaticamente{resultado.avisoEmail ? ` (${resultado.avisoEmail})` : ""}.
-            </p>
-            <p className="mt-1">Repasse manualmente pra {resultado.email}:</p>
+          <div className="rounded-lg border border-brand-500/25 bg-brand-50 px-3 py-2.5 text-[12.5px] text-brand-700">
+            <p className="font-semibold">Envio automático de e-mail ainda não configurado.</p>
+            <p className="mt-1">Repasse a senha provisória manualmente pra {resultado.email}:</p>
             <p className="mt-2 rounded-md bg-card px-2.5 py-1.5 font-mono text-[13px] text-ink">
               {resultado.senhaProvisoria}
             </p>
+            {resultado.avisoEmail && <p className="mt-1.5 text-[11px] text-muted">({resultado.avisoEmail})</p>}
           </div>
         )}
         <div className="mt-5 flex justify-end">
