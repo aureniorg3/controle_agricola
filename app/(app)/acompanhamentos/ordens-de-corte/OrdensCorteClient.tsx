@@ -17,6 +17,7 @@ import {
   startOfWeekMonday,
 } from "@/lib/period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, todayISO } from "@/lib/format";
+import { gerarRelatorioResumoPdf } from "@/lib/relatorio-pdf";
 import { Campo, ModalShell } from "@/components/ui";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -48,10 +49,12 @@ export default function OrdensCorteClient({
   initialOrdens,
   initialOrdensVisiveis,
   perfil,
+  nomeUsuario,
 }: {
   initialOrdens: OrdemCorte[];
   initialOrdensVisiveis: string[];
   perfil: PerfilUsuario;
+  nomeUsuario: string;
 }) {
   const podeGravar = podeEditar(perfil);
   const [ordens, setOrdens] = useState<OrdemCorte[]>(initialOrdens);
@@ -68,6 +71,7 @@ export default function OrdensCorteClient({
   const [areaColhidaAlvo, setAreaColhidaAlvo] = useState<OrdemCorte | null>(null);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string>(() => new Date().toISOString());
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set());
+  const [gerandoPdf, setGerandoPdf] = useState(false);
 
   function atualizarOrdemLocal(atualizada: OrdemCorte) {
     setOrdens((prev) => prev.map((o) => (o.numero === atualizada.numero ? atualizada : o)));
@@ -203,6 +207,22 @@ export default function OrdensCorteClient({
     };
   }, [referencia]);
 
+  async function imprimirRelatorio() {
+    setGerandoPdf(true);
+    try {
+      await gerarRelatorioResumoPdf({
+        titulo: "Resumo por Frente — Ordens de Corte",
+        safraLabel,
+        referencia,
+        resumoFrentes,
+        resumoTotais,
+        nomeUsuario,
+      });
+    } finally {
+      setGerandoPdf(false);
+    }
+  }
+
   const totalGeral = useMemo(() => {
     let entradaPeriodoT = 0;
     let areaTotalHa = 0;
@@ -254,6 +274,23 @@ export default function OrdensCorteClient({
             Somente leitura
           </div>
         )}
+        <button
+          type="button"
+          onClick={imprimirRelatorio}
+          disabled={gerandoPdf || resumoFrentes.length === 0}
+          className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M6 9V4h12v5M6 18h12v-6H6v6ZM6 14H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-2"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {gerandoPdf ? "Gerando…" : "Imprimir / PDF"}
+        </button>
         {podeGravar && (
           <button
             type="button"
@@ -401,9 +438,15 @@ export default function OrdensCorteClient({
         )}
 
         {/* Resumo por frente — todos os recortes de período de uma vez, sempre
-            recalculados a partir da data de referência selecionada acima */}
+            recalculados a partir da data de referência selecionada acima, e
+            só das ordens marcadas pra exibição (mesmo grupo dos cards abaixo,
+            com os filtros de frente/status/busca já aplicados) */}
         {resumoFrentes.length > 0 && (
           <div className="mb-5 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
+            <p className="border-b border-line bg-surface px-4 py-1.5 text-[11px] text-muted">
+              Com base nas {totalGeral.total} ordem(ns) selecionada(s) e mostradas abaixo — não nas {ordens.length}{" "}
+              ordens importadas.
+            </p>
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="border-b border-line bg-surface text-left text-muted">

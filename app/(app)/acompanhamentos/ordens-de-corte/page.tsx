@@ -12,6 +12,7 @@ export default async function OrdensDeCortePage() {
       initialOrdens={ordens}
       initialOrdensVisiveis={ordensVisiveis}
       perfil={usuario?.perfil ?? "leitura"}
+      nomeUsuario={usuario?.nome ?? "Usuário"}
     />
   );
 }

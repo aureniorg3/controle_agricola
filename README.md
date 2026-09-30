@@ -159,7 +159,16 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
   06:00 daquele dia (é o número disponível assim que o relatório da
   madrugada sai, antes do resto do dia ser pesado). Essa janela de 6h vem da
   coluna Hora do relatório de Pesagem (`toneladasAte6h` em `EntradaDiaria`,
-  calculada na importação).
+  calculada na importação). É sempre com base nas ordens selecionadas e
+  mostradas nos cards abaixo (já com os filtros de frente/status/busca
+  aplicados) — nunca nas 314 ordens importadas inteiras; um aviso acima da
+  tabela deixa isso explícito.
+- **Imprimir / PDF**: baixa um PDF do resumo por frente (mesmas colunas e
+  valores da tela), com cabeçalho (título + safra + data de referência) e
+  rodapé em toda página — empresa/usuário/data-hora à esquerda, nome do
+  relatório ao centro, "Página X de Y" à direita. Gerado no navegador
+  (`jspdf` + `jspdf-autotable`, ver `lib/relatorio-pdf.ts`), sem precisar de
+  servidor; abra o PDF baixado pra imprimir.
 - **Inserir Ordem**: a importação traz a safra inteira (centenas de ordens),
   mas a tela só mostra as que forem escolhidas manualmente — digite o número
   da ordem no campo "Inserir Ordem" (autocompleta pelas ordens já
