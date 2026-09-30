@@ -235,6 +235,9 @@ export interface EntradaAgregada {
   data: string;
   talhao: string;
   toneladas: number;
+  /** parte de `toneladas` pesada com Hora < 06:00 — usada pela coluna
+   * "Dia Atual" do resumo por frente. */
+  toneladasAte6h: number;
   viagens: number;
 }
 
@@ -301,9 +304,11 @@ export async function agregarPesagem(
 
     const talhao = texto(l[8]);
     const toneladas = numeroBR(l[12]) / 1000;
+    const horaFracao = numeroBR(l[1]); // fração do dia (0 a <1) — 0,25 = 06:00
     const k = `${ordemInfo}|${data}|${talhao}`;
-    const acc = agregados.get(k) ?? { ordem: ordemInfo, data, talhao, toneladas: 0, viagens: 0 };
+    const acc = agregados.get(k) ?? { ordem: ordemInfo, data, talhao, toneladas: 0, toneladasAte6h: 0, viagens: 0 };
     acc.toneladas += toneladas;
+    if (horaFracao < 0.25) acc.toneladasAte6h += toneladas;
     acc.viagens += 1;
     agregados.set(k, acc);
   });
@@ -424,6 +429,7 @@ export function montarOrdens(
       data: acc.data,
       talhao: acc.talhao,
       toneladas: Math.round(acc.toneladas * 100) / 100,
+      toneladasAte6h: Math.round(acc.toneladasAte6h * 100) / 100,
       viagens: acc.viagens,
     });
   }

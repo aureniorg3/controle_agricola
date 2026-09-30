@@ -3,10 +3,13 @@
 import { FormEvent, useMemo, useState } from "react";
 import { OrdemCorte, PerfilUsuario, Periodo, StatusOrdem } from "@/lib/types";
 import {
+  addDays,
   calcOrdemMetrics,
   calcTalhaoEntradaPeriodo,
   endOfMonth,
   endOfWeekMonday,
+  mesAnteriorRange,
+  quinzenaRange,
   resumoPorFrente,
   startOfMonth,
   startOfWeekMonday,
@@ -145,10 +148,52 @@ export default function OrdensCorteClient({
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [ordensFiltradas]);
 
-  const resumoFrentes = useMemo(
-    () => resumoPorFrente(ordensFiltradas, period, referencia),
-    [ordensFiltradas, period, referencia]
+  const resumoFrentes = useMemo(() => resumoPorFrente(ordensFiltradas, referencia), [ordensFiltradas, referencia]);
+
+  const resumoTotais = useMemo(
+    () =>
+      resumoFrentes.reduce(
+        (acc, r) => ({
+          ordens: acc.ordens + r.ordens,
+          areaHa: acc.areaHa + r.areaHa,
+          safraT: acc.safraT + r.safraT,
+          mesAnteriorT: acc.mesAnteriorT + r.mesAnteriorT,
+          mesAtualT: acc.mesAtualT + r.mesAtualT,
+          quinzenaT: acc.quinzenaT + r.quinzenaT,
+          semanaT: acc.semanaT + r.semanaT,
+          diaAnteriorT: acc.diaAnteriorT + r.diaAnteriorT,
+          diaAtualT: acc.diaAtualT + r.diaAtualT,
+        }),
+        {
+          ordens: 0,
+          areaHa: 0,
+          safraT: 0,
+          mesAnteriorT: 0,
+          mesAtualT: 0,
+          quinzenaT: 0,
+          semanaT: 0,
+          diaAnteriorT: 0,
+          diaAtualT: 0,
+        }
+      ),
+    [resumoFrentes]
   );
+
+  const rotulosResumo = useMemo(() => {
+    const dm = (iso: string) => fmtDateBR(iso).slice(0, 5);
+    const semana = { inicio: startOfWeekMonday(referencia), fim: endOfWeekMonday(referencia) };
+    const quinzena = quinzenaRange(referencia);
+    const mesAtual = { inicio: startOfMonth(referencia), fim: endOfMonth(referencia) };
+    const mesAnterior = mesAnteriorRange(referencia);
+    return {
+      diaAnterior: dm(addDays(referencia, -1)),
+      diaAtual: dm(referencia),
+      semana: `${dm(semana.inicio)}–${dm(semana.fim)}`,
+      quinzena: `${dm(quinzena.inicio)}–${dm(quinzena.fim)}`,
+      mesAtual: `${dm(mesAtual.inicio)}–${dm(mesAtual.fim)}`,
+      mesAnterior: `${dm(mesAnterior.inicio)}–${dm(mesAnterior.fim)}`,
+    };
+  }, [referencia]);
 
   const totalGeral = useMemo(() => {
     let entradaPeriodoT = 0;
@@ -347,7 +392,8 @@ export default function OrdensCorteClient({
           </p>
         )}
 
-        {/* Resumo por frente (como a tabela Frente x Total do relatório) */}
+        {/* Resumo por frente — todos os recortes de período de uma vez, sempre
+            recalculados a partir da data de referência selecionada acima */}
         {resumoFrentes.length > 0 && (
           <div className="mb-5 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
             <table className="w-full text-[12.5px]">
@@ -356,8 +402,33 @@ export default function OrdensCorteClient({
                   <th className="px-4 py-2 font-semibold">Frente</th>
                   <th className="px-3 py-2 text-right font-semibold">Ordens</th>
                   <th className="px-3 py-2 text-right font-semibold">Área (ha)</th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Safra
+                    <div className="font-normal normal-case text-muted/70">acumulado</div>
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Mês Anterior
+                    <div className="font-normal normal-case text-muted/70">{rotulosResumo.mesAnterior}</div>
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Mês Atual
+                    <div className="font-normal normal-case text-muted/70">{rotulosResumo.mesAtual}</div>
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Quinzena
+                    <div className="font-normal normal-case text-muted/70">{rotulosResumo.quinzena}</div>
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Semana
+                    <div className="font-normal normal-case text-muted/70">{rotulosResumo.semana}</div>
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Dia Anterior
+                    <div className="font-normal normal-case text-muted/70">{rotulosResumo.diaAnterior}</div>
+                  </th>
                   <th className="px-4 py-2 text-right font-semibold">
-                    Entrada {PERIODOS.find((p) => p.key === period)?.label.toLowerCase()} (t)
+                    Dia Atual
+                    <div className="font-normal normal-case text-muted/70">{rotulosResumo.diaAtual} até 06h</div>
                   </th>
                 </tr>
               </thead>
@@ -366,17 +437,29 @@ export default function OrdensCorteClient({
                   <tr key={r.frente} className="border-b border-line last:border-0">
                     <td className="px-4 py-1.5 font-semibold text-ink">{r.frente}</td>
                     <td className="px-3 py-1.5 text-right tabular text-muted">{r.ordens}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtHa(r.areaLiberadaHa)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtHa(r.areaHa)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.safraT)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.mesAnteriorT)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.mesAtualT)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.quinzenaT)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.semanaT)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.diaAnteriorT)}</td>
                     <td className="px-4 py-1.5 text-right tabular font-semibold text-brand-700">
-                      {fmtT(r.entradaPeriodoT)}
+                      {fmtT(r.diaAtualT)}
                     </td>
                   </tr>
                 ))}
                 <tr className="bg-surface font-bold text-ink">
                   <td className="px-4 py-1.5">Total geral</td>
-                  <td className="px-3 py-1.5 text-right tabular">{totalGeral.total}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(totalGeral.areaTotalHa)}</td>
-                  <td className="px-4 py-1.5 text-right tabular text-brand-700">{fmtT(totalGeral.entradaPeriodoT)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{resumoTotais.ordens}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(resumoTotais.areaHa)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.safraT)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.mesAnteriorT)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.mesAtualT)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.quinzenaT)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.semanaT)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.diaAnteriorT)}</td>
+                  <td className="px-4 py-1.5 text-right tabular text-brand-700">{fmtT(resumoTotais.diaAtualT)}</td>
                 </tr>
               </tbody>
             </table>

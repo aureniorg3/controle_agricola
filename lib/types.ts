@@ -20,6 +20,9 @@ export interface EntradaDiaria {
   data: string; // YYYY-MM-DD
   talhao: string;
   toneladas: number;
+  /** parte de `toneladas` pesada entre 00:00 e 06:00 desse dia — usada pela
+   * coluna "Dia Atual" do resumo por frente, que só conta essa janela. */
+  toneladasAte6h: number;
   viagens: number;
 }
 

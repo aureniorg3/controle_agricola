@@ -121,11 +121,22 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
   impresso), agrupados por frente, com o mini-relatório de talhões, área
   total, acumulado da safra e o TCH geral realizado. Status **Aberta** em
   verde, **Encerrada** em âmbar.
-- Filtro de período **Dia / Semana / Mês / Safra**: Dia, Semana e Mês somam a
-  entrada real de cana dentro do intervalo; Safra mostra o acumulado corrido
-  desde o início.
+- Filtro de período **Dia / Semana / Mês / Safra**: controla os KPIs do topo
+  e a "Entrada no período" de cada card — Dia, Semana e Mês somam a entrada
+  real de cana dentro do intervalo; Safra mostra o acumulado corrido desde o
+  início.
 - Filtro por frente, por status (aberta/encerrada, vindo direto do ERP) e
   busca por número/fazenda.
+- **Resumo por frente**: uma linha por frente com 7 colunas de uma vez —
+  Safra, Mês Anterior, Mês Atual, Quinzena, Semana, Dia Anterior e Dia Atual
+  — todas recalculadas a partir da data selecionada no filtro (mudar a data
+  recalcula a tabela inteira na hora; ela não segue os botões
+  Dia/Semana/Mês/Safra, que só afetam os KPIs e os cards). **Dia Atual** é a
+  única coluna especial: só conta a entrada pesada entre 00:00 e 06:00
+  daquele dia (é o número disponível assim que o relatório da madrugada sai,
+  antes do resto do dia ser pesado) — as demais colunas usam o dia civil
+  inteiro. Essa janela de 6h vem da coluna Hora do relatório de Pesagem
+  (`toneladasAte6h` em `EntradaDiaria`, calculada na importação).
 - **Inserir Ordem**: a importação traz a safra inteira (centenas de ordens),
   mas a tela só mostra as que forem escolhidas manualmente — digite o número
   da ordem no campo "Inserir Ordem" (autocompleta pelas ordens já
