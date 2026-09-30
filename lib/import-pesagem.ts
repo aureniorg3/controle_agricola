@@ -1,4 +1,6 @@
 import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import { Readable } from "stream";
 import { EntradaDiaria, OrdemCorte, StatusOrdem, TalhaoOrdem } from "./types";
 
 /**
@@ -53,10 +55,40 @@ function dataIso(v: unknown): string | null {
   return null;
 }
 
+/** Converte um serial de data do Excel (dias desde 1899-12-30) para ISO —
+ * usado pelos parsers em streaming, que leem sem estilos e por isso não
+ * recebem `Date` prontos como o `cellDates` do pacote xlsx. */
+function dataIsoSerial(v: unknown): string | null {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
 function lerLinhas(buffer: ArrayBuffer): unknown[][] {
   const wb = XLSX.read(buffer, { type: "array", cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" }) as unknown[][];
+}
+
+/** Lê a primeira aba linha a linha, sem materializar a planilha inteira em
+ * memória — os relatórios de Pesagem/Conferência têm ~176 mil linhas, e o
+ * parser padrão do pacote xlsx passa de 700 MB de RAM nesses arquivos
+ * (estoura o limite de 512 MB da instância gratuita do Render). */
+async function paraCadaLinha(buffer: ArrayBuffer, onLinha: (linha: unknown[]) => void): Promise<void> {
+  const stream = Readable.from(Buffer.from(buffer));
+  const wb = new ExcelJS.stream.xlsx.WorkbookReader(stream, {
+    entries: "emit",
+    sharedStrings: "cache",
+    styles: "ignore",
+    worksheets: "emit",
+  });
+  for await (const worksheetReader of wb) {
+    for await (const row of worksheetReader) {
+      onLinha((row.values as unknown[]).slice(1));
+    }
+    break; // só a primeira aba
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -191,127 +223,152 @@ export function parseOrdemColheita(buffer: ArrayBuffer): {
 // ---------------------------------------------------------------------------
 // 2) Pesagem de Cana por Hora — uma linha por viagem
 // ---------------------------------------------------------------------------
+//
+// O cruzamento com a Conferência (Controle+Sequência -> O.Q.) e a agregação
+// por (ordem, data, talhão) acontecem AQUI, linha a linha, em vez de guardar
+// as ~176 mil viagens num array para juntar depois — a instância gratuita do
+// Render (512 MB) não sobra memória para reter as viagens inteiras E a
+// agregação ao mesmo tempo.
 
-export interface Viagem {
-  controle: number;
-  seq: number;
+export interface EntradaAgregada {
+  ordem: string;
   data: string;
-  frente: string;
-  fazendaCodigo: string;
   talhao: string;
   toneladas: number;
+  viagens: number;
 }
 
-function localizarCabecalhoPesagem(linhas: unknown[][]): number | null {
-  const limite = Math.min(linhas.length, 15);
-  for (let i = 0; i < limite; i++) {
-    const l = linhas[i];
-    if (l[0] === "Data" && l[1] === "Hora" && l[2] === "Veiculo" && l[3] === "Controle") return i;
-  }
-  return null;
-}
-
-export function parsePesagemPorHora(buffer: ArrayBuffer): {
-  viagens: Viagem[];
+export async function agregarPesagem(
+  buffer: ArrayBuffer,
+  conferencia: Map<number, string>,
+  ordensCadastradas: Set<string>
+): Promise<{
+  agregados: Map<string, EntradaAgregada>;
+  totalViagens: number;
+  semOrdem: number;
+  semConferencia: number;
+  ordensNaoCadastradas: Set<string>;
   avisos: string[];
   erros: string[];
-} {
-  const linhas = lerLinhas(buffer);
+}> {
   const avisos: string[] = [];
   const erros: string[] = [];
+  const agregados = new Map<string, EntradaAgregada>();
+  const ordensNaoCadastradas = new Set<string>();
 
-  const idxCabecalho = localizarCabecalhoPesagem(linhas);
+  let numLinha = 0;
+  let idxCabecalho: number | null = null;
+  let frenteAtual = "";
+  let semFrente = 0;
+  let totalViagens = 0;
+  let semOrdem = 0;
+  let semConferencia = 0;
+
+  await paraCadaLinha(buffer, (l) => {
+    const linhaAtual = numLinha++;
+
+    if (idxCabecalho === null) {
+      if (linhaAtual < 15 && l[0] === "Data" && l[1] === "Hora" && l[2] === "Veiculo" && l[3] === "Controle") {
+        idxCabecalho = linhaAtual;
+      }
+      return;
+    }
+
+    if (!l || l.every((v) => v === undefined || v === "")) return;
+
+    if (l[0] === "Frente:") {
+      frenteAtual = texto(l[2]);
+      return;
+    }
+
+    const data = dataIsoSerial(l[0]);
+    if (!data) return; // linhas de rodapé ("Total Frente.....", "Total Geral.....")
+    if (!frenteAtual) semFrente++;
+    totalViagens++;
+
+    const controle = numeroBR(l[3]);
+    const seq = numeroBR(l[4]);
+    const ordemInfo = conferencia.get(chaveControleSeq(controle, seq));
+    if (ordemInfo === undefined) {
+      semConferencia++;
+      return;
+    }
+    if (!ordemInfo || !ordensCadastradas.has(ordemInfo)) {
+      if (ordemInfo) ordensNaoCadastradas.add(ordemInfo);
+      semOrdem++;
+      return;
+    }
+
+    const talhao = texto(l[8]);
+    const toneladas = numeroBR(l[12]) / 1000;
+    const k = `${ordemInfo}|${data}|${talhao}`;
+    const acc = agregados.get(k) ?? { ordem: ordemInfo, data, talhao, toneladas: 0, viagens: 0 };
+    acc.toneladas += toneladas;
+    acc.viagens += 1;
+    agregados.set(k, acc);
+  });
+
   if (idxCabecalho === null) {
     erros.push(
       'Não encontrei o cabeçalho esperado (Data / Hora / Veiculo / Controle) nas primeiras linhas do arquivo "Pesagem de Cana por Hora". Confira se é o arquivo certo.'
     );
-    return { viagens: [], avisos, erros };
-  }
-
-  const viagens: Viagem[] = [];
-  let frenteAtual = "";
-  let semFrente = 0;
-  let semData = 0;
-
-  for (let i = idxCabecalho + 1; i < linhas.length; i++) {
-    const l = linhas[i];
-    if (!l || l.every((v) => v === "")) continue;
-
-    if (l[0] === "Frente:") {
-      frenteAtual = texto(l[2]);
-      continue;
-    }
-
-    const data = dataIso(l[0]);
-    if (!data) {
-      semData++;
-      continue; // linhas de rodapé ("Total Frente.....", "Total Geral.....")
-    }
-    if (!frenteAtual) semFrente++;
-
-    viagens.push({
-      controle: numeroBR(l[3]),
-      seq: numeroBR(l[4]),
-      data,
-      frente: frenteAtual || "SEM FRENTE",
-      fazendaCodigo: texto(l[6]),
-      talhao: texto(l[8]),
-      toneladas: Math.round((numeroBR(l[12]) / 1000) * 100) / 100,
-    });
+    return { agregados: new Map(), totalViagens: 0, semOrdem: 0, semConferencia: 0, ordensNaoCadastradas, avisos, erros };
   }
 
   if (semFrente > 0) {
     avisos.push(`${semFrente} viagem(ns) apareceram antes de qualquer marcador "Frente:" — agrupadas em "SEM FRENTE".`);
   }
-  if (viagens.length === 0) {
+  if (totalViagens === 0) {
     erros.push('Nenhuma viagem foi lida do arquivo "Pesagem de Cana por Hora".');
   }
 
-  return { viagens, avisos, erros };
+  return { agregados, totalViagens, semOrdem, semConferencia, ordensNaoCadastradas, avisos, erros };
 }
 
 // ---------------------------------------------------------------------------
 // 3) Conferência de Pesagens — só para o cruzamento Controle+Sequência -> O.Q.
 // ---------------------------------------------------------------------------
 
-export interface ConferenciaInfo {
-  ordem: string;
+/** Chave compacta Controle+Sequência — um número em vez de string, para não
+ * pagar hashing de string nem o overhead de um objeto por entrada num mapa
+ * de ~176 mil linhas (a Sequência nunca chega perto de 1 milhão). */
+function chaveControleSeq(controle: number, seq: number): number {
+  return controle * 1_000_000 + seq;
 }
 
-function localizarCabecalhoConferencia(linhas: unknown[][]): number | null {
-  const limite = Math.min(linhas.length, 15);
-  for (let i = 0; i < limite; i++) {
-    const l = linhas[i];
-    if (l[0] === "Controle" && l.includes("O.Q.")) return i;
-  }
-  return null;
-}
-
-export function parseConferencia(buffer: ArrayBuffer): {
-  porChave: Map<string, ConferenciaInfo>;
+export async function parseConferencia(buffer: ArrayBuffer): Promise<{
+  porChave: Map<number, string>;
   avisos: string[];
   erros: string[];
-} {
-  const linhas = lerLinhas(buffer);
+}> {
   const avisos: string[] = [];
   const erros: string[] = [];
-  const porChave = new Map<string, ConferenciaInfo>();
+  const porChave = new Map<number, string>();
 
-  const idxCabecalho = localizarCabecalhoConferencia(linhas);
+  let numLinha = 0;
+  let idxCabecalho: number | null = null;
+  let colOQ = -1;
+
+  await paraCadaLinha(buffer, (l) => {
+    const linhaAtual = numLinha++;
+
+    if (idxCabecalho === null) {
+      if (linhaAtual < 15 && l[0] === "Controle" && l.includes("O.Q.")) {
+        idxCabecalho = linhaAtual;
+        colOQ = l.indexOf("O.Q.");
+      }
+      return;
+    }
+
+    if (!l || typeof l[0] !== "number") return;
+    porChave.set(chaveControleSeq(l[0], numeroBR(l[1])), texto(l[colOQ]));
+  });
+
   if (idxCabecalho === null) {
     erros.push(
       'Não encontrei o cabeçalho esperado (Controle ... O.Q.) nas primeiras linhas do arquivo "Conferência de Pesagens". Confira se é o arquivo certo.'
     );
     return { porChave, avisos, erros };
-  }
-  const header = linhas[idxCabecalho];
-  const colOQ = header.indexOf("O.Q.");
-
-  for (let i = idxCabecalho + 1; i < linhas.length; i++) {
-    const l = linhas[i];
-    if (!l || typeof l[0] !== "number") continue;
-    const chave = `${l[0]}|${l[1]}`;
-    porChave.set(chave, { ordem: texto(l[colOQ]) });
   }
 
   if (porChave.size === 0) {
@@ -322,13 +379,18 @@ export function parseConferencia(buffer: ArrayBuffer): {
 }
 
 // ---------------------------------------------------------------------------
-// Junta os três: cadastro de ordens + viagens enriquecidas com O.Q.
+// Monta as ordens finais a partir do cadastro + da agregação já pronta
 // ---------------------------------------------------------------------------
 
 export function montarOrdens(
   cadastro: OrdemCadastro[],
-  viagens: Viagem[],
-  conferencia: Map<string, ConferenciaInfo>,
+  agregado: {
+    agregados: Map<string, EntradaAgregada>;
+    totalViagens: number;
+    semOrdem: number;
+    semConferencia: number;
+    ordensNaoCadastradas: Set<string>;
+  },
   safraLabel: string
 ): ResultadoImportacaoArquivos {
   const avisos: string[] = [];
@@ -355,38 +417,9 @@ export function montarOrdens(
     });
   }
 
-  // agrega viagens em (ordem, data, talhao) antes de gravar — evita guardar
-  // uma linha por caminhão (o volume não cabe razoavelmente num JSON).
-  const agregando = new Map<string, { ordem: string; data: string; talhao: string; toneladas: number; viagens: number }>();
-  let semOrdem = 0;
-  let semConferencia = 0;
-  const ordensNaoCadastradas = new Set<string>();
-
-  for (const v of viagens) {
-    const chave = `${v.controle}|${v.seq}`;
-    const info = conferencia.get(chave);
-    if (!info) {
-      semConferencia++;
-      continue;
-    }
-    if (!info.ordem) {
-      semOrdem++;
-      continue;
-    }
-    if (!ordensPorNumero.has(info.ordem)) {
-      ordensNaoCadastradas.add(info.ordem);
-      semOrdem++;
-      continue;
-    }
-    const k = `${info.ordem}|${v.data}|${v.talhao}`;
-    const acc = agregando.get(k) ?? { ordem: info.ordem, data: v.data, talhao: v.talhao, toneladas: 0, viagens: 0 };
-    acc.toneladas += v.toneladas;
-    acc.viagens += 1;
-    agregando.set(k, acc);
-  }
-
-  for (const acc of agregando.values()) {
-    const ordem = ordensPorNumero.get(acc.ordem)!;
+  for (const acc of agregado.agregados.values()) {
+    const ordem = ordensPorNumero.get(acc.ordem);
+    if (!ordem) continue;
     ordem.entradas.push({
       data: acc.data,
       talhao: acc.talhao,
@@ -395,16 +428,18 @@ export function montarOrdens(
     });
   }
 
-  if (semConferencia > 0) {
+  if (agregado.semConferencia > 0) {
     avisos.push(
-      `${semConferencia} viagem(ns) não encontraram o par Controle+Sequência na Conferência de Pesagens — não entraram em nenhuma ordem.`
+      `${agregado.semConferencia} viagem(ns) não encontraram o par Controle+Sequência na Conferência de Pesagens — não entraram em nenhuma ordem.`
     );
   }
-  if (ordensNaoCadastradas.size > 0) {
+  if (agregado.ordensNaoCadastradas.size > 0) {
     avisos.push(
-      `${ordensNaoCadastradas.size} ordem(ns) aparecem nas viagens mas não têm cadastro em "Ordem de Colheita": ${[...ordensNaoCadastradas]
+      `${agregado.ordensNaoCadastradas.size} ordem(ns) aparecem nas viagens mas não têm cadastro em "Ordem de Colheita": ${[
+        ...agregado.ordensNaoCadastradas,
+      ]
         .slice(0, 15)
-        .join(", ")}${ordensNaoCadastradas.size > 15 ? "…" : ""}.`
+        .join(", ")}${agregado.ordensNaoCadastradas.size > 15 ? "…" : ""}.`
     );
   }
 
@@ -418,8 +453,8 @@ export function montarOrdens(
     avisos,
     erros,
     totalOrdens: ordens.length,
-    totalViagens: viagens.length,
-    viagensSemOrdem: semOrdem,
-    viagensSemConferencia: semConferencia,
+    totalViagens: agregado.totalViagens,
+    viagensSemOrdem: agregado.semOrdem,
+    viagensSemConferencia: agregado.semConferencia,
   };
 }

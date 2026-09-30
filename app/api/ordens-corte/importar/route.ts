@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { substituirOrdens, usuarioDaRequisicao } from "@/lib/db";
-import { montarOrdens, parseConferencia, parseOrdemColheita, parsePesagemPorHora } from "@/lib/import-pesagem";
+import { agregarPesagem, montarOrdens, parseConferencia, parseOrdemColheita } from "@/lib/import-pesagem";
 import { podeEditar } from "@/lib/permissoes";
 
 export const runtime = "nodejs";
@@ -36,19 +36,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const [bufOrdens, bufPesagem, bufConferencia] = await Promise.all([
-    (arquivoOrdens as File).arrayBuffer(),
-    (arquivoPesagem as File).arrayBuffer(),
-    (arquivoConferencia as File).arrayBuffer(),
-  ]);
-
-  let resOrdens: ReturnType<typeof parseOrdemColheita>;
-  let resPesagem: ReturnType<typeof parsePesagemPorHora>;
-  let resConferencia: ReturnType<typeof parseConferencia>;
+  // Lidos e interpretados um de cada vez (não em paralelo), e o cruzamento
+  // com a Conferência já acontece durante a leitura da Pesagem (não guarda
+  // as ~176 mil viagens num array à parte) — a instância gratuita do Render
+  // só tem 512 MB de RAM, e esses dois relatórios não cabem inteiros nela
+  // se forem lidos e retidos em separado.
+  let resOrdens: Awaited<ReturnType<typeof parseOrdemColheita>>;
+  let resConferencia: Awaited<ReturnType<typeof parseConferencia>>;
   try {
-    resOrdens = parseOrdemColheita(bufOrdens);
-    resPesagem = parsePesagemPorHora(bufPesagem);
-    resConferencia = parseConferencia(bufConferencia);
+    resOrdens = parseOrdemColheita(await (arquivoOrdens as File).arrayBuffer());
+    resConferencia = await parseConferencia(await (arquivoConferencia as File).arrayBuffer());
   } catch (e) {
     return NextResponse.json(
       { error: `Não foi possível ler um dos arquivos: ${e instanceof Error ? e.message : String(e)}` },
@@ -56,19 +53,49 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const errosLeitura = [...resOrdens.erros, ...resPesagem.erros, ...resConferencia.erros];
-  if (errosLeitura.length > 0) {
+  const errosCadastro = [...resOrdens.erros, ...resConferencia.erros];
+  if (errosCadastro.length > 0) {
     return NextResponse.json(
       {
         error: "Não foi possível importar. Confira se cada arquivo foi anexado no campo certo.",
-        erros: errosLeitura,
-        avisos: [...resOrdens.avisos, ...resPesagem.avisos, ...resConferencia.avisos],
+        erros: errosCadastro,
+        avisos: [...resOrdens.avisos, ...resConferencia.avisos],
       },
       { status: 400 }
     );
   }
 
-  const resultado = montarOrdens(resOrdens.ordens, resPesagem.viagens, resConferencia.porChave, "2026/27");
+  const ordensCadastradas = new Set(resOrdens.ordens.map((o) => o.numero));
+
+  // Solta pro coletor de lixo o que sobrou da leitura da Conferência antes de
+  // começar a Pesagem (o outro relatório de ~176 mil linhas) — sem isso o
+  // V8 só libera essa memória sob pressão, e os dois picos podem se somar.
+  // `--expose-gc` é ligado no script "start" (ver package.json); se não
+  // estiver disponível (ex. `next dev`), o import segue normalmente.
+  if (typeof global.gc === "function") global.gc();
+
+  let resPesagem: Awaited<ReturnType<typeof agregarPesagem>>;
+  try {
+    resPesagem = await agregarPesagem(await (arquivoPesagem as File).arrayBuffer(), resConferencia.porChave, ordensCadastradas);
+  } catch (e) {
+    return NextResponse.json(
+      { error: `Não foi possível ler o arquivo "Pesagem de Cana por Hora": ${e instanceof Error ? e.message : String(e)}` },
+      { status: 400 }
+    );
+  }
+
+  if (resPesagem.erros.length > 0) {
+    return NextResponse.json(
+      {
+        error: "Não foi possível importar. Confira se cada arquivo foi anexado no campo certo.",
+        erros: resPesagem.erros,
+        avisos: [...resOrdens.avisos, ...resConferencia.avisos, ...resPesagem.avisos],
+      },
+      { status: 400 }
+    );
+  }
+
+  const resultado = montarOrdens(resOrdens.ordens, resPesagem, "2026/27");
   substituirOrdens(resultado.ordens);
 
   return NextResponse.json({
@@ -76,7 +103,7 @@ export async function POST(req: NextRequest) {
     totalViagens: resultado.totalViagens,
     viagensSemOrdem: resultado.viagensSemOrdem,
     viagensSemConferencia: resultado.viagensSemConferencia,
-    avisos: [...resOrdens.avisos, ...resPesagem.avisos, ...resConferencia.avisos, ...resultado.avisos],
+    avisos: [...resOrdens.avisos, ...resConferencia.avisos, ...resPesagem.avisos, ...resultado.avisos],
     erros: [] as string[],
   });
 }

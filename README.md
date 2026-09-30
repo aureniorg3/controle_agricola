@@ -146,8 +146,7 @@ de uma vez:
 2. **"Pesagem de Cana por Hora - Mod. B - Cana Moagem.xlsx"** — o relatório
    de pesagem, uma linha por viagem de caminhão (`Data`, `Hora`, `Veículo`,
    `Controle`, `Seq`, `Propriedade`, `Talhão`, peso líquido em kg). É a base
-   principal: cada linha vira uma viagem real de cana entrando. Parseado por
-   `parsePesagemPorHora`.
+   principal: cada linha vira uma viagem real de cana entrando.
 3. **"Conferência de Pesagens - Cana Moagem.xlsx"** — usado só para
    descobrir a qual **ordem** (coluna O.Q.) cada viagem pertence, já que o
    relatório de pesagem por hora não traz essa informação diretamente.
@@ -159,17 +158,22 @@ diferentes (parciais do mesmo carregamento), e só o par `Controle+Seq` é
 único. Usar só `Controle` juntaria viagens de talhões/cortes diferentes por
 engano.
 
-Como o processamento funciona (`montarOrdens`):
+Como o processamento funciona:
 
-- Para cada viagem do arquivo 2, busca `Controle+Seq` no mapa vindo do
-  arquivo 3 para descobrir a ordem; se não encontrar (viagem sem
-  conferência) ou a ordem não estiver cadastrada no arquivo 1 (ordem não
-  cadastrada), a viagem é contada à parte e **não** entra no total — o
+- O arquivo 3 (Conferência) é lido primeiro, montando um mapa
+  `Controle+Seq → Ordem`.
+- O arquivo 2 (Pesagem) é lido **em streaming, linha a linha**
+  (`agregarPesagem` em [lib/import-pesagem.ts](lib/import-pesagem.ts), via
+  `exceljs`) — para cada viagem, busca a ordem no mapa da Conferência e já
+  agrega direto em (ordem, data, talhão), sem guardar as ~176 mil viagens
+  num array à parte. O parser antigo (pacote `xlsx`, que carrega a planilha
+  inteira em objetos antes de converter) passava de 700 MB de RAM só para
+  ler um desses arquivos — o suficiente para derrubar por falta de memória
+  a instância gratuita do Render (512 MB). Ler em streaming e agregar na
+  hora mantém o pico bem abaixo disso.
+- Viagem sem `Controle+Seq` na Conferência, ou cuja ordem não está
+  cadastrada no arquivo 1, é contada à parte e **não** entra no total — o
   resultado da importação mostra quantas viagens caíram em cada caso.
-- As viagens que resolvem para uma ordem são **pré-agregadas** por
-  ordem+data+talhão (soma de toneladas, contagem de viagens) antes de
-  gravar — evita guardar ~176 mil linhas cruas no `data/db.json` e mantém a
-  tela rápida.
 - A importação é **substituição total**: os 3 arquivos são sempre a
   exportação completa da safra corrente (não deltas diários), então cada
   importação **zera e recria** a base inteira de ordens (`substituirOrdens`
