@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { listOrdens } from "@/lib/db";
+import { listOrdens, listOrdensVisiveis } from "@/lib/db";
 
 export async function GET() {
   const ordens = listOrdens();
-  return NextResponse.json({ ordens });
+  const ordensVisiveis = listOrdensVisiveis();
+  return NextResponse.json({ ordens, ordensVisiveis });
 }

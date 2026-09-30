@@ -67,6 +67,10 @@ export type UsuarioPublico = Omit<Usuario, "senhaHash">;
 
 export interface Database {
   ordens: OrdemCorte[];
+  /** números de ordem escolhidos manualmente para aparecer na tela — a
+   * importação traz todas as ordens da safra, mas só as marcadas aqui são
+   * exibidas nos cards. */
+  ordensVisiveis: string[];
   usuarios: Usuario[];
   /** data/hora da última importação bem-sucedida das 3 planilhas */
   ultimaImportacao?: string;

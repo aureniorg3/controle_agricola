@@ -37,6 +37,7 @@ function buildAdminPadrao(): Usuario {
 function buildSeedDb(): Database {
   return {
     ordens: [],
+    ordensVisiveis: [],
     usuarios: [buildAdminPadrao()],
     ultimaAtualizacao: new Date().toISOString(),
   };
@@ -87,6 +88,12 @@ function ensureDb(): Database {
     db.ordens = [];
     migrou = true;
   }
+  // Migração leve: bancos gravados antes da seleção manual de ordens não têm
+  // `ordensVisiveis`.
+  if (!db.ordensVisiveis) {
+    db.ordensVisiveis = [];
+    migrou = true;
+  }
   if (migrou) {
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
   }
@@ -124,6 +131,32 @@ export function substituirOrdens(ordens: OrdemCorte[]) {
   const db = getDb();
   db.ordens = ordens;
   db.ultimaImportacao = new Date().toISOString();
+  saveDb(db);
+}
+
+/** Números de ordem marcados para exibição, restrito ao que existe hoje na
+ * base (uma ordem que sumiu numa reimportação não fica presa na lista). */
+export function listOrdensVisiveis(): string[] {
+  const db = getDb();
+  const existentes = new Set(db.ordens.map((o) => o.numero));
+  return db.ordensVisiveis.filter((n) => existentes.has(n));
+}
+
+export function adicionarOrdemVisivel(numero: string): true | { erro: string } {
+  const db = getDb();
+  if (!db.ordens.some((o) => o.numero === numero)) {
+    return { erro: `Ordem ${numero} não encontrada na última importação.` };
+  }
+  if (!db.ordensVisiveis.includes(numero)) {
+    db.ordensVisiveis.push(numero);
+    saveDb(db);
+  }
+  return true;
+}
+
+export function removerOrdemVisivel(numero: string) {
+  const db = getDb();
+  db.ordensVisiveis = db.ordensVisiveis.filter((n) => n !== numero);
   saveDb(db);
 }
 

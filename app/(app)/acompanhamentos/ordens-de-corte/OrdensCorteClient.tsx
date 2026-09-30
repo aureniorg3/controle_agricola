@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { OrdemCorte, PerfilUsuario, Periodo, StatusOrdem } from "@/lib/types";
 import {
   calcOrdemMetrics,
@@ -41,13 +41,19 @@ function periodoTexto(period: Periodo, referencia: string, safraLabel: string): 
 
 export default function OrdensCorteClient({
   initialOrdens,
+  initialOrdensVisiveis,
   perfil,
 }: {
   initialOrdens: OrdemCorte[];
+  initialOrdensVisiveis: string[];
   perfil: PerfilUsuario;
 }) {
   const podeGravar = podeEditar(perfil);
   const [ordens, setOrdens] = useState<OrdemCorte[]>(initialOrdens);
+  const [ordensVisiveis, setOrdensVisiveis] = useState<Set<string>>(() => new Set(initialOrdensVisiveis));
+  const [inserirNumero, setInserirNumero] = useState("");
+  const [inserirErro, setInserirErro] = useState<string | null>(null);
+  const [inserindo, setInserindo] = useState(false);
   const [period, setPeriod] = useState<Periodo>("dia");
   const [referencia, setReferencia] = useState<string>(() => ultimaDataComMovimento(initialOrdens));
   const [frenteFiltro, setFrenteFiltro] = useState<string>("todas");
@@ -61,17 +67,64 @@ export default function OrdensCorteClient({
     const res = await fetch("/api/ordens-corte", { cache: "no-store" });
     const data = await res.json();
     setOrdens(data.ordens);
+    setOrdensVisiveis(new Set<string>(data.ordensVisiveis ?? []));
     setReferencia(ultimaDataComMovimento(data.ordens));
     setUltimaSincronizacao(new Date().toISOString());
   }
 
+  async function inserirOrdem(e: FormEvent) {
+    e.preventDefault();
+    const numero = inserirNumero.trim();
+    if (!numero) return;
+    setInserindo(true);
+    setInserirErro(null);
+    try {
+      const res = await fetch("/api/ordens-corte/visiveis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numero }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setInserirErro(data?.error ?? "Não foi possível inserir a ordem.");
+        return;
+      }
+      setOrdensVisiveis((prev) => new Set(prev).add(numero));
+      setInserirNumero("");
+    } catch {
+      setInserirErro("Não foi possível enviar a solicitação. Verifique a conexão.");
+    } finally {
+      setInserindo(false);
+    }
+  }
+
+  async function removerOrdem(numero: string) {
+    setOrdensVisiveis((prev) => {
+      const next = new Set(prev);
+      next.delete(numero);
+      return next;
+    });
+    await fetch("/api/ordens-corte/visiveis", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ numero }),
+    });
+  }
+
   const frentes = useMemo(() => Array.from(new Set(ordens.map((o) => o.frente))).sort(), [ordens]);
+
+  const ordensDisponiveis = useMemo(
+    () => ordens.filter((o) => !ordensVisiveis.has(o.numero)).sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true })),
+    [ordens, ordensVisiveis]
+  );
 
   const safraLabel = ordens[0]?.safraLabel ?? "2026/27";
 
+  const ordensSelecionadas = useMemo(() => ordens.filter((o) => ordensVisiveis.has(o.numero)), [ordens, ordensVisiveis]);
+
   const ordensFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return ordens.filter((o) => {
+    return ordensSelecionadas.filter((o) => {
       if (frenteFiltro !== "todas" && o.frente !== frenteFiltro) return false;
       if (statusFiltro !== "todas" && o.status !== statusFiltro) return false;
       if (termo) {
@@ -80,7 +133,7 @@ export default function OrdensCorteClient({
       }
       return true;
     });
-  }, [ordens, frenteFiltro, statusFiltro, busca]);
+  }, [ordensSelecionadas, frenteFiltro, statusFiltro, busca]);
 
   const porFrente = useMemo(() => {
     const map = new Map<string, OrdemCorte[]>();
@@ -169,6 +222,44 @@ export default function OrdensCorteClient({
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        {/* Inserir ordem manualmente */}
+        {podeGravar && (
+          <div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
+            <form onSubmit={inserirOrdem} className="flex flex-wrap items-center gap-2">
+              <label className="text-[12.5px] font-semibold text-ink" htmlFor="inserir-ordem-input">
+                Inserir Ordem
+              </label>
+              <input
+                id="inserir-ordem-input"
+                type="text"
+                list="ordens-disponiveis-datalist"
+                placeholder="Nº da ordem…"
+                value={inserirNumero}
+                onChange={(e) => setInserirNumero(e.target.value)}
+                className="w-40 rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink shadow-card placeholder:text-muted"
+              />
+              <datalist id="ordens-disponiveis-datalist">
+                {ordensDisponiveis.map((o) => (
+                  <option key={o.numero} value={o.numero}>
+                    {o.fazendaNome}
+                  </option>
+                ))}
+              </datalist>
+              <button
+                type="submit"
+                disabled={inserindo || !inserirNumero.trim()}
+                className="rounded-lg bg-navy-900 px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
+              >
+                {inserindo ? "Inserindo…" : "Inserir"}
+              </button>
+            </form>
+            {inserirErro && <span className="text-[12.5px] font-medium text-alert-600">{inserirErro}</span>}
+            <span className="ml-auto text-[12px] font-medium text-muted">
+              {ordensVisiveis.size} de {ordens.length} ordem(ns) importada(s) selecionada(s)
+            </span>
+          </div>
+        )}
+
         {/* Filtros */}
         <div className="mb-4 flex flex-wrap items-center gap-2.5">
           <div className="flex rounded-lg bg-navy-900/5 p-1">
@@ -310,6 +401,10 @@ export default function OrdensCorteClient({
                   "Peça para um usuário com nível Gravação ou Administrador importar as planilhas."
                 )}
               </>
+            ) : ordensVisiveis.size === 0 ? (
+              podeGravar
+                ? 'Nenhuma ordem selecionada para exibição. Use "Inserir Ordem" acima para escolher quais ordens aparecem na tela.'
+                : "Nenhuma ordem selecionada para exibição. Peça para um usuário com nível Gravação ou Administrador inserir as ordens."
             ) : (
               "Nenhuma ordem de corte encontrada para os filtros selecionados."
             )}
@@ -344,7 +439,13 @@ export default function OrdensCorteClient({
               {aberto && (
                 <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-4">
                   {lista.map((ordem) => (
-                    <OrdemCard key={ordem.id} ordem={ordem} period={period} referencia={referencia} />
+                    <OrdemCard
+                      key={ordem.id}
+                      ordem={ordem}
+                      period={period}
+                      referencia={referencia}
+                      onRemover={podeGravar ? () => removerOrdem(ordem.numero) : undefined}
+                    />
                   ))}
                 </div>
               )}
@@ -391,16 +492,26 @@ function StatusBadge({ status }: { status: StatusOrdem }) {
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${
-        aberta ? "bg-brand-100 text-brand-700" : "bg-good-50 text-good-600"
+        aberta ? "bg-good-50 text-good-600" : "bg-amber-50 text-amber-600"
       }`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${aberta ? "bg-brand-600" : "bg-good-500"}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${aberta ? "bg-good-500" : "bg-amber-500"}`} />
       {aberta ? "Aberta" : "Encerrada"}
     </span>
   );
 }
 
-function OrdemCard({ ordem, period, referencia }: { ordem: OrdemCorte; period: Periodo; referencia: string }) {
+function OrdemCard({
+  ordem,
+  period,
+  referencia,
+  onRemover,
+}: {
+  ordem: OrdemCorte;
+  period: Periodo;
+  referencia: string;
+  onRemover?: () => void;
+}) {
   const m = calcOrdemMetrics(ordem, period, referencia);
 
   return (
@@ -412,7 +523,21 @@ function OrdemCard({ ordem, period, referencia }: { ordem: OrdemCorte; period: P
             {ordem.fazendaCodigo} · {ordem.fazendaNome}
           </div>
         </div>
-        <StatusBadge status={ordem.status} />
+        <div className="flex items-center gap-1.5">
+          <StatusBadge status={ordem.status} />
+          {onRemover && (
+            <button
+              type="button"
+              onClick={onRemover}
+              title="Remover da tela"
+              className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-muted hover:bg-alert-50 hover:text-alert-600"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted">Talhões</div>

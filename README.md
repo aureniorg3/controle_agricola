@@ -119,12 +119,20 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
 
 - Cards por ordem de corte (um "quadrado" por ordem, igual ao relatório
   impresso), agrupados por frente, com o mini-relatório de talhões, área
-  total, acumulado da safra e o TCH geral realizado.
+  total, acumulado da safra e o TCH geral realizado. Status **Aberta** em
+  verde, **Encerrada** em âmbar.
 - Filtro de período **Dia / Semana / Mês / Safra**: Dia, Semana e Mês somam a
   entrada real de cana dentro do intervalo; Safra mostra o acumulado corrido
   desde o início.
 - Filtro por frente, por status (aberta/encerrada, vindo direto do ERP) e
   busca por número/fazenda.
+- **Inserir Ordem**: a importação traz a safra inteira (centenas de ordens),
+  mas a tela só mostra as que forem escolhidas manualmente — digite o número
+  da ordem no campo "Inserir Ordem" (autocompleta pelas ordens já
+  importadas) e ela aparece no card da sua frente; o × no card tira a ordem
+  da tela de novo. Essa seleção fica salva no servidor
+  (`ordensVisiveis` em `data/db.json`) e sobrevive a uma reimportação — só os
+  *dados* da ordem são atualizados, a escolha de quais aparecem não muda.
 - **Importar planilhas**: lê os 3 relatórios oficiais do CHBWEB e substitui
   a base inteira de ordens por eles — ver seção própria abaixo. É a única
   forma de entrada de dados: não há cadastro manual de ordem nem lançamento
@@ -221,8 +229,9 @@ app/
                                   demais itens do menu (em construção)
   api/
     ordens-corte/
-      route.ts                   GET (listar ordens)
+      route.ts                   GET (listar ordens + ordensVisiveis)
       importar/route.ts          POST (importa os 3 arquivos, exige gravação+)
+      visiveis/route.ts          POST/DELETE (marca/desmarca ordem pra exibir, exige gravação+)
     usuarios/
       route.ts                   GET (listar) / POST (criar) — só admin
       [id]/route.ts              PATCH (editar) / DELETE (excluir) — só admin
