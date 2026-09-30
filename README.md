@@ -53,6 +53,21 @@ seguir os passos:
      MCyed2WYMhzXmYr3LFWpRIMA55TL9LocbIUjEZfZvMI
      ```
    - `DATA_DIR` — `/var/data` (ver disco persistente no próximo passo).
+   - `RESEND_API_KEY` (opcional, mas recomendado) — pra mandar o e-mail de
+     boas-vindas quando um usuário é cadastrado (link do sistema + senha
+     provisória). Crie uma conta grátis em [resend.com](https://resend.com),
+     gere uma API key em resend.com/api-keys e cole aqui. **Eu não posso
+     criar essa conta por você** — precisa ser feito manualmente. Sem essa
+     variável, o cadastro de usuário continua funcionando normalmente: a
+     senha provisória só aparece na tela em vez de ir por e-mail, pra quem
+     cadastrou repassar manualmente.
+   - `RESEND_FROM_EMAIL` (opcional) — remetente do e-mail de boas-vindas.
+     Sem essa variável, usa `onboarding@resend.dev` (só entrega pro e-mail da
+     sua própria conta Resend — pra mandar pra qualquer usuário de verdade,
+     verifique um domínio seu em resend.com/domains e use um e-mail desse
+     domínio aqui).
+   - `APP_URL` (opcional) — link do sistema que entra no e-mail de boas-vindas.
+     Sem essa variável, usa `https://controle-agricola.onrender.com`.
 4. **Disco persistente (obrigatório para não perder dados a cada deploy):**
    Settings → **Disks** → Add Disk → *Mount Path* `/var/data` (mesmo caminho
    do `DATA_DIR` acima), qualquer tamanho pequeno (1 GB já sobra). Sem isso, a
@@ -124,6 +139,19 @@ a admin antes.
 
 Usuário desativado (`ativo: false`) mantém o cadastro e o histórico, só não
 consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
+
+**Cadastro com senha provisória:** ao criar um usuário, o nome vem em dois
+campos (Nome e Sobrenome) e a senha **não é digitada por quem cadastra** — o
+sistema gera uma senha provisória sozinho (`gerarSenhaProvisoria` em
+`lib/auth.ts`) e tenta mandar por e-mail (link do sistema, usuário e senha)
+via Resend (ver `RESEND_API_KEY` em "Deploy no Render"). Sem essa variável
+configurada, ou se o envio falhar, a senha aparece na tela na hora de criar,
+pra quem cadastrou repassar manualmente. No primeiro login com essa senha
+(ou depois de um admin resetar a senha de alguém em Editar), o sistema
+obriga a trocar por uma definitiva em `/trocar-senha` antes de liberar
+qualquer outra tela (`precisaTrocarSenha` em `Usuario`, checado em
+`app/(app)/layout.tsx`) — trocar a própria senha não ativa essa trava,
+só quando é OUTRA pessoa (um admin) quem define a senha.
 
 ## O que já funciona no Acompanhamento de Ordens de Corte
 
@@ -270,6 +298,9 @@ app/
   login/
     page.tsx                     redireciona pra dentro se já logado
     LoginForm.tsx                formulário de login
+  trocar-senha/
+    page.tsx                     só acessível com sessão + precisaTrocarSenha
+    TrocarSenhaForm.tsx          formulário de nova senha
   (app)/                         grupo de rotas autenticadas (mesma URL, só
                                   organização de pastas — não aparece no link)
     layout.tsx                   valida a sessão de verdade e renderiza o menu
@@ -295,6 +326,7 @@ app/
       login/route.ts             POST — confere e-mail/senha, grava cookie
       logout/route.ts            POST — limpa o cookie
       me/route.ts                GET — usuário da sessão atual
+      trocar-senha/route.ts      POST — troca a senha provisória, limpa precisaTrocarSenha
 components/
   Sidebar.tsx                    menu lateral (cores CRV Industrial) + usuário/sair
   PlaceholderPage.tsx            tela-padrão dos módulos ainda não construídos
@@ -307,7 +339,8 @@ lib/
   permissoes.ts                  podeEditar()/ehAdmin() — checados na tela E na API
   import-pesagem.ts              parseOrdemColheita/parsePesagemPorHora/parseConferencia
                                   + montarOrdens() (join Controle+Seq e agregação)
-  auth.ts                        hash de senha e cookie de sessão (sem libs externas)
+  auth.ts                        hash de senha, senha provisória e cookie de sessão
+  email.ts                       e-mail de boas-vindas via Resend (RESEND_API_KEY)
   period.ts                      cálculo de dia/semana/mês/safra a partir de EntradaDiaria
   format.ts                      formatação de número/data em pt-BR
 ```

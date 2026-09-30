@@ -7,6 +7,10 @@ import { NextRequest, NextResponse } from "next/server";
  * que roda em Node.js). Isso evita alguém navegar direto para uma tela
  * interna sem cookie nenhum; a validação completa (assinatura + validade)
  * acontece em app/(app)/layout.tsx antes de qualquer dado ser carregado.
+ *
+ * Também repassa o caminho atual num header (`x-pathname`) — é como
+ * app/(app)/layout.tsx (Server Component, sem acesso a usePathname) sabe se
+ * já está em /trocar-senha antes de decidir se redireciona pra lá.
  */
 const SESSION_COOKIE_NAME = "ca_session";
 
@@ -25,7 +29,9 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", pathname);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {

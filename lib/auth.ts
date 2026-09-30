@@ -20,6 +20,17 @@ function getSecret(): string {
   return process.env.AUTH_SECRET || "controle-agricola-dev-secret-trocar-em-producao";
 }
 
+/** Senha provisória legível (sem 0/O/1/l/I, que se confundem ao digitar),
+ * gerada na criação de um usuário — ele troca por uma definitiva no
+ * primeiro acesso (ver `precisaTrocarSenha`). */
+export function gerarSenhaProvisoria(): string {
+  const alfabeto = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  const bytes = randomBytes(10);
+  let senha = "";
+  for (let i = 0; i < 10; i++) senha += alfabeto[bytes[i] % alfabeto.length];
+  return senha;
+}
+
 export function hashSenha(senhaPlana: string): string {
   const salt = randomBytes(16).toString("hex");
   const hash = scryptSync(senhaPlana, salt, 64).toString("hex");

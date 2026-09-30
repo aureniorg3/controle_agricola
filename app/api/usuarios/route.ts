@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { insertUsuario, listUsuarios, usuarioDaRequisicao } from "@/lib/db";
+import { enviarEmailBoasVindas } from "@/lib/email";
 import { ehAdmin } from "@/lib/permissoes";
 import { PerfilUsuario, Usuario } from "@/lib/types";
 
@@ -20,8 +21,8 @@ export async function GET(req: NextRequest) {
 
 interface NovoUsuarioBody {
   nome: string;
+  sobrenome: string;
   email: string;
-  senha: string;
   perfil: PerfilUsuario;
 }
 
@@ -32,11 +33,8 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json()) as NovoUsuarioBody;
-  if (!body.nome?.trim() || !body.email?.trim()) {
-    return NextResponse.json({ error: "Informe nome e e-mail." }, { status: 400 });
-  }
-  if (!body.senha || body.senha.length < 6) {
-    return NextResponse.json({ error: "A senha precisa ter ao menos 6 caracteres." }, { status: 400 });
+  if (!body.nome?.trim() || !body.sobrenome?.trim() || !body.email?.trim()) {
+    return NextResponse.json({ error: "Informe nome, sobrenome e e-mail." }, { status: 400 });
   }
   if (!PERFIS_VALIDOS.includes(body.perfil)) {
     return NextResponse.json({ error: "Nível de acesso inválido." }, { status: 400 });
@@ -44,12 +42,30 @@ export async function POST(req: NextRequest) {
 
   const resultado = insertUsuario({
     nome: body.nome,
+    sobrenome: body.sobrenome,
     email: body.email,
-    senha: body.senha,
     perfil: body.perfil,
   });
   if ("erro" in resultado) {
     return NextResponse.json({ error: resultado.erro }, { status: 409 });
   }
-  return NextResponse.json({ usuario: semSenha(resultado) }, { status: 201 });
+
+  const { usuario: criado, senhaProvisoria } = resultado;
+  const { enviado, erro: erroEnvio } = await enviarEmailBoasVindas({
+    destinatario: criado.email,
+    nomeCompleto: `${criado.nome} ${criado.sobrenome}`.trim(),
+    senhaProvisoria,
+  });
+
+  return NextResponse.json(
+    {
+      usuario: semSenha(criado),
+      emailEnviado: enviado,
+      // só devolve a senha em texto puro quando o e-mail NÃO foi enviado —
+      // é o jeito de quem cadastrou repassar manualmente nesse caso.
+      senhaProvisoria: enviado ? undefined : senhaProvisoria,
+      avisoEmail: enviado ? undefined : erroEnvio,
+    },
+    { status: 201 }
+  );
 }

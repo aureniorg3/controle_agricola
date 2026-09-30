@@ -67,12 +67,16 @@ export type PerfilUsuario = "leitura" | "gravacao" | "admin";
 export interface Usuario {
   id: string;
   nome: string;
+  sobrenome: string;
   email: string;
   /** formato "salt:hash" (scrypt) — nunca a senha em texto puro */
   senhaHash: string;
   perfil: PerfilUsuario;
   /** desativado não consegue mais logar, mas o cadastro/histórico é mantido */
   ativo: boolean;
+  /** true logo após o cadastro (senha provisória) — barra o acesso ao resto
+   * do sistema até trocar a senha em /trocar-senha. */
+  precisaTrocarSenha: boolean;
   criadoEm: string;
 }
 

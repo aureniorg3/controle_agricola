@@ -3,7 +3,7 @@ import path from "path";
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { Database, OrdemCorte, Usuario } from "./types";
-import { hashSenha, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
+import { gerarSenhaProvisoria, hashSenha, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
 
 // Em produção (Render/qualquer Node host) isso grava no disco do serviço.
 // Se o disco não for persistente entre deploys, trocar este arquivo por um
@@ -26,10 +26,12 @@ function buildAdminPadrao(): Usuario {
   return {
     id: "usr-admin-1",
     nome: "Administrador",
+    sobrenome: "",
     email: "aureniorg3@gmail.com",
     senhaHash: hashSenha("crv@2026"),
     perfil: "admin",
     ativo: true,
+    precisaTrocarSenha: false,
     criadoEm: new Date().toISOString(),
   };
 }
@@ -109,6 +111,17 @@ function ensureDb(): Database {
     }
     if (u.ativo === undefined) {
       u.ativo = true;
+      migrou = true;
+    }
+    // Migração leve: bancos gravados antes de nome/sobrenome separados e da
+    // senha provisória no primeiro acesso. Usuários já existentes não ficam
+    // de repente obrigados a trocar senha — só os criados depois disso.
+    if (u.sobrenome === undefined) {
+      u.sobrenome = "";
+      migrou = true;
+    }
+    if (u.precisaTrocarSenha === undefined) {
+      u.precisaTrocarSenha = false;
       migrou = true;
     }
   }
@@ -300,32 +313,42 @@ function contarAdminsAtivos(db: Database, ignorarId?: string): number {
 
 export interface NovoUsuarioInput {
   nome: string;
+  sobrenome: string;
   email: string;
-  senha: string;
   perfil: Usuario["perfil"];
 }
 
-export function insertUsuario(input: NovoUsuarioInput): Usuario | { erro: string } {
+/**
+ * A senha não vem mais de quem cadastra — é gerada aqui (provisória,
+ * legível) e volta no retorno pra quem chamou decidir o que fazer com ela
+ * (mandar por e-mail, mostrar na tela como reserva) — nunca fica só no
+ * hash. O usuário criado começa com `precisaTrocarSenha: true`.
+ */
+export function insertUsuario(input: NovoUsuarioInput): { usuario: Usuario; senhaProvisoria: string } | { erro: string } {
   const db = getDb();
   if (getUsuarioPorEmail(input.email)) {
     return { erro: "Já existe um usuário com esse e-mail." };
   }
+  const senhaProvisoria = gerarSenhaProvisoria();
   const usuario: Usuario = {
     id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     nome: input.nome.trim(),
+    sobrenome: input.sobrenome.trim(),
     email: input.email.trim().toLowerCase(),
-    senhaHash: hashSenha(input.senha),
+    senhaHash: hashSenha(senhaProvisoria),
     perfil: input.perfil,
     ativo: true,
+    precisaTrocarSenha: true,
     criadoEm: new Date().toISOString(),
   };
   db.usuarios.push(usuario);
   saveDb(db);
-  return usuario;
+  return { usuario, senhaProvisoria };
 }
 
 export interface EditarUsuarioInput {
   nome?: string;
+  sobrenome?: string;
   perfil?: Usuario["perfil"];
   ativo?: boolean;
   senha?: string; // se informado, troca a senha
@@ -357,12 +380,30 @@ export function updateUsuario(
   }
 
   if (input.nome !== undefined) usuario.nome = input.nome.trim();
+  if (input.sobrenome !== undefined) usuario.sobrenome = input.sobrenome.trim();
   if (input.perfil !== undefined) usuario.perfil = input.perfil;
   if (input.ativo !== undefined) usuario.ativo = input.ativo;
-  if (input.senha) usuario.senhaHash = hashSenha(input.senha);
+  if (input.senha) {
+    usuario.senhaHash = hashSenha(input.senha);
+    // só força trocar no próximo acesso quando é OUTRO usuário resetando —
+    // trocar a própria senha já é, em si, a ação de trocar.
+    if (id !== solicitanteId) usuario.precisaTrocarSenha = true;
+  }
 
   saveDb(db);
   return usuario;
+}
+
+/** Chamado pela tela /trocar-senha — sempre o próprio usuário logado
+ * trocando a senha provisória (ou uma resetada por um admin) pela definitiva. */
+export function trocarSenhaPrimeiroAcesso(userId: string, novaSenha: string): true | { erro: string } {
+  const db = getDb();
+  const usuario = db.usuarios.find((u) => u.id === userId);
+  if (!usuario) return { erro: "Usuário não encontrado." };
+  usuario.senhaHash = hashSenha(novaSenha);
+  usuario.precisaTrocarSenha = false;
+  saveDb(db);
+  return true;
 }
 
 export function deleteUsuario(id: string, solicitanteId: string): true | { erro: string } {

@@ -12,6 +12,7 @@ function semSenha(u: Usuario) {
 
 interface PatchBody {
   nome?: string;
+  sobrenome?: string;
   perfil?: PerfilUsuario;
   ativo?: boolean;
   senha?: string;
@@ -37,6 +38,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     id,
     {
       nome: body.nome,
+      sobrenome: body.sobrenome,
       perfil: body.perfil,
       ativo: body.ativo,
       senha: body.senha || undefined,
