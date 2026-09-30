@@ -2,10 +2,8 @@ import fs from "fs";
 import path from "path";
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
-import { Database, Lancamento, OrdemCorte, Talhao, Usuario } from "./types";
-import { buildSeedOrdens } from "./seed-data";
+import { Database, OrdemCorte, Usuario } from "./types";
 import { hashSenha, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
-import { LinhaImportada } from "./import-ordens";
 
 // Em produção (Render/qualquer Node host) isso grava no disco do serviço.
 // Se o disco não for persistente entre deploys, trocar este arquivo por um
@@ -20,12 +18,9 @@ const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
 
 /**
- * Usuário administrador padrão, criado automaticamente na primeira execução
- * (ou na primeira execução após esta atualização, para bancos já existentes).
- * Login: e-mail abaixo. Senha inicial: "crv@2026" — troque assim que possível
- * (ainda não há tela de troca de senha; por ora, apague o usuário em
- * data/db.json e reinicie o servidor para gerar um novo, ou peça para eu
- * adicionar uma tela de gerenciamento de usuários).
+ * Usuário administrador padrão, criado automaticamente na primeira execução.
+ * Login: e-mail abaixo. Senha inicial: "crv@2026" — troque em Configurações
+ * → Cadastros assim que possível.
  */
 function buildAdminPadrao(): Usuario {
   return {
@@ -41,7 +36,7 @@ function buildAdminPadrao(): Usuario {
 
 function buildSeedDb(): Database {
   return {
-    ordens: buildSeedOrdens(),
+    ordens: [],
     usuarios: [buildAdminPadrao()],
     ultimaAtualizacao: new Date().toISOString(),
   };
@@ -84,6 +79,14 @@ function ensureDb(): Database {
       migrou = true;
     }
   }
+  // Migração leve: bancos gravados antes da reformulação com os 3 relatórios
+  // do CHBWEB tinham `ordens` no formato antigo (com `criadoEm`/`lancamentos`
+  // etc.) — como a base agora é 100% derivada da importação, o mais seguro é
+  // zerar e pedir uma reimportação, em vez de tentar converter o formato.
+  if (db.ordens.some((o) => !("entradas" in o))) {
+    db.ordens = [];
+    migrou = true;
+  }
   if (migrou) {
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
   }
@@ -103,37 +106,25 @@ export function saveDb(db: Database) {
 }
 
 export function listOrdens(): OrdemCorte[] {
-  return getDb().ordens.sort((a, b) => (a.criadoEm < b.criadoEm ? 1 : -1));
+  return getDb().ordens.sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true }));
 }
 
 export function getOrdem(id: string): OrdemCorte | undefined {
   return getDb().ordens.find((o) => o.id === id);
 }
 
-export function insertOrdem(ordem: OrdemCorte): OrdemCorte {
+/**
+ * Substitui TODAS as ordens pelo resultado de uma importação — os três
+ * relatórios de origem (Ordem de Colheita, Pesagem de Cana por Hora,
+ * Conferência de Pesagens) são sempre a safra inteira até a data de
+ * geração, não um incremento do dia, então não há o que mesclar: cada
+ * importação é o retrato mais atual e substitui o anterior por completo.
+ */
+export function substituirOrdens(ordens: OrdemCorte[]) {
   const db = getDb();
-  db.ordens.push(ordem);
+  db.ordens = ordens;
+  db.ultimaImportacao = new Date().toISOString();
   saveDb(db);
-  return ordem;
-}
-
-export function updateOrdem(id: string, updater: (o: OrdemCorte) => OrdemCorte): OrdemCorte | undefined {
-  const db = getDb();
-  const idx = db.ordens.findIndex((o) => o.id === id);
-  if (idx === -1) return undefined;
-  const updated = updater(db.ordens[idx]);
-  updated.atualizadoEm = new Date().toISOString();
-  db.ordens[idx] = updated;
-  saveDb(db);
-  return updated;
-}
-
-export function deleteOrdem(id: string): boolean {
-  const db = getDb();
-  const before = db.ordens.length;
-  db.ordens = db.ordens.filter((o) => o.id !== id);
-  saveDb(db);
-  return db.ordens.length < before;
 }
 
 export function listUsuarios(): Usuario[] {
@@ -245,221 +236,4 @@ export function deleteUsuario(id: string, solicitanteId: string): true | { erro:
   db.usuarios = db.usuarios.filter((u) => u.id !== id);
   saveDb(db);
   return true;
-}
-
-// ---------------------------------------------------------------------------
-// Importação de planilha (Ordens de Corte)
-// ---------------------------------------------------------------------------
-//
-// Princípios seguidos aqui (pedido explícito: a planilha é uma "base de
-// ideia", não a verdade absoluta):
-//  - nunca sobrescreve um campo já cadastrado com um valor vazio da planilha;
-//  - quando o valor da planilha diverge do já cadastrado, mantém o cadastrado
-//    e registra um aviso (não decide sozinho qual está certo);
-//  - reimportar o mesmo arquivo é idempotente: lançamentos importados usam um
-//    id determinístico (`imp-<ordemId>-<data>`) e são atualizados no lugar em
-//    vez de duplicados, e o acumulado por talhão só é incrementado para
-//    lançamentos genuinamente novos (ou definido diretamente quando a própria
-//    planilha já traz uma coluna de acumulado).
-
-export interface ResultadoImportacao {
-  ordensCriadas: number;
-  ordensAtualizadas: number;
-  talhoesCriados: number;
-  lancamentosCriados: number;
-  lancamentosAtualizados: number;
-  avisos: string[];
-}
-
-function chaveOrdem(numero: string, fazendaCodigo: string, fazendaNome: string): string {
-  const cod = fazendaCodigo && fazendaCodigo !== "-" ? fazendaCodigo : fazendaNome;
-  return `${numero.trim().toLowerCase()}||${cod.trim().toLowerCase()}`;
-}
-
-export function importarLinhas(linhas: LinhaImportada[]): ResultadoImportacao {
-  const db = getDb();
-  const avisos: string[] = [];
-  let ordensCriadas = 0;
-  let ordensAtualizadas = 0;
-  let talhoesCriados = 0;
-  let lancamentosCriados = 0;
-  let lancamentosAtualizados = 0;
-
-  const grupos = new Map<string, LinhaImportada[]>();
-  for (const l of linhas) {
-    const chave = chaveOrdem(l.ordem, l.fazendaCodigo, l.fazendaNome);
-    const arr = grupos.get(chave) ?? [];
-    arr.push(l);
-    grupos.set(chave, arr);
-  }
-
-  for (const linhasOrdem of grupos.values()) {
-    const primeira = linhasOrdem[0];
-    const chaveAlvo = chaveOrdem(primeira.ordem, primeira.fazendaCodigo, primeira.fazendaNome);
-    let ordem = db.ordens.find((o) => chaveOrdem(o.numero, o.fazendaCodigo, o.fazendaNome) === chaveAlvo);
-    const nowIso = new Date().toISOString();
-
-    if (!ordem) {
-      const dataMinima = linhasOrdem.reduce((min, l) => (l.data < min ? l.data : min), linhasOrdem[0].data);
-      ordem = {
-        id: `imp-${primeira.ordem.trim()}-${primeira.fazendaCodigo.trim() || Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2, 7)}`,
-        numero: primeira.ordem.trim(),
-        frente: primeira.frente,
-        regiao: primeira.regiao,
-        fazendaCodigo: primeira.fazendaCodigo,
-        fazendaNome: primeira.fazendaNome,
-        status: "Aberta",
-        dataAbertura: dataMinima,
-        talhoes: [],
-        areaLiberadaHa: 0,
-        areaColhidaHa: 0,
-        tchRealizadoSafraAnterior: 0,
-        tchEstimado: primeira.tchEstimado ?? 0,
-        safraLabel: primeira.safraLabel || "2026/27",
-        lancamentos: [],
-        criadoEm: nowIso,
-        atualizadoEm: nowIso,
-      };
-      db.ordens.push(ordem);
-      ordensCriadas++;
-    } else {
-      if (primeira.frente && primeira.frente !== "FRENTE-IMPORT") {
-        if (!ordem.frente || ordem.frente === "-") {
-          ordem.frente = primeira.frente;
-        } else if (ordem.frente.trim().toLowerCase() !== primeira.frente.trim().toLowerCase()) {
-          avisos.push(
-            `Ordem ${ordem.numero}: frente na planilha ("${primeira.frente}") difere da cadastrada ("${ordem.frente}") — mantida a cadastrada.`
-          );
-        }
-      }
-      if (primeira.regiao && primeira.regiao !== "-" && (!ordem.regiao || ordem.regiao === "-")) {
-        ordem.regiao = primeira.regiao;
-      }
-      if (primeira.fazendaNome && primeira.fazendaNome !== "Fazenda não informada") {
-        if (!ordem.fazendaNome) {
-          ordem.fazendaNome = primeira.fazendaNome;
-        } else if (ordem.fazendaNome.trim().toLowerCase() !== primeira.fazendaNome.trim().toLowerCase()) {
-          avisos.push(
-            `Ordem ${ordem.numero}: nome de fazenda na planilha ("${primeira.fazendaNome}") difere do cadastrado ("${ordem.fazendaNome}") — mantido o cadastrado.`
-          );
-        }
-      }
-      if (primeira.tchEstimado !== undefined && !ordem.tchEstimado) {
-        ordem.tchEstimado = primeira.tchEstimado;
-      }
-      ordensAtualizadas++;
-    }
-
-    const ordemAtual = ordem;
-
-    // --- Talhões: cria os que faltam, completa área vazia, nunca some com o que já existe.
-    const talhaoNoMap = new Map<string, Talhao>(ordemAtual.talhoes.map((t) => [t.talhao.trim().toLowerCase(), t]));
-    for (const l of linhasOrdem) {
-      const chaveT = l.talhao.trim().toLowerCase();
-      let t = talhaoNoMap.get(chaveT);
-      if (!t) {
-        t = { talhao: l.talhao, areaHa: l.areaHa, ultimaEntradaT: 0, acumSafraT: 0 };
-        ordemAtual.talhoes.push(t);
-        talhaoNoMap.set(chaveT, t);
-        talhoesCriados++;
-      } else if (l.areaHa > 0) {
-        if (!t.areaHa) {
-          t.areaHa = l.areaHa;
-        } else if (Math.abs(t.areaHa - l.areaHa) > 0.05) {
-          avisos.push(
-            `Ordem ${ordemAtual.numero}, talhão ${t.talhao}: área na planilha (${l.areaHa} ha) difere da cadastrada (${t.areaHa} ha) — mantida a cadastrada.`
-          );
-        }
-      }
-    }
-    ordemAtual.areaLiberadaHa = Math.round(ordemAtual.talhoes.reduce((s, t) => s + t.areaHa, 0) * 100) / 100;
-
-    // --- Lançamentos: agrupa as linhas desta ordem por data, soma por talhão.
-    const porData = new Map<string, LinhaImportada[]>();
-    for (const l of linhasOrdem) {
-      const arr = porData.get(l.data) ?? [];
-      arr.push(l);
-      porData.set(l.data, arr);
-    }
-
-    const acumAutoritativo = new Map<string, { data: string; valor: number }>();
-    const incrementoNaoAutoritativo = new Map<string, number>();
-    let maiorDataDoLote = "";
-
-    for (const [data, linhasData] of porData) {
-      if (data > maiorDataDoLote) maiorDataDoLote = data;
-
-      const porTalhaoMap = new Map<string, number>();
-      for (const l of linhasData) {
-        porTalhaoMap.set(l.talhao, (porTalhaoMap.get(l.talhao) ?? 0) + l.toneladasDia);
-        if (l.acumSafraT !== undefined) {
-          const atual = acumAutoritativo.get(l.talhao);
-          if (!atual || data >= atual.data) {
-            acumAutoritativo.set(l.talhao, { data, valor: l.acumSafraT });
-          }
-        }
-      }
-      const porTalhao = Array.from(porTalhaoMap.entries()).map(([talhao, toneladas]) => ({
-        talhao,
-        toneladas: Math.round(toneladas * 100) / 100,
-      }));
-      const total = Math.round(porTalhao.reduce((s, p) => s + p.toneladas, 0) * 100) / 100;
-
-      const id = `imp-${ordemAtual.id}-${data}`;
-      const existente = ordemAtual.lancamentos.find((l) => l.id === id);
-
-      if (!existente) {
-        const novo: Lancamento = { id, data, toneladas: total, porTalhao, criadoEm: nowIso };
-        ordemAtual.lancamentos.push(novo);
-        lancamentosCriados++;
-        for (const p of porTalhao) {
-          if (!acumAutoritativo.has(p.talhao)) {
-            incrementoNaoAutoritativo.set(p.talhao, (incrementoNaoAutoritativo.get(p.talhao) ?? 0) + p.toneladas);
-          }
-        }
-      } else {
-        const antigoPorTalhao = new Map((existente.porTalhao ?? []).map((p) => [p.talhao, p.toneladas]));
-        for (const p of porTalhao) {
-          const delta = p.toneladas - (antigoPorTalhao.get(p.talhao) ?? 0);
-          if (delta !== 0 && !acumAutoritativo.has(p.talhao)) {
-            incrementoNaoAutoritativo.set(p.talhao, (incrementoNaoAutoritativo.get(p.talhao) ?? 0) + delta);
-          }
-        }
-        existente.toneladas = total;
-        existente.porTalhao = porTalhao;
-        lancamentosAtualizados++;
-      }
-    }
-
-    for (const [talhao, { valor }] of acumAutoritativo) {
-      const t = talhaoNoMap.get(talhao.trim().toLowerCase());
-      if (t) t.acumSafraT = valor;
-    }
-    for (const [talhao, incremento] of incrementoNaoAutoritativo) {
-      const t = talhaoNoMap.get(talhao.trim().toLowerCase());
-      if (t) t.acumSafraT = Math.round((t.acumSafraT + incremento) * 100) / 100;
-    }
-
-    // "Última entrada" reflete a produção do dia mais recente presente NESTE
-    // lote de importação, por talhão — não mexe em talhões não citados nessa data.
-    if (maiorDataDoLote) {
-      const linhasUltimoDia = porData.get(maiorDataDoLote) ?? [];
-      const somaUltimoDia = new Map<string, number>();
-      for (const l of linhasUltimoDia) {
-        somaUltimoDia.set(l.talhao, (somaUltimoDia.get(l.talhao) ?? 0) + l.toneladasDia);
-      }
-      for (const [talhao, soma] of somaUltimoDia) {
-        const t = talhaoNoMap.get(talhao.trim().toLowerCase());
-        if (t) t.ultimaEntradaT = Math.round(soma * 100) / 100;
-      }
-    }
-
-    ordemAtual.atualizadoEm = nowIso;
-  }
-
-  saveDb(db);
-
-  return { ordensCriadas, ordensAtualizadas, talhoesCriados, lancamentosCriados, lancamentosAtualizados, avisos };
 }

@@ -1,42 +1,44 @@
 export type StatusOrdem = "Aberta" | "Encerrada";
 
-export interface Talhao {
+/**
+ * Talhão dentro de uma ordem, como cadastrado no arquivo "Ordem de
+ * Colheita.xlsx" — quando um talhão aparece mais de uma vez nesse arquivo
+ * (plantios/"partes" diferentes dentro do mesmo número), as áreas são
+ * somadas num único registro por número de talhão.
+ */
+export interface TalhaoOrdem {
   talhao: string;
   areaHa: number;
-  /** toneladas colhidas no último lançamento registrado (equivalente ao "Ontem(t)" do relatório) */
-  ultimaEntradaT: number;
-  /** toneladas acumuladas na safra para este talhão */
-  acumSafraT: number;
 }
 
-export interface Lancamento {
-  id: string;
+/**
+ * Entrada de cana de um talhão num dia — já agregada a partir das viagens
+ * individuais de "Pesagem de Cana por Hora" (uma viagem = um caminhão, um
+ * talhão, um Controle+Sequência). `viagens` é só informativo.
+ */
+export interface EntradaDiaria {
   data: string; // YYYY-MM-DD
+  talhao: string;
   toneladas: number;
-  /** opcional: quebra por talhão */
-  porTalhao?: { talhao: string; toneladas: number }[];
-  criadoEm: string; // ISO datetime
+  viagens: number;
 }
 
 export interface OrdemCorte {
+  /** = numero (Ordem de Colheita não tem outro identificador único) */
   id: string;
-  numero: string; // ex: "2461"
-  frente: string; // ex: "FRENTE-1"
-  regiao: string; // ex: "Reg - 1"
+  numero: string; // ex: "2461" — coluna "O.Q." nos relatórios de pesagem
+  frente: string; // ex: "FRENTE I"
   fazendaCodigo: string; // ex: "9321"
   fazendaNome: string; // ex: "SANTARITA DE CASSIA"
+  proprietarioCodigo?: string;
+  proprietarioNome?: string;
   status: StatusOrdem;
-  dataAbertura: string; // YYYY-MM-DD
-  dataEncerramento?: string;
-  talhoes: Talhao[];
-  areaLiberadaHa: number;
-  areaColhidaHa: number;
-  tchRealizadoSafraAnterior: number;
-  tchEstimado: number;
+  tipoCana?: string;
+  dataQueima?: string; // YYYY-MM-DD
+  observacao?: string;
   safraLabel: string; // ex: "2026/27"
-  lancamentos: Lancamento[];
-  observacoes?: string;
-  criadoEm: string;
+  talhoes: TalhaoOrdem[];
+  entradas: EntradaDiaria[];
   atualizadoEm: string;
 }
 
@@ -66,6 +68,8 @@ export type UsuarioPublico = Omit<Usuario, "senhaHash">;
 export interface Database {
   ordens: OrdemCorte[];
   usuarios: Usuario[];
+  /** data/hora da última importação bem-sucedida das 3 planilhas */
+  ultimaImportacao?: string;
   ultimaAtualizacao: string;
 }
 

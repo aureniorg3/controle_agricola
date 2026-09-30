@@ -2,20 +2,19 @@
 
 Sistema de acompanhamento agrícola da safra de cana-de-açúcar (Unidade
 Capinópolis-MG). Primeiro módulo entregue: **Acompanhamento de Ordens de
-Corte**, alimentado a partir do relatório "Relatório de entrada de cana por
-Ordem de Colheita" e já com lançamento de novas ordens e apontamentos diários
-pela própria tela.
+Corte** — **100% derivado de 3 relatórios do sistema de origem (CHBWEB)**,
+importados diariamente. Não há cadastro nem lançamento manual de ordem: a
+base é sempre o retrato mais recente dos 3 arquivos.
 
 ## Stack
 
 - **Next.js 16** (App Router, Turbopack) + **TypeScript** + **Tailwind CSS**
   — exige **Node 20.9+** (fixado em `package.json` → `engines.node`)
 - Persistência em **arquivo JSON no servidor** (`data/db.json`), lido e
-  gravado pelas rotas de API — não é mock: criar uma ordem ou lançar um
-  apontamento grava de verdade e a tela atualiza sozinha.
+  gravado pelas rotas de API.
 - Sem dependências externas de banco de dados para começar. Quando quiser
   migrar para Postgres/Supabase, só é preciso reimplementar `lib/db.ts`
-  (`getDb`/`saveDb`/`insertOrdem`/`updateOrdem`) — nenhuma tela precisa mudar.
+  (`getDb`/`saveDb`/`substituirOrdens`) — nenhuma tela precisa mudar.
 
 ## Como rodar localmente
 
@@ -57,8 +56,9 @@ seguir os passos:
 4. **Disco persistente (obrigatório para não perder dados a cada deploy):**
    Settings → **Disks** → Add Disk → *Mount Path* `/var/data` (mesmo caminho
    do `DATA_DIR` acima), qualquer tamanho pequeno (1 GB já sobra). Sem isso, a
-   cada novo deploy o Render apaga o disco do serviço e o sistema volta para
-   os dados de exemplo (seed) e recria o usuário admin com a senha padrão.
+   cada novo deploy o Render apaga o disco do serviço, a base de ordens fica
+   vazia (é preciso reimportar as planilhas) e o usuário admin volta para a
+   senha padrão.
 5. **Create Web Service.** O primeiro deploy demora alguns minutos (build do
    Next.js); depois disso o Render mostra a URL pública do serviço no topo da
    página (algo como `https://controle-agricola.onrender.com`) — esse é o
@@ -119,117 +119,80 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
 
 - Cards por ordem de corte (um "quadrado" por ordem, igual ao relatório
   impresso), agrupados por frente, com o mini-relatório de talhões, área
-  colhida, área liberada e as três linhas de TCH (safra anterior, estimado,
-  geral realizado).
-- Filtro de período **Dia / Semana / Mês / Safra**: Dia e Semana e Mês somam
-  os apontamentos lançados dentro do intervalo; Safra mostra o acumulado
-  corrido (igual à coluna "Acum(t)" do relatório).
-- Filtro por frente, por status (aberta/encerrada) e busca por número/fazenda.
-- **Nova Ordem de Corte**: cria a ordem com seus talhões e ela aparece na tela
-  imediatamente (sem recarregar a página).
-- **+ Apontamento**: lança a tonelagem do dia numa ordem — pode informar o
-  total da ordem (distribuído proporcionalmente pela área dos talhões) ou
-  detalhar talhão a talhão. Atualiza a tela na hora e passa a contar nos
-  filtros de dia/semana/mês.
-- **Importar planilha**: lê um .xlsx/.xls/.csv (o mesmo tipo de relatório que
-  já foi usado para a carga inicial) e cria/atualiza ordens, talhões e
-  apontamentos diários a partir dele — ver seção própria abaixo.
-- Encerrar/reabrir ordem.
+  total, acumulado da safra e o TCH geral realizado.
+- Filtro de período **Dia / Semana / Mês / Safra**: Dia, Semana e Mês somam a
+  entrada real de cana dentro do intervalo; Safra mostra o acumulado corrido
+  desde o início.
+- Filtro por frente, por status (aberta/encerrada, vindo direto do ERP) e
+  busca por número/fazenda.
+- **Importar planilhas**: lê os 3 relatórios oficiais do CHBWEB e substitui
+  a base inteira de ordens por eles — ver seção própria abaixo. É a única
+  forma de entrada de dados: não há cadastro manual de ordem nem lançamento
+  manual de apontamento — tudo vem do sistema de origem.
 
-## Importar planilha (Ordens de Corte)
+## Importar planilhas (Ordens de Corte)
 
-Na tela de Ordens de Corte, o botão **Importar planilha** abre um envio de
-arquivo .xlsx/.xls/.csv. É a forma de trazer, para dentro do sistema, dados
-que hoje só existem numa planilha de origem — sem precisar digitar ordem por
-ordem, dia por dia.
+Este módulo não tem cadastro manual: **toda a base de ordens de corte é
+reconstruída a partir de 3 arquivos exportados diariamente do ERP (CHBWEB)**.
+Na tela de Ordens de Corte, o botão **Importar planilhas** pede os 3 arquivos
+de uma vez:
 
-Como funciona:
+1. **"Ordem de Colheita.xlsx"** — cadastro das ordens: número, frente,
+   fazenda (código/nome), proprietário, status (Aberta/Encerrada), tipo de
+   cana, data de queima e a lista de talhões com área (ha) de cada ordem.
+   Parseado por `parseOrdemColheita` em [lib/import-pesagem.ts](lib/import-pesagem.ts),
+   que separa o arquivo em blocos (cada bloco começa numa linha
+   `"Ordem de Colheita"`) e lê os sub-campos de cada um.
+2. **"Pesagem de Cana por Hora - Mod. B - Cana Moagem.xlsx"** — o relatório
+   de pesagem, uma linha por viagem de caminhão (`Data`, `Hora`, `Veículo`,
+   `Controle`, `Seq`, `Propriedade`, `Talhão`, peso líquido em kg). É a base
+   principal: cada linha vira uma viagem real de cana entrando. Parseado por
+   `parsePesagemPorHora`.
+3. **"Conferência de Pesagens - Cana Moagem.xlsx"** — usado só para
+   descobrir a qual **ordem** (coluna O.Q.) cada viagem pertence, já que o
+   relatório de pesagem por hora não traz essa informação diretamente.
+   Parseado por `parseConferencia`.
 
-- **Escolhe a aba certa sozinho.** O arquivo pode ter dezenas de abas (é o
-  caso do relatório oficial da safra, com ~34) — o sistema procura um
-  cabeçalho reconhecível em cada uma e usa a que reconhecer mais colunas；
-  em caso de empate entre abas com o mesmo layout (comum quando o arquivo
-  mantém uma aba por ano/safra lado a lado, ex. `Tb_Ord_Corte_24`,
-  `..._25`, `Tb_Ord_Colheita_26`), desempata pela que tiver mais linhas com
-  produção de fato em "hoje" — a safra corrente, não as já encerradas.
-- **Reconhecimento tolerante de colunas.** O cabeçalho é procurado nas
-  primeiras 15 linhas de cada aba (não precisa estar na linha 1), e nomes de
-  coluna são reconhecidos por uma lista de apelidos (ex.: "Ordem", "Nº Ordem",
-  "OS", "Ordem de Corte" e "Ord. Q/C" são todos aceitos como a coluna de
-  ordem). Um botão "Baixar modelo de planilha" no próprio modal mostra o
-  formato recomendado (`public/templates/modelo-importacao-ordens-corte.xlsx`),
-  mas o arquivo real não precisa seguir esse modelo à risca.
-- **Duas formas de dizer "quando/quanto".** A maioria dos relatórios tem uma
-  coluna Data e uma coluna Toneladas (um lançamento por linha). O relatório
-  oficial do CHBWEB (aba `Tb_Ord_Colheita_XX`) é diferente: é um retrato do
-  dia, com colunas fixas "Ent_Cana Ontem" e "Ent_Cana Hoje" em vez de uma
-  data por linha. Quando só esse par é encontrado (sem coluna de Data), o
-  sistema entende que o arquivo está sendo importado no dia a que ele se
-  refere e grava "hoje" na data da importação e "ontem" no dia anterior —
-  por isso reimportar esse tipo de arquivo em outro dia sempre traz a
-  produção do novo dia, sem duplicar nem apagar os dias já lançados
-  (apontamentos são identificados por ordem+data). Um aviso no resultado da
-  importação sempre mostra em que datas o "ontem"/"hoje" foram gravados.
-- **Colunas obrigatórias**: Ordem, Talhão, e (Data + Toneladas) ou (Ent_Cana
-  Ontem/Hoje). As demais (Frente, Região, Código/Nome da fazenda, Área,
-  Acumulado da safra, TCH, Safra) são opcionais e, quando ausentes numa
-  linha, herdam o valor da linha anterior do mesmo grupo (comum em
-  relatórios onde a ordem só é repetida na primeira linha de cada bloco de
-  talhões).
-- **A coluna "Fazenda" sozinha é ambígua** (no modelo do sistema é o nome;
-  no relatório do CHBWEB é o código, e o nome mora em "Fundo Agrícola") — o
-  sistema resolve isso olhando se uma coluna de nome mais específica
-  ("Fundo Agrícola", "Nome Fazenda"...) já apareceu na mesma planilha antes
-  de decidir o que "Fazenda" sozinha significa ali.
-- **A planilha nunca apaga o que já está cadastrado.** Se uma ordem já existe
-  no sistema, campos como frente, fazenda ou área de um talhão só são
-  **completados** quando estão vazios — nunca sobrescritos. Se o valor da
-  planilha for diferente do já cadastrado, o sistema mantém o que já estava
-  no sistema e mostra um aviso, em vez de decidir sozinho qual dos dois está
-  certo.
-- **Reimportar é seguro (idempotente).** Cada apontamento importado recebe um
-  identificador fixo por ordem+data; reimportar o mesmo arquivo, ou uma
-  versão atualizada dele, atualiza os apontamentos existentes em vez de
-  duplicá-los. O acumulado por talhão (`acumSafraT`) usa a coluna "Acum" da
-  planilha como valor oficial quando ela existe; quando não existe, é
-  incrementado apenas pela produção realmente nova (nunca soma a mesma linha
-  duas vezes).
-- **Nada é escondido.** Ao final da importação, o modal mostra quantas ordens
-  e apontamentos foram criados/atualizados, além da lista de avisos (dados
-  mantidos como já estavam) e de linhas ignoradas (com o número da linha e o
-  motivo) — a planilha é tratada como uma base de apoio para preencher o
-  sistema, não como a verdade final sobre como os dados devem aparecer na
-  tela.
+**A ligação entre os arquivos 2 e 3 é composta: `Controle` + `Seq`**, não
+`Controle` sozinho — o mesmo número de Controle se repete para viagens
+diferentes (parciais do mesmo carregamento), e só o par `Controle+Seq` é
+único. Usar só `Controle` juntaria viagens de talhões/cortes diferentes por
+engano.
 
-**Testado com o arquivo oficial real** (aba `Tb_Ord_Colheita_26`, ~2.000
-linhas, 34 abas no total): importa sem nenhum erro. Duas limitações valem a
-pena conhecer antes de importar em produção:
+Como o processamento funciona (`montarOrdens`):
 
-- **Nome de frente sem normalização.** O relatório do CHBWEB escreve
-  "FRENTE I", "FRENTE II"...; o cadastro inicial deste sistema usa
-  "FRENTE-1", "FRENTE-2". Como o sistema nunca decide sozinho qual dos dois
-  nomes está certo, uma ordem **nova** (que a planilha cria pela primeira
-  vez) fica com o nome de frente exatamente como veio da planilha — o que
-  pode criar uma frente "duplicada" (com grafia diferente) na tela até
-  alguém padronizar o nome direto na ordem.
-- **Talhão com mais de uma "Parte" gera avisos repetidos.** O relatório do
-  CHBWEB tem uma coluna "Parte" (plantios/variedades diferentes dentro do
-  mesmo número de talhão) que este sistema ainda não modela — as duas
-  partes de um talhão viram avisos de "área diferente da cadastrada"
-  (inofensivo: a área cadastrada é mantida, é só ruído a mais na lista de
-  avisos).
+- Para cada viagem do arquivo 2, busca `Controle+Seq` no mapa vindo do
+  arquivo 3 para descobrir a ordem; se não encontrar (viagem sem
+  conferência) ou a ordem não estiver cadastrada no arquivo 1 (ordem não
+  cadastrada), a viagem é contada à parte e **não** entra no total — o
+  resultado da importação mostra quantas viagens caíram em cada caso.
+- As viagens que resolvem para uma ordem são **pré-agregadas** por
+  ordem+data+talhão (soma de toneladas, contagem de viagens) antes de
+  gravar — evita guardar ~176 mil linhas cruas no `data/db.json` e mantém a
+  tela rápida.
+- A importação é **substituição total**: os 3 arquivos são sempre a
+  exportação completa da safra corrente (não deltas diários), então cada
+  importação **zera e recria** a base inteira de ordens (`substituirOrdens`
+  em [lib/db.ts](lib/db.ts)), gravando o timestamp em `ultimaImportacao`.
+  Rodar o processo diariamente com os 3 arquivos mais recentes é o fluxo
+  esperado.
+- Ao final, o modal mostra `totalOrdens`, `totalViagens`,
+  `viagensSemOrdem`, `viagensSemConferencia`, além de avisos e erros de
+  leitura — nada fica escondido.
 
-## Por que um filtro de data pode aparecer zerado
+Validado ponta a ponta com os arquivos reais de produção (176.123 viagens,
+314 ordens, 16 viagens sem correspondência — 0,009%, esperado): o acumulado
+da safra mostrado na tela bateu exatamente com o total do rodapé do arquivo
+de Conferência, e as áreas por talhão de uma ordem específica bateram com o
+que já estava publicado no sistema em produção.
 
-Os filtros de **Dia / Semana / Mês** só somam os apontamentos que existem de
-fato para aquele intervalo — não existe nenhum cálculo escondido nem entrada
-"estimada". Se a base de dados só tem um apontamento por ordem (é o caso da
-carga inicial, ver seção seguinte), qualquer outra data mostra zero
-corretamente, porque não há registro nenhum para ela. A tela também mostra um
-aviso nesse caso, com um atalho para **Importar planilha** ou lançar um
-apontamento manual naquela data. Assim que existirem apontamentos em mais de
-uma data (por importação ou lançamento manual), os filtros passam a mostrar
-os valores de cada uma normalmente.
+## Sobre o filtro de data mostrar zero
+
+Os filtros de **Dia / Semana / Mês** só somam a entrada real de cana que
+existe para aquele intervalo (via `EntradaDiaria`, uma por ordem+data+talhão)
+— não existe estimativa nem rateio. Se uma ordem não teve viagem numa data,
+o filtro mostra zero corretamente para ela naquele período; isso é o
+esperado e reflete o que veio dos 3 arquivos, não um erro de cálculo.
 
 ## Estrutura
 
@@ -254,10 +217,8 @@ app/
                                   demais itens do menu (em construção)
   api/
     ordens-corte/
-      route.ts                   GET (listar) / POST (nova ordem, exige gravação+)
-      importar/route.ts          POST (importação de planilha, exige gravação+)
-      [id]/route.ts              GET / PATCH / DELETE (exige gravação+)
-      [id]/lancamentos/route.ts  POST (novo apontamento, exige gravação+)
+      route.ts                   GET (listar ordens)
+      importar/route.ts          POST (importa os 3 arquivos, exige gravação+)
     usuarios/
       route.ts                   GET (listar) / POST (criar) — só admin
       [id]/route.ts              PATCH (editar) / DELETE (excluir) — só admin
@@ -270,38 +231,17 @@ components/
   PlaceholderPage.tsx            tela-padrão dos módulos ainda não construídos
   ui.tsx                         ModalShell e Campo, compartilhados entre telas
 lib/
-  types.ts                       modelo de dados (inclui PerfilUsuario, UsuarioPublico)
-  db.ts                          persistência em data/db.json + importarLinhas() +
+  types.ts                       modelo de dados (OrdemCorte, TalhaoOrdem, EntradaDiaria,
+                                  PerfilUsuario, UsuarioPublico)
+  db.ts                          persistência em data/db.json + substituirOrdens() +
                                   CRUD de usuários + usuarioAtual()/usuarioDaRequisicao()
   permissoes.ts                  podeEditar()/ehAdmin() — checados na tela E na API
-  import-ordens.ts               leitura/interpretação tolerante da planilha
+  import-pesagem.ts              parseOrdemColheita/parsePesagemPorHora/parseConferencia
+                                  + montarOrdens() (join Controle+Seq e agregação)
   auth.ts                        hash de senha e cookie de sessão (sem libs externas)
-  period.ts                      cálculo de dia/semana/mês/safra
-  seed-data.ts                   carga inicial (ver abaixo)
+  period.ts                      cálculo de dia/semana/mês/safra a partir de EntradaDiaria
   format.ts                      formatação de número/data em pt-BR
-public/templates/
-  modelo-importacao-ordens-corte.xlsx  modelo oferecido no botão "Importar planilha"
 ```
-
-## Sobre os dados de carga inicial (seed)
-
-`lib/seed-data.ts` contém as ordens de corte extraídas do relatório em PDF/XLSX
-enviado (fechamento de 27/09/2026, safra 2026/27). É uma carga **ilustrativa**
-para o sistema já nascer com a operação real dentro — a partir daí, a fonte de
-verdade passa a ser o que for cadastrado pela tela (novas ordens e novos
-apontamentos). Alguns números de talhão do relatório impresso têm pequenas
-inconsistências internas entre o corpo do relatório e o resumo por frente
-(comum nesse tipo de relatório de impressão paginada); onde havia divergência,
-foi priorizado o resumo consolidado por Frente/Ordem/Fazenda. Vale revisar as
-15 ordens carregadas na primeira tela e corrigir o que precisar direto por lá.
-
-Importante: essa carga tem **um único apontamento por ordem**, todos na mesma
-data (27/09/2026) — é a foto do relatório recebido, não um histórico diário
-real. Por isso, filtrar por qualquer outra data nos mostra zero (ver seção
-"Por que um filtro de data pode aparecer zerado" acima); isso é o esperado, e
-não indica erro no cálculo. Histórico de datas de verdade só existe a partir
-de novos lançamentos manuais ou de uma planilha importada com mais de uma
-data por ordem/talhão.
 
 ## Cores
 

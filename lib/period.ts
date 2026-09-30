@@ -1,4 +1,4 @@
-import { Lancamento, OrdemCorte, Periodo, Talhao } from "./types";
+import { OrdemCorte, Periodo, TalhaoOrdem } from "./types";
 
 export function toDateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -32,47 +32,22 @@ export function rangeForPeriod(period: Periodo, referencia: string): { inicio: s
   if (period === "dia") return { inicio: referencia, fim: referencia };
   if (period === "semana") return { inicio: startOfWeekMonday(referencia), fim: endOfWeekMonday(referencia) };
   if (period === "mes") return { inicio: startOfMonth(referencia), fim: endOfMonth(referencia) };
-  return null; // safra = sem recorte de data
+  return null; // safra = sem recorte de data (acumulado)
 }
 
-function somaLancamentos(lancamentos: Lancamento[], inicio: string, fim: string): number {
-  return lancamentos
-    .filter((l) => l.data >= inicio && l.data <= fim)
-    .reduce((s, l) => s + l.toneladas, 0);
-}
-
-/**
- * Entrada de um talhão no período selecionado — mesma lógica de
- * `calcOrdemMetrics`, só que por talhão em vez de pela ordem inteira. Sem
- * isso, a coluna "Últ. entrada" da tela mostrava sempre o último
- * lançamento registrado (`talhao.ultimaEntradaT`), sem reagir ao filtro
- * de Dia/Semana/Mês — dava a impressão de que a tela não atualizava ao
- * trocar a data.
- *
- * Um lançamento sem detalhe por talhão (`porTalhao` vazio — é o caso da
- * carga inicial de exemplo, ou de um apontamento "total da ordem" lançado
- * pela tela) é rateado proporcionalmente pela área de cada talhão, a
- * mesma regra já usada para distribuir esse tipo de lançamento ao criá-lo
- * (ver `app/api/ordens-corte/[id]/lancamentos/route.ts`).
- */
+/** Entrada de um talhão no período selecionado — soma direta, sem rateio:
+ * cada `EntradaDiaria` já vem por talhão, direto das viagens reais. */
 export function calcTalhaoEntradaPeriodo(
   ordem: OrdemCorte,
-  talhao: Talhao,
+  talhao: TalhaoOrdem,
   period: Periodo,
   referencia: string
 ): number {
   const range = rangeForPeriod(period, referencia);
-  if (range === null) return Math.round(talhao.acumSafraT * 100) / 100;
-
-  const areaTotal = ordem.talhoes.reduce((s, t) => s + t.areaHa, 0) || 1;
-  const total = ordem.lancamentos
-    .filter((l) => l.data >= range.inicio && l.data <= range.fim)
-    .reduce((s, l) => {
-      if (l.porTalhao && l.porTalhao.length > 0) {
-        return s + (l.porTalhao.find((p) => p.talhao === talhao.talhao)?.toneladas ?? 0);
-      }
-      return s + (talhao.areaHa / areaTotal) * l.toneladas;
-    }, 0);
+  const total = ordem.entradas
+    .filter((e) => e.talhao === talhao.talhao)
+    .filter((e) => range === null || (e.data >= range.inicio && e.data <= range.fim))
+    .reduce((s, e) => s + e.toneladas, 0);
   return Math.round(total * 100) / 100;
 }
 
@@ -85,7 +60,7 @@ export interface OrdemMetrics {
 }
 
 export function calcAcumSafraT(ordem: OrdemCorte): number {
-  return ordem.talhoes.reduce((s, t) => s + t.acumSafraT, 0);
+  return ordem.entradas.reduce((s, e) => s + e.toneladas, 0);
 }
 
 export function calcAreaTotalHa(ordem: OrdemCorte): number {
@@ -97,8 +72,12 @@ export function calcOrdemMetrics(ordem: OrdemCorte, period: Periodo, referencia:
   const areaTotalHa = calcAreaTotalHa(ordem);
   const range = rangeForPeriod(period, referencia);
   const entradaPeriodoT =
-    range === null ? acumSafraT : somaLancamentos(ordem.lancamentos, range.inicio, range.fim);
-  const tchGeralRealizado = ordem.areaColhidaHa > 0 ? acumSafraT / ordem.areaColhidaHa : 0;
+    range === null
+      ? acumSafraT
+      : ordem.entradas
+          .filter((e) => e.data >= range.inicio && e.data <= range.fim)
+          .reduce((s, e) => s + e.toneladas, 0);
+  const tchGeralRealizado = areaTotalHa > 0 ? acumSafraT / areaTotalHa : 0;
   return {
     entradaPeriodoT: Math.round(entradaPeriodoT * 100) / 100,
     acumSafraT: Math.round(acumSafraT * 100) / 100,
@@ -115,11 +94,7 @@ export interface FrenteResumo {
   areaLiberadaHa: number;
 }
 
-export function resumoPorFrente(
-  ordens: OrdemCorte[],
-  period: Periodo,
-  referencia: string
-): FrenteResumo[] {
+export function resumoPorFrente(ordens: OrdemCorte[], period: Periodo, referencia: string): FrenteResumo[] {
   const map = new Map<string, FrenteResumo>();
   for (const ordem of ordens) {
     const m = calcOrdemMetrics(ordem, period, referencia);
@@ -131,7 +106,7 @@ export function resumoPorFrente(
     };
     atual.ordens += 1;
     atual.entradaPeriodoT += m.entradaPeriodoT;
-    atual.areaLiberadaHa += ordem.areaLiberadaHa;
+    atual.areaLiberadaHa += m.areaTotalHa;
     map.set(ordem.frente, atual);
   }
   return Array.from(map.values())
