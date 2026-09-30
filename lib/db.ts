@@ -43,13 +43,30 @@ function buildSeedDb(): Database {
   };
 }
 
+/**
+ * Gravação atômica: escreve num arquivo temporário e só troca pelo arquivo
+ * real com `renameSync` (atômico no Linux/Render) depois que a escrita
+ * inteira terminou. Sem isso, um processo encerrado no meio de
+ * `writeFileSync` (ex.: a instância do Render ficando sem memória) deixa
+ * `db.json` com um JSON truncado — e é exatamente esse arquivo corrompido
+ * que já causou perda de dados importados antes.
+ */
+function escreverDbAtomico(db: Database) {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  const tmpPath = `${DB_PATH}.tmp-${process.pid}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(db, null, 2), "utf-8");
+  fs.renameSync(tmpPath, DB_PATH);
+}
+
 function ensureDb(): Database {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   if (!fs.existsSync(DB_PATH)) {
     const seeded = buildSeedDb();
-    fs.writeFileSync(DB_PATH, JSON.stringify(seeded, null, 2), "utf-8");
+    escreverDbAtomico(seeded);
     return seeded;
   }
   const raw = fs.readFileSync(DB_PATH, "utf-8");
@@ -57,14 +74,29 @@ function ensureDb(): Database {
   try {
     db = JSON.parse(raw) as Database;
   } catch {
-    db = buildSeedDb();
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
-    return db;
+    // NUNCA sobrescreve um arquivo corrompido/truncado com uma base vazia —
+    // isso já apagou dados importados de verdade (ex.: se o processo for
+    // encerrado no meio de uma gravação, o arquivo em disco fica com JSON
+    // inválido; a versão antiga deste código reagia a isso recriando a base
+    // do zero E GRAVANDO por cima, destruindo o que ainda podia ser
+    // recuperado). Agora: guarda uma cópia do arquivo com problema ao lado
+    // (pra recuperação manual) e serve uma base vazia só nesta resposta, sem
+    // tocar no arquivo original.
+    const backupPath = `${DB_PATH}.corrompido-${Date.now()}`;
+    try {
+      fs.writeFileSync(backupPath, raw, "utf-8");
+    } catch {
+      // mesmo se o backup falhar, não sobrescreve o original abaixo.
+    }
+    console.error(
+      `[db] ${DB_PATH} não é um JSON válido — não foi sobrescrito. Cópia (se possível) em ${backupPath}. Servindo uma base vazia só nesta resposta.`
+    );
+    return buildSeedDb();
   }
   // Migração leve: bancos gravados antes da tela de login não têm `usuarios`.
   if (!db.usuarios || db.usuarios.length === 0) {
     db.usuarios = [buildAdminPadrao()];
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+    escreverDbAtomico(db);
     return db;
   }
   // Migração leve: bancos gravados antes dos níveis leitura/gravação/admin
@@ -102,7 +134,10 @@ function ensureDb(): Database {
   // dados importados continuam de pé até uma reimportação manual trazer a
   // divisão certa por fazenda para as ordens que têm mais de uma.
   for (const o of db.ordens) {
-    for (const t of o.talhoes as unknown as Array<Record<string, unknown>>) {
+    // Array.isArray() por segurança — nunca deixa um registro inesperado
+    // (ex.: `talhoes`/`entradas` ausente ou nulo por algum motivo) derrubar
+    // a leitura inteira da base com uma exceção não tratada.
+    for (const t of (Array.isArray(o.talhoes) ? o.talhoes : []) as unknown as Array<Record<string, unknown>>) {
       if (t.fazendaCodigo === undefined) {
         t.fazendaCodigo = o.fazendaCodigo;
         t.fazendaNome = o.fazendaNome;
@@ -113,7 +148,7 @@ function ensureDb(): Database {
         migrou = true;
       }
     }
-    for (const e of o.entradas as unknown as Array<Record<string, unknown>>) {
+    for (const e of (Array.isArray(o.entradas) ? o.entradas : []) as unknown as Array<Record<string, unknown>>) {
       if (e.fazendaCodigo === undefined) {
         e.fazendaCodigo = o.fazendaCodigo;
         migrou = true;
@@ -121,7 +156,7 @@ function ensureDb(): Database {
     }
   }
   if (migrou) {
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+    escreverDbAtomico(db);
   }
   return db;
 }
@@ -132,10 +167,7 @@ export function getDb(): Database {
 
 export function saveDb(db: Database) {
   db.ultimaAtualizacao = new Date().toISOString();
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+  escreverDbAtomico(db);
 }
 
 export function listOrdens(): OrdemCorte[] {

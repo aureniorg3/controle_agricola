@@ -59,6 +59,16 @@ seguir os passos:
    cada novo deploy o Render apaga o disco do serviço, a base de ordens fica
    vazia (é preciso reimportar as planilhas) e o usuário admin volta para a
    senha padrão.
+
+   `lib/db.ts` grava sempre em arquivo temporário + `rename` atômico (nunca
+   sobrescreve `db.json` direto) — um processo encerrado no meio de uma
+   gravação (ex.: instância gratuita ficando sem memória) não deixa mais o
+   arquivo corrompido. Se `db.json` ainda assim aparecer com um JSON
+   inválido (de uma gravação antiga, antes dessa proteção), o sistema nunca
+   apaga o arquivo sozinho: guarda uma cópia (`db.json.corrompido-<hora>`,
+   no mesmo disco) e serve uma base vazia só naquela resposta, sem
+   sobrescrever o original — dá pra recuperar manualmente ou reimportar as
+   planilhas sem perder a cópia com problema.
 5. **Create Web Service.** O primeiro deploy demora alguns minutos (build do
    Next.js); depois disso o Render mostra a URL pública do serviço no topo da
    página (algo como `https://controle-agricola.onrender.com`) — esse é o
