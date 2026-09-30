@@ -2,22 +2,33 @@ export type StatusOrdem = "Aberta" | "Encerrada";
 
 /**
  * Talhão dentro de uma ordem, como cadastrado no arquivo "Ordem de
- * Colheita.xlsx" — quando um talhão aparece mais de uma vez nesse arquivo
- * (plantios/"partes" diferentes dentro do mesmo número), as áreas são
- * somadas num único registro por número de talhão.
+ * Colheita.xlsx" — uma ordem pode abranger mais de uma fazenda (cada uma com
+ * seu próprio bloco "Propriedade" e seus próprios talhões no arquivo), e o
+ * número do talhão sozinho NÃO é único dentro da ordem nesse caso (ex.:
+ * talhão "1" pode existir em duas fazendas diferentes da mesma ordem) — por
+ * isso a chave real é o par fazendaCodigo+talhao. Quando o mesmo par aparece
+ * mais de uma vez (plantios/"partes" diferentes dentro do mesmo talhão), as
+ * áreas são somadas num único registro.
  */
 export interface TalhaoOrdem {
+  fazendaCodigo: string;
+  fazendaNome: string;
   talhao: string;
   areaHa: number;
+  /** área colhida lançada manualmente (medição de campo, parcial) — 0 até
+   * ser lançada pela primeira vez. */
+  areaColhidaHa: number;
 }
 
 /**
  * Entrada de cana de um talhão num dia — já agregada a partir das viagens
  * individuais de "Pesagem de Cana por Hora" (uma viagem = um caminhão, um
- * talhão, um Controle+Sequência). `viagens` é só informativo.
+ * talhão, um Controle+Sequência). `viagens` é só informativo. `fazendaCodigo`
+ * é necessário para casar com o `TalhaoOrdem` certo (ver comentário lá).
  */
 export interface EntradaDiaria {
   data: string; // YYYY-MM-DD
+  fazendaCodigo: string;
   talhao: string;
   toneladas: number;
   /** parte de `toneladas` pesada entre 00:00 e 06:00 desse dia — usada pela

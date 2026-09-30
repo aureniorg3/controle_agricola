@@ -1,9 +1,11 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { OrdemCorte, PerfilUsuario, Periodo, StatusOrdem } from "@/lib/types";
+import { Fragment, FormEvent, useMemo, useState } from "react";
+import { OrdemCorte, PerfilUsuario, Periodo, StatusOrdem, TalhaoOrdem } from "@/lib/types";
 import {
   addDays,
+  calcAreaColhidaHa,
+  calcAreaTotalHa,
   calcOrdemMetrics,
   calcTalhaoEntradaPeriodo,
   endOfMonth,
@@ -63,8 +65,13 @@ export default function OrdensCorteClient({
   const [statusFiltro, setStatusFiltro] = useState<"todas" | StatusOrdem>("todas");
   const [busca, setBusca] = useState("");
   const [importarAberto, setImportarAberto] = useState(false);
+  const [areaColhidaAlvo, setAreaColhidaAlvo] = useState<OrdemCorte | null>(null);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string>(() => new Date().toISOString());
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set());
+
+  function atualizarOrdemLocal(atualizada: OrdemCorte) {
+    setOrdens((prev) => prev.map((o) => (o.numero === atualizada.numero ? atualizada : o)));
+  }
 
   async function refetch() {
     const res = await fetch("/api/ordens-corte", { cache: "no-store" });
@@ -180,17 +187,18 @@ export default function OrdensCorteClient({
   );
 
   const rotulosResumo = useMemo(() => {
+    // Os fins de Semana/Quinzena/Mês Atual são sempre a própria referência
+    // (não o fim natural do período) — mesma regra "até a data selecionada"
+    // usada em resumoPorFrente, pra o rótulo bater com o que é somado de
+    // verdade.
     const dm = (iso: string) => fmtDateBR(iso).slice(0, 5);
-    const semana = { inicio: startOfWeekMonday(referencia), fim: endOfWeekMonday(referencia) };
-    const quinzena = quinzenaRange(referencia);
-    const mesAtual = { inicio: startOfMonth(referencia), fim: endOfMonth(referencia) };
     const mesAnterior = mesAnteriorRange(referencia);
     return {
       diaAnterior: dm(addDays(referencia, -1)),
       diaAtual: dm(referencia),
-      semana: `${dm(semana.inicio)}–${dm(semana.fim)}`,
-      quinzena: `${dm(quinzena.inicio)}–${dm(quinzena.fim)}`,
-      mesAtual: `${dm(mesAtual.inicio)}–${dm(mesAtual.fim)}`,
+      semana: `${dm(startOfWeekMonday(referencia))}–${dm(referencia)}`,
+      quinzena: `${dm(quinzenaRange(referencia).inicio)}–${dm(referencia)}`,
+      mesAtual: `${dm(startOfMonth(referencia))}–${dm(referencia)}`,
       mesAnterior: `${dm(mesAnterior.inicio)}–${dm(mesAnterior.fim)}`,
     };
   }, [referencia]);
@@ -528,6 +536,7 @@ export default function OrdensCorteClient({
                       period={period}
                       referencia={referencia}
                       onRemover={podeGravar ? () => removerOrdem(ordem.numero) : undefined}
+                      onLancarAreaColhida={podeGravar ? () => setAreaColhidaAlvo(ordem) : undefined}
                     />
                   ))}
                 </div>
@@ -542,6 +551,16 @@ export default function OrdensCorteClient({
       </div>
 
       {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} onImportado={refetch} />}
+      {areaColhidaAlvo && (
+        <AreaColhidaModal
+          ordem={areaColhidaAlvo}
+          onFechar={() => setAreaColhidaAlvo(null)}
+          onSalvo={(atualizada) => {
+            atualizarOrdemLocal(atualizada);
+            setAreaColhidaAlvo(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -589,13 +608,26 @@ function OrdemCard({
   period,
   referencia,
   onRemover,
+  onLancarAreaColhida,
 }: {
   ordem: OrdemCorte;
   period: Periodo;
   referencia: string;
   onRemover?: () => void;
+  onLancarAreaColhida?: () => void;
 }) {
   const m = calcOrdemMetrics(ordem, period, referencia);
+  const areaColhidaHa = calcAreaColhidaHa(ordem);
+
+  const gruposFazenda = useMemo(() => {
+    const map = new Map<string, { fazendaCodigo: string; fazendaNome: string; talhoes: TalhaoOrdem[] }>();
+    for (const t of ordem.talhoes) {
+      const g = map.get(t.fazendaCodigo) ?? { fazendaCodigo: t.fazendaCodigo, fazendaNome: t.fazendaNome, talhoes: [] };
+      g.talhoes.push(t);
+      map.set(t.fazendaCodigo, g);
+    }
+    return [...map.values()];
+  }, [ordem.talhoes]);
 
   return (
     <div className="flex flex-col overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
@@ -604,6 +636,7 @@ function OrdemCard({
           <div className="text-[14px] font-extrabold tracking-tight text-navy-900">Ordem - {ordem.numero}</div>
           <div className="text-[11.5px] text-muted">
             {ordem.fazendaCodigo} · {ordem.fazendaNome}
+            {gruposFazenda.length > 1 && ` · +${gruposFazenda.length - 1} fazenda(s)`}
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -642,35 +675,59 @@ function OrdemCard({
                 </td>
               </tr>
             )}
-            {ordem.talhoes.map((t) => (
-              <tr key={t.talhao} className="border-t border-line/70">
-                <td className="py-1 font-medium text-ink">{t.talhao}</td>
-                <td className="py-1 text-right tabular text-muted">{fmtHa(t.areaHa)}</td>
-                <td className="py-1 text-right tabular text-muted">
-                  {fmtT(calcTalhaoEntradaPeriodo(ordem, t, period, referencia))}
-                </td>
-                <td className="py-1 text-right tabular font-medium text-ink">
-                  {fmtT(calcTalhaoEntradaPeriodo(ordem, t, "safra", referencia))}
-                </td>
-              </tr>
+            {gruposFazenda.map((g) => (
+              <Fragment key={g.fazendaCodigo}>
+                {gruposFazenda.length > 1 && (
+                  <tr className="border-t border-line/70 bg-surface">
+                    <td colSpan={4} className="py-1 text-[10.5px] font-semibold text-muted">
+                      {g.fazendaCodigo} · {g.fazendaNome}
+                    </td>
+                  </tr>
+                )}
+                {g.talhoes.map((t) => (
+                  <tr key={`${t.fazendaCodigo}-${t.talhao}`} className="border-t border-line/70">
+                    <td className="py-1 font-medium text-ink">{t.talhao}</td>
+                    <td className="py-1 text-right tabular text-muted">{fmtHa(t.areaHa)}</td>
+                    <td className="py-1 text-right tabular text-muted">
+                      {fmtT(calcTalhaoEntradaPeriodo(ordem, t, period, referencia))}
+                    </td>
+                    <td className="py-1 text-right tabular font-medium text-ink">
+                      {fmtT(calcTalhaoEntradaPeriodo(ordem, t, "safra", referencia))}
+                    </td>
+                  </tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>
       </div>
 
-      <div className="mx-4 my-3 mt-auto grid grid-cols-2 gap-2 rounded-lg bg-surface p-2.5 text-[12px]">
+      <div className="mx-4 my-3 mt-auto grid grid-cols-3 gap-2 rounded-lg bg-surface p-2.5 text-[12px]">
         <div>
-          <div className="text-muted">Área</div>
+          <div className="text-muted">Área da ordem</div>
           <div className="font-semibold tabular text-ink">{fmtHa(m.areaTotalHa)} ha</div>
         </div>
         <div>
-          <div className="text-muted">Acumulado safra</div>
+          <div className="text-muted">Área colhida</div>
+          <div className="font-semibold tabular text-ink">{fmtHa(areaColhidaHa)} ha</div>
+        </div>
+        <div>
+          <div className="text-muted">Acum. safra</div>
           <div className="font-semibold tabular text-ink">{fmtT(m.acumSafraT)} t</div>
         </div>
-        <div className="col-span-2 rounded-md bg-brand-50 px-2 py-1.5">
+        <div className="col-span-3 rounded-md bg-brand-50 px-2 py-1.5">
           <div className="text-brand-700">Entrada no período selecionado</div>
           <div className="text-[15px] font-bold tabular text-brand-700">{fmtT(m.entradaPeriodoT)} t</div>
         </div>
+        {onLancarAreaColhida && (
+          <button
+            type="button"
+            onClick={onLancarAreaColhida}
+            className="col-span-3 rounded-md border border-line bg-card px-2 py-1.5 text-center text-[11.5px] font-semibold text-navy-800 hover:bg-navy-900/5"
+          >
+            Lançar área colhida
+          </button>
+        )}
       </div>
 
       <div className="mx-4 mb-3 flex flex-wrap gap-1.5 text-[10.5px]">
@@ -678,10 +735,161 @@ function OrdemCard({
           TCH geral realizado <b className="text-ink">{fmtTch(m.tchGeralRealizado)}</b>
         </span>
         {ordem.tipoCana && (
-          <span className="rounded-full bg-surface px-2 py-1 font-semibold text-muted">{ordem.tipoCana}</span>
+          <span
+            className={`rounded-full px-2 py-1 font-semibold ${
+              ordem.tipoCana.toLowerCase().includes("queimada")
+                ? "bg-amber-50 text-amber-600"
+                : "bg-brand-50 text-brand-700"
+            }`}
+          >
+            {ordem.tipoCana}
+          </span>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Único lançamento manual que sobrou depois da reformulação: a área já
+ * colhida de cada talhão (medição de campo, sempre parcial) — as toneladas
+ * continuam 100% vindas da importação. "Por ordem" distribui o total
+ * proporcionalmente pela área de cada talhão; "Por talhão" grava os valores
+ * exatos.
+ */
+function AreaColhidaModal({
+  ordem,
+  onFechar,
+  onSalvo,
+}: {
+  ordem: OrdemCorte;
+  onFechar: () => void;
+  onSalvo: (ordemAtualizada: OrdemCorte) => void;
+}) {
+  const [modo, setModo] = useState<"ordem" | "talhoes">("ordem");
+  const areaTotalHa = calcAreaTotalHa(ordem);
+  const [totalHa, setTotalHa] = useState(() => calcAreaColhidaHa(ordem).toString());
+  const [porTalhao, setPorTalhao] = useState<Record<string, string>>(() =>
+    Object.fromEntries(ordem.talhoes.map((t) => [`${t.fazendaCodigo}|${t.talhao}`, t.areaColhidaHa.toString()]))
+  );
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function salvar(e: FormEvent) {
+    e.preventDefault();
+    setErro(null);
+    setEnviando(true);
+    try {
+      const body =
+        modo === "ordem"
+          ? { numero: ordem.numero, modo: "ordem", totalHa: Number(totalHa.replace(",", ".")) }
+          : {
+              numero: ordem.numero,
+              modo: "talhoes",
+              valores: ordem.talhoes.map((t) => ({
+                fazendaCodigo: t.fazendaCodigo,
+                talhao: t.talhao,
+                areaColhidaHa: Number((porTalhao[`${t.fazendaCodigo}|${t.talhao}`] ?? "0").replace(",", ".")),
+              })),
+            };
+      const res = await fetch("/api/ordens-corte/area-colhida", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErro(data?.error ?? "Não foi possível lançar a área colhida.");
+        return;
+      }
+      onSalvo(data.ordem as OrdemCorte);
+    } catch {
+      setErro("Não foi possível enviar a solicitação. Verifique a conexão.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <ModalShell titulo={`Lançar área colhida — Ordem ${ordem.numero}`} onFechar={onFechar}>
+      <div className="mb-4 flex gap-1.5 rounded-lg bg-navy-900/5 p-1">
+        <button
+          type="button"
+          onClick={() => setModo("ordem")}
+          className={`flex-1 rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
+            modo === "ordem" ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-white"
+          }`}
+        >
+          Total da ordem
+        </button>
+        <button
+          type="button"
+          onClick={() => setModo("talhoes")}
+          className={`flex-1 rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
+            modo === "talhoes" ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-white"
+          }`}
+        >
+          Por talhão
+        </button>
+      </div>
+
+      <form onSubmit={salvar} className="space-y-3">
+        {modo === "ordem" ? (
+          <Campo label={`Área colhida da ordem (ha) — total da ordem: ${fmtHa(areaTotalHa)} ha`}>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={totalHa}
+              onChange={(e) => setTotalHa(e.target.value)}
+              className="w-full rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink shadow-card"
+            />
+            <span className="mt-1 block text-[11px] text-muted">
+              Distribuído proporcionalmente pela área de cada talhão.
+            </span>
+          </Campo>
+        ) : (
+          <div className="max-h-[45vh] space-y-2 overflow-y-auto">
+            {ordem.talhoes.map((t) => {
+              const chave = `${t.fazendaCodigo}|${t.talhao}`;
+              return (
+                <Campo key={chave} label={`Talhão ${t.talhao} · ${t.fazendaNome} (área: ${fmtHa(t.areaHa)} ha)`}>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={porTalhao[chave] ?? "0"}
+                    onChange={(e) => setPorTalhao((prev) => ({ ...prev, [chave]: e.target.value }))}
+                    className="w-full rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink shadow-card"
+                  />
+                </Campo>
+              );
+            })}
+          </div>
+        )}
+
+        {erro && (
+          <div className="rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">
+            {erro}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onFechar}
+            className="rounded-lg border border-line px-3.5 py-1.5 text-[13px] font-semibold text-ink hover:bg-surface"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={enviando}
+            className="rounded-lg bg-navy-900 px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
+          >
+            {enviando ? "Salvando…" : "Salvar"}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
   );
 }
 

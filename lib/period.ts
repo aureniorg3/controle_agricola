@@ -65,7 +65,7 @@ export function calcTalhaoEntradaPeriodo(
 ): number {
   const range = rangeForPeriod(period, referencia);
   const total = ordem.entradas
-    .filter((e) => e.talhao === talhao.talhao)
+    .filter((e) => e.talhao === talhao.talhao && e.fazendaCodigo === talhao.fazendaCodigo)
     .filter((e) => range === null || (e.data >= range.inicio && e.data <= range.fim))
     .reduce((s, e) => s + e.toneladas, 0);
   return Math.round(total * 100) / 100;
@@ -85,6 +85,11 @@ export function calcAcumSafraT(ordem: OrdemCorte): number {
 
 export function calcAreaTotalHa(ordem: OrdemCorte): number {
   return ordem.talhoes.reduce((s, t) => s + t.areaHa, 0);
+}
+
+/** Soma da área colhida lançada manualmente (medição de campo) por talhão. */
+export function calcAreaColhidaHa(ordem: OrdemCorte): number {
+  return Math.round(ordem.talhoes.reduce((s, t) => s + t.areaColhidaHa, 0) * 100) / 100;
 }
 
 export function calcOrdemMetrics(ordem: OrdemCorte, period: Periodo, referencia: string): OrdemMetrics {
@@ -134,11 +139,19 @@ function somaNoIntervalo(entradas: EntradaDiaria[], range: { inicio: string; fim
  * recalcula sozinha sempre que a data de referência muda.
  */
 export function resumoPorFrente(ordens: OrdemCorte[], referencia: string): FrenteResumo[] {
+  // Semana/Quinzena/Mês Atual/Safra são recortes "até a data selecionada":
+  // o fim de cada um é sempre a própria referência, nunca o fim natural do
+  // período — senão, escolher uma data retroativa mostraria produção de
+  // dias futuros (já presentes na base por causa de importações mais
+  // recentes) misturada com o que realmente tinha até aquele dia. Mês
+  // Anterior e Dia Anterior já são inteiramente passados em relação à
+  // referência, então não precisam desse limite.
   const diaAnterior = { inicio: addDays(referencia, -1), fim: addDays(referencia, -1) };
-  const semana = { inicio: startOfWeekMonday(referencia), fim: endOfWeekMonday(referencia) };
-  const quinzena = quinzenaRange(referencia);
-  const mesAtual = { inicio: startOfMonth(referencia), fim: endOfMonth(referencia) };
+  const semana = { inicio: startOfWeekMonday(referencia), fim: referencia };
+  const quinzena = { inicio: quinzenaRange(referencia).inicio, fim: referencia };
+  const mesAtual = { inicio: startOfMonth(referencia), fim: referencia };
   const mesAnterior = mesAnteriorRange(referencia);
+  const safra = { inicio: "0000-01-01", fim: referencia };
 
   const map = new Map<string, FrenteResumo>();
   for (const ordem of ordens) {
@@ -156,7 +169,7 @@ export function resumoPorFrente(ordens: OrdemCorte[], referencia: string): Frent
     };
     atual.ordens += 1;
     atual.areaHa += calcAreaTotalHa(ordem);
-    atual.safraT += somaNoIntervalo(ordem.entradas, null);
+    atual.safraT += somaNoIntervalo(ordem.entradas, safra);
     atual.mesAnteriorT += somaNoIntervalo(ordem.entradas, mesAnterior);
     atual.mesAtualT += somaNoIntervalo(ordem.entradas, mesAtual);
     atual.quinzenaT += somaNoIntervalo(ordem.entradas, quinzena);

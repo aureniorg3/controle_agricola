@@ -94,6 +94,32 @@ function ensureDb(): Database {
     db.ordensVisiveis = [];
     migrou = true;
   }
+  // Migração leve: bancos gravados antes do suporte a ordens com mais de uma
+  // fazenda não têm `fazendaCodigo`/`fazendaNome`/`areaColhidaHa` por talhão
+  // nem `fazendaCodigo` por entrada — preenche com a fazenda "principal" da
+  // ordem (o melhor palpite possível sem reimportar; correto para a maioria
+  // das ordens, que têm só uma fazenda). NUNCA zera `db.ordens` aqui — os
+  // dados importados continuam de pé até uma reimportação manual trazer a
+  // divisão certa por fazenda para as ordens que têm mais de uma.
+  for (const o of db.ordens) {
+    for (const t of o.talhoes as unknown as Array<Record<string, unknown>>) {
+      if (t.fazendaCodigo === undefined) {
+        t.fazendaCodigo = o.fazendaCodigo;
+        t.fazendaNome = o.fazendaNome;
+        migrou = true;
+      }
+      if (t.areaColhidaHa === undefined) {
+        t.areaColhidaHa = 0;
+        migrou = true;
+      }
+    }
+    for (const e of o.entradas as unknown as Array<Record<string, unknown>>) {
+      if (e.fazendaCodigo === undefined) {
+        e.fazendaCodigo = o.fazendaCodigo;
+        migrou = true;
+      }
+    }
+  }
   if (migrou) {
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
   }
@@ -158,6 +184,55 @@ export function removerOrdemVisivel(numero: string) {
   const db = getDb();
   db.ordensVisiveis = db.ordensVisiveis.filter((n) => n !== numero);
   saveDb(db);
+}
+
+export type LancamentoAreaColhida =
+  | { modo: "ordem"; totalHa: number }
+  | { modo: "talhoes"; valores: { fazendaCodigo: string; talhao: string; areaColhidaHa: number }[] };
+
+/**
+ * Único dado ainda lançado manualmente neste módulo: a área já colhida de
+ * cada talhão (medição de campo) — as toneladas continuam 100% vindas da
+ * importação. "Por ordem" distribui o total proporcionalmente pela área de
+ * cada talhão (mesmo critério do sistema antigo); "por talhão" grava os
+ * valores exatos informados.
+ */
+export function lancarAreaColhida(numero: string, input: LancamentoAreaColhida): OrdemCorte | { erro: string } {
+  const db = getDb();
+  const ordem = db.ordens.find((o) => o.numero === numero);
+  if (!ordem) return { erro: `Ordem ${numero} não encontrada.` };
+
+  if (input.modo === "ordem") {
+    const areaTotalHa = ordem.talhoes.reduce((s, t) => s + t.areaHa, 0);
+    if (areaTotalHa <= 0) {
+      return { erro: "Ordem sem área cadastrada nos talhões — não é possível distribuir." };
+    }
+    if (input.totalHa < 0 || input.totalHa > areaTotalHa + 0.01) {
+      return { erro: `Área colhida deve estar entre 0 e ${areaTotalHa.toFixed(2)} ha (área total da ordem).` };
+    }
+    for (const t of ordem.talhoes) {
+      t.areaColhidaHa = Math.round((t.areaHa / areaTotalHa) * input.totalHa * 100) / 100;
+    }
+  } else {
+    for (const v of input.valores) {
+      const talhao = ordem.talhoes.find((t) => t.fazendaCodigo === v.fazendaCodigo && t.talhao === v.talhao);
+      if (!talhao) continue;
+      if (v.areaColhidaHa < 0 || v.areaColhidaHa > talhao.areaHa + 0.01) {
+        return {
+          erro: `Talhão ${v.talhao} (fazenda ${v.fazendaCodigo}): área colhida deve estar entre 0 e ${talhao.areaHa.toFixed(2)} ha.`,
+        };
+      }
+    }
+    // só grava depois de validar todos — não deixa a ordem meio atualizada.
+    for (const v of input.valores) {
+      const talhao = ordem.talhoes.find((t) => t.fazendaCodigo === v.fazendaCodigo && t.talhao === v.talhao);
+      if (talhao) talhao.areaColhidaHa = Math.round(v.areaColhidaHa * 100) / 100;
+    }
+  }
+
+  ordem.atualizadoEm = new Date().toISOString();
+  saveDb(db);
+  return ordem;
 }
 
 export function listUsuarios(): Usuario[] {

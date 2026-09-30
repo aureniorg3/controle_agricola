@@ -120,7 +120,16 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
 - Cards por ordem de corte (um "quadrado" por ordem, igual ao relatório
   impresso), agrupados por frente, com o mini-relatório de talhões, área
   total, acumulado da safra e o TCH geral realizado. Status **Aberta** em
-  verde, **Encerrada** em âmbar.
+  verde, **Encerrada** em âmbar; tipo de cana **queimada** em laranja claro,
+  as demais em azul.
+- **Ordens com mais de uma fazenda**: o arquivo "Ordem de Colheita.xlsx" pode
+  ter mais de um bloco "Propriedade" dentro da mesma ordem (uma fazenda por
+  bloco, cada uma com seus próprios talhões) — e o número do talhão sozinho
+  não é único nesse caso (ex.: talhão "1" pode existir em duas fazendas
+  diferentes da mesma ordem). O card mostra cada fazenda como uma seção
+  separada na tabela de talhões (a chave real é fazenda+talhão, tanto no
+  cadastro quanto na entrada diária — ver `TalhaoOrdem`/`EntradaDiaria` em
+  `lib/types.ts`).
 - Filtro de período **Dia / Semana / Mês / Safra**: controla os KPIs do topo
   e a "Entrada no período" de cada card — Dia, Semana e Mês somam a entrada
   real de cana dentro do intervalo; Safra mostra o acumulado corrido desde o
@@ -131,12 +140,16 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
   Safra, Mês Anterior, Mês Atual, Quinzena, Semana, Dia Anterior e Dia Atual
   — todas recalculadas a partir da data selecionada no filtro (mudar a data
   recalcula a tabela inteira na hora; ela não segue os botões
-  Dia/Semana/Mês/Safra, que só afetam os KPIs e os cards). **Dia Atual** é a
-  única coluna especial: só conta a entrada pesada entre 00:00 e 06:00
-  daquele dia (é o número disponível assim que o relatório da madrugada sai,
-  antes do resto do dia ser pesado) — as demais colunas usam o dia civil
-  inteiro. Essa janela de 6h vem da coluna Hora do relatório de Pesagem
-  (`toneladasAte6h` em `EntradaDiaria`, calculada na importação).
+  Dia/Semana/Mês/Safra, que só afetam os KPIs e os cards). Semana, Quinzena,
+  Mês Atual e Safra são sempre "até a data selecionada" (o fim do recorte é
+  a própria data de referência, nunca o fim natural do período) — escolher
+  uma data retroativa não mistura produção de dias depois dela, mesmo que já
+  estejam na base por causa de uma importação mais recente. **Dia Atual** é
+  a única coluna com regra própria: só conta a entrada pesada entre 00:00 e
+  06:00 daquele dia (é o número disponível assim que o relatório da
+  madrugada sai, antes do resto do dia ser pesado). Essa janela de 6h vem da
+  coluna Hora do relatório de Pesagem (`toneladasAte6h` em `EntradaDiaria`,
+  calculada na importação).
 - **Inserir Ordem**: a importação traz a safra inteira (centenas de ordens),
   mas a tela só mostra as que forem escolhidas manualmente — digite o número
   da ordem no campo "Inserir Ordem" (autocompleta pelas ordens já
@@ -144,10 +157,17 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
   da tela de novo. Essa seleção fica salva no servidor
   (`ordensVisiveis` em `data/db.json`) e sobrevive a uma reimportação — só os
   *dados* da ordem são atualizados, a escolha de quais aparecem não muda.
+- **Lançar área colhida**: único dado ainda lançado manualmente — a área já
+  colhida de cada talhão (medição de campo, sempre parcial). Botão em cada
+  card, com dois modos: **Total da ordem** (um número só, distribuído
+  proporcionalmente pela área de cada talhão) ou **Por talhão** (um valor
+  exato por talhão). Mostrado no resumo do card, ao lado da área da ordem.
+  As toneladas continuam 100% vindas da importação — isso não reabre
+  lançamento manual de apontamento.
 - **Importar planilhas**: lê os 3 relatórios oficiais do CHBWEB e substitui
-  a base inteira de ordens por eles — ver seção própria abaixo. É a única
-  forma de entrada de dados: não há cadastro manual de ordem nem lançamento
-  manual de apontamento — tudo vem do sistema de origem.
+  a base inteira de ordens por eles — ver seção própria abaixo. As toneladas
+  são 100% derivadas do sistema de origem; não há cadastro manual de ordem
+  nem lançamento manual de apontamento.
 
 ## Importar planilhas (Ordens de Corte)
 
@@ -243,6 +263,7 @@ app/
       route.ts                   GET (listar ordens + ordensVisiveis)
       importar/route.ts          POST (importa os 3 arquivos, exige gravação+)
       visiveis/route.ts          POST/DELETE (marca/desmarca ordem pra exibir, exige gravação+)
+      area-colhida/route.ts      POST (lança área colhida por ordem/talhão, exige gravação+)
     usuarios/
       route.ts                   GET (listar) / POST (criar) — só admin
       [id]/route.ts              PATCH (editar) / DELETE (excluir) — só admin

@@ -182,21 +182,50 @@ export function parseOrdemColheita(buffer: ArrayBuffer): {
     const tipoCana = linhaTipoCana ? texto(linhaTipoCana[2]) || undefined : undefined;
     const observacao = linhaObs ? texto(linhaObs[1]) || undefined : undefined;
 
-    // Linhas de talhão: col0..col4 vazias, col5 preenchida, e não é a linha
-    // "Totais:" (essa tem col5 vazia e "Totais:" na col6).
-    const areaPorTalhao = new Map<string, number>();
+    // Uma ordem pode ter mais de um bloco "Propriedade" (mais de uma
+    // fazenda), cada um seguido pelos seus próprios talhões — e o número do
+    // talhão sozinho se repete entre fazendas (ex.: talhão "1" em duas
+    // fazendas da mesma ordem), então a chave real é fazenda+talhão. As
+    // linhas de talhão têm col0..col4 vazias, col5 preenchida, e não são a
+    // linha "Totais:" (col5 vazia, "Totais:" na col6).
+    const areaPorFazendaTalhao = new Map<
+      string,
+      { fazendaCodigo: string; fazendaNome: string; talhao: string; areaHa: number }
+    >();
+    let fazendaAtualCodigo = "";
+    let fazendaAtualNome = "";
     for (const l of bloco.linhas) {
+      if (l[0] === "Propriedade") {
+        fazendaAtualCodigo = texto(l[1]);
+        const label = texto(l[3]);
+        const partes = label.split(" - ");
+        fazendaAtualNome = partes.length > 1 ? partes.slice(1).join(" - ").trim() : label;
+        continue;
+      }
       const vazio = l[0] === "" && l[1] === "" && l[2] === "" && l[3] === "" && l[4] === "";
       if (!vazio) continue;
       if (l[6] === "Totais:") continue;
       const talhao = texto(l[5]);
       if (!talhao) continue;
       const area = numeroBR(l[6]);
-      areaPorTalhao.set(talhao, (areaPorTalhao.get(talhao) ?? 0) + area);
+      const codigo = fazendaAtualCodigo || fazendaCodigo || "-";
+      const chave = `${codigo}|${talhao}`;
+      const atual = areaPorFazendaTalhao.get(chave) ?? {
+        fazendaCodigo: codigo,
+        fazendaNome: fazendaAtualNome || fazendaNome || "Fazenda não informada",
+        talhao,
+        areaHa: 0,
+      };
+      atual.areaHa += area;
+      areaPorFazendaTalhao.set(chave, atual);
     }
-    const talhoes: TalhaoOrdem[] = [...areaPorTalhao.entries()]
-      .map(([talhao, areaHa]) => ({ talhao, areaHa: Math.round(areaHa * 100) / 100 }))
-      .sort((a, b) => a.talhao.localeCompare(b.talhao, undefined, { numeric: true }));
+    const talhoes: TalhaoOrdem[] = [...areaPorFazendaTalhao.values()]
+      .map((t) => ({ ...t, areaHa: Math.round(t.areaHa * 100) / 100, areaColhidaHa: 0 }))
+      .sort((a, b) =>
+        a.fazendaCodigo === b.fazendaCodigo
+          ? a.talhao.localeCompare(b.talhao, undefined, { numeric: true })
+          : a.fazendaCodigo.localeCompare(b.fazendaCodigo)
+      );
 
     if (talhoes.length === 0) {
       avisos.push(`Ordem ${numero}: nenhum talhão encontrado no bloco.`);
@@ -233,6 +262,7 @@ export function parseOrdemColheita(buffer: ArrayBuffer): {
 export interface EntradaAgregada {
   ordem: string;
   data: string;
+  fazendaCodigo: string;
   talhao: string;
   toneladas: number;
   /** parte de `toneladas` pesada com Hora < 06:00 — usada pela coluna
@@ -302,11 +332,15 @@ export async function agregarPesagem(
       return;
     }
 
+    const fazendaCodigo = texto(l[6]);
     const talhao = texto(l[8]);
     const toneladas = numeroBR(l[12]) / 1000;
     const horaFracao = numeroBR(l[1]); // fração do dia (0 a <1) — 0,25 = 06:00
-    const k = `${ordemInfo}|${data}|${talhao}`;
-    const acc = agregados.get(k) ?? { ordem: ordemInfo, data, talhao, toneladas: 0, toneladasAte6h: 0, viagens: 0 };
+    // Fazenda entra na chave porque o número do talhão sozinho não é único
+    // dentro da ordem quando ela abrange mais de uma fazenda (ver TalhaoOrdem).
+    const k = `${ordemInfo}|${data}|${fazendaCodigo}|${talhao}`;
+    const acc =
+      agregados.get(k) ?? { ordem: ordemInfo, data, fazendaCodigo, talhao, toneladas: 0, toneladasAte6h: 0, viagens: 0 };
     acc.toneladas += toneladas;
     if (horaFracao < 0.25) acc.toneladasAte6h += toneladas;
     acc.viagens += 1;
@@ -427,6 +461,7 @@ export function montarOrdens(
     if (!ordem) continue;
     ordem.entradas.push({
       data: acc.data,
+      fazendaCodigo: acc.fazendaCodigo,
       talhao: acc.talhao,
       toneladas: Math.round(acc.toneladas * 100) / 100,
       toneladasAte6h: Math.round(acc.toneladasAte6h * 100) / 100,
