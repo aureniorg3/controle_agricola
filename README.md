@@ -84,6 +84,19 @@ seguir os passos:
    no mesmo disco) e serve uma base vazia só naquela resposta, sem
    sobrescrever o original — dá pra recuperar manualmente ou reimportar as
    planilhas sem perder a cópia com problema.
+
+   **Se esse passo for esquecido ou desfeito**, o sistema avisa sozinho em
+   vez de falhar em silêncio: qualquer admin logado vê uma faixa vermelha no
+   topo de toda tela enquanto `DATA_DIR` não estiver configurado
+   (`diagnosticoArmazenamento()` em `lib/db.ts`, checado em
+   `app/(app)/layout.tsx`), e o log do serviço no Render imprime o mesmo
+   aviso assim que o processo sobe. **Importante:** sem esse disco, usuários
+   cadastrados, ordens importadas e a seleção de quais ordens aparecem na
+   tela são **sempre globais** (um único arquivo compartilhado por todo
+   mundo que acessa o sistema — não há nada "por usuário" no modelo de
+   dados) — o sintoma de "só quem importou/selecionou enxerga" ou "o usuário
+   cadastrado sumiu" não é um problema de permissão, é esse arquivo sendo
+   recriado do zero a cada deploy/restart porque não tem onde persistir.
 5. **Create Web Service.** O primeiro deploy demora alguns minutos (build do
    Next.js); depois disso o Render mostra a URL pública do serviço no topo da
    página (algo como `https://controle-agricola.onrender.com`) — esse é o

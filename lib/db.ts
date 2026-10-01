@@ -18,6 +18,41 @@ const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
 
 /**
+ * Sem a variável `DATA_DIR` apontando pro disco persistente do Render, todo
+ * dado gravado (usuários, ordens, seleção de visibilidade) vive só dentro da
+ * imagem do deploy atual — o próximo deploy ou restart apaga tudo. Isso já
+ * causou usuários "sumindo" e ordens "só aparecendo pra quem importou": não é
+ * um bug de lógica (o `Database` é um arquivo único e global, sem nada
+ * por-usuário), é o arquivo inteiro sendo recriado do zero. Avisa alto no log
+ * assim que o módulo carrega, pra aparecer nos logs do Render mesmo que
+ * ninguém olhe a tela.
+ */
+if (process.env.NODE_ENV === "production" && !process.env.DATA_DIR) {
+  console.error(
+    "\n" +
+      "!".repeat(70) +
+      "\n[db] ATENÇÃO: variável DATA_DIR não configurada em produção.\n" +
+      `Os dados em ${DB_PATH} serão apagados no próximo deploy/restart —\n` +
+      "configure um disco persistente no Render (Settings → Disks) e a\n" +
+      "variável de ambiente DATA_DIR apontando pro mount path dele. Ver\n" +
+      'README.md, seção "Deploy no Render".\n' +
+      "!".repeat(70) +
+      "\n"
+  );
+}
+
+export interface DiagnosticoArmazenamento {
+  /** `false` quando `DATA_DIR` não está configurado — nesse caso os dados
+   * vivem dentro da imagem de build e são apagados no próximo deploy. */
+  persistente: boolean;
+  caminho: string;
+}
+
+export function diagnosticoArmazenamento(): DiagnosticoArmazenamento {
+  return { persistente: Boolean(process.env.DATA_DIR), caminho: DATA_DIR };
+}
+
+/**
  * Usuário administrador padrão, criado automaticamente na primeira execução.
  * Login: e-mail abaixo. Senha inicial: "crv@2026" — troque em Configurações
  * → Cadastros assim que possível.
