@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, FormEvent, useMemo, useState } from "react";
+import { Fragment, FormEvent, useMemo, useState, type ReactNode } from "react";
 import { OrdemCorte, PerfilUsuario, Periodo, StatusOrdem, TalhaoOrdem } from "@/lib/types";
 import {
   addDays,
@@ -19,6 +19,7 @@ import {
   resumoPorFrente,
   startOfMonth,
   startOfWeekMonday,
+  toDateOnly,
 } from "@/lib/period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, todayISO } from "@/lib/format";
 import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
@@ -36,6 +37,39 @@ function ultimaDataComMovimento(ordens: OrdemCorte[]): string {
   let max = "";
   for (const o of ordens) for (const e of o.entradas) if (e.data > max) max = e.data;
   return max || todayISO();
+}
+
+/** Janela "anterior" de mesma duração que o período corrente, pra comparar
+ * produção/TCH par a par (ex.: essa semana até hoje vs. a mesma faixa de
+ * dias da semana passada). Safra é acumulado desde o início — não tem um
+ * "anterior" equivalente, por isso retorna null (os KPIs omitem a variação
+ * nesse caso). */
+function periodoAnteriorRange(period: Periodo, referencia: string): { inicio: string; fim: string } | null {
+  if (period === "dia") {
+    const anterior = addDays(referencia, -1);
+    return { inicio: anterior, fim: anterior };
+  }
+  if (period === "semana") {
+    return { inicio: addDays(startOfWeekMonday(referencia), -7), fim: addDays(referencia, -7) };
+  }
+  if (period === "mes") {
+    const d = new Date(`${referencia}T00:00:00`);
+    d.setMonth(d.getMonth() - 1);
+    const fimAnterior = toDateOnly(d);
+    return { inicio: startOfMonth(fimAnterior), fim: fimAnterior };
+  }
+  return null;
+}
+
+function somaEntradasNoIntervalo(ordem: OrdemCorte, range: { inicio: string; fim: string }): number {
+  return ordem.entradas.filter((e) => e.data >= range.inicio && e.data <= range.fim).reduce((s, e) => s + e.toneladas, 0);
+}
+
+/** Variação percentual atual vs. anterior — null quando não há como comparar
+ * (safra, ou período anterior sem nenhum registro). */
+function calcVariacaoPct(atual: number, anterior: number): number | null {
+  if (anterior <= 0) return null;
+  return Math.round(((atual - anterior) / anterior) * 1000) / 10;
 }
 
 function periodoTexto(period: Periodo, referencia: string, safraLabel: string): string {
@@ -309,6 +343,33 @@ export default function OrdensCorteClient({
     };
   }, [ordensFiltradas, period, referencia]);
 
+  // KPIs do novo painel do topo: área colhida acumulada e TCH médio do
+  // período (toneladas do período ÷ área total das ordens — mesma
+  // convenção do "TCH geral realizado" de cada card, só que por período em
+  // vez de acumulado de safra), com variação % contra a janela anterior de
+  // mesma duração.
+  const kpisPeriodo = useMemo(() => {
+    const rangeAnterior = periodoAnteriorRange(period, referencia);
+    let areaColhidaTotalHa = 0;
+    let entradaAnteriorT = 0;
+    for (const o of ordensFiltradas) {
+      areaColhidaTotalHa += calcAreaColhidaHa(o);
+      if (rangeAnterior) entradaAnteriorT += somaEntradasNoIntervalo(o, rangeAnterior);
+    }
+    areaColhidaTotalHa = Math.round(areaColhidaTotalHa * 100) / 100;
+    entradaAnteriorT = Math.round(entradaAnteriorT * 100) / 100;
+
+    const tchAtual = totalGeral.areaTotalHa > 0 ? totalGeral.entradaPeriodoT / totalGeral.areaTotalHa : 0;
+    const tchAnterior = totalGeral.areaTotalHa > 0 ? entradaAnteriorT / totalGeral.areaTotalHa : 0;
+
+    return {
+      areaColhidaTotalHa,
+      tchAtual: Math.round(tchAtual * 100) / 100,
+      variacaoProducaoPct: rangeAnterior ? calcVariacaoPct(totalGeral.entradaPeriodoT, entradaAnteriorT) : null,
+      variacaoTchPct: rangeAnterior ? calcVariacaoPct(tchAtual, tchAnterior) : null,
+    };
+  }, [ordensFiltradas, period, referencia, totalGeral.entradaPeriodoT, totalGeral.areaTotalHa]);
+
   function toggleColapso(frente: string) {
     setColapsadas((prev) => {
       const next = new Set(prev);
@@ -479,19 +540,24 @@ export default function OrdensCorteClient({
 
         {/* KPIs */}
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <StatCard
-            label="Ordens no filtro"
-            value={totalGeral.total.toString()}
-            sub={`${totalGeral.abertas} abertas · ${totalGeral.encerradas} encerradas`}
-          />
-          <StatCard label="Abertas" value={totalGeral.abertas.toString()} sub="Em corte ou liberadas" />
-          <StatCard label="Encerradas" value={totalGeral.encerradas.toString()} sub="Concluídas na safra" />
-          <StatCard label="Área" value={`${fmtHa(totalGeral.areaTotalHa)} ha`} sub="Soma das ordens do filtro" />
-          <StatCard
-            label={`Entrada · ${PERIODOS.find((p) => p.key === period)?.label}`}
+          <KpiCard
+            tone="blue"
+            icon={<IconFolha />}
+            label={`Produção · ${PERIODOS.find((p) => p.key === period)?.label}`}
             value={`${fmtT(totalGeral.entradaPeriodoT)} t`}
+            trendPct={kpisPeriodo.variacaoProducaoPct}
             sub={periodoTexto(period, referencia, safraLabel)}
-            destaque
+          />
+          <KpiCard tone="green" icon={<IconClipboard />} label="Ordens abertas" value={totalGeral.abertas.toString()} sub={`${totalGeral.abertas + totalGeral.encerradas > 0 ? Math.round((totalGeral.abertas / (totalGeral.abertas + totalGeral.encerradas)) * 100) : 0}% do total`} />
+          <KpiCard tone="amber" icon={<IconCheckCircle />} label="Ordens encerradas" value={totalGeral.encerradas.toString()} sub={`${totalGeral.abertas + totalGeral.encerradas > 0 ? Math.round((totalGeral.encerradas / (totalGeral.abertas + totalGeral.encerradas)) * 100) : 0}% do total`} />
+          <KpiCard tone="blue" icon={<IconTrator />} label="Área colhida" value={`${fmtHa(kpisPeriodo.areaColhidaTotalHa)} ha`} sub="Soma das ordens do filtro" />
+          <KpiCard
+            tone="red"
+            icon={<IconChart />}
+            label="TCH médio"
+            value={fmtTch(kpisPeriodo.tchAtual)}
+            trendPct={kpisPeriodo.variacaoTchPct}
+            sub={periodoTexto(period, referencia, safraLabel)}
           />
         </div>
 
@@ -648,7 +714,7 @@ export default function OrdensCorteClient({
                 </span>
               </button>
               {aberto && (
-                <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
                   {lista.map((ordem) => (
                     <OrdemCard
                       key={ordem.id}
@@ -767,27 +833,115 @@ export default function OrdensCorteClient({
   );
 }
 
-function StatCard({
+const KPI_TONS = {
+  blue: "border-brand-200/60 bg-brand-50 text-brand-800",
+  green: "border-good-500/25 bg-good-50 text-good-700",
+  amber: "border-amber-500/25 bg-amber-50 text-amber-700",
+  red: "border-alert-500/25 bg-alert-50 text-alert-700",
+} as const;
+
+function KpiCard({
   label,
   value,
   sub,
-  destaque,
+  icon,
+  tone,
+  trendPct,
 }: {
   label: string;
   value: string;
   sub?: string;
-  destaque?: boolean;
+  icon: ReactNode;
+  tone: keyof typeof KPI_TONS;
+  trendPct?: number | null;
 }) {
   return (
-    <div
-      className={`rounded-xl2 border px-4 py-3 shadow-card ${
-        destaque ? "border-navy-900 bg-navy-900 text-white" : "border-line bg-card text-ink"
-      }`}
-    >
-      <div className={`text-[11.5px] font-semibold ${destaque ? "text-brand-200" : "text-muted"}`}>{label}</div>
-      <div className="mt-1 text-[22px] font-bold tabular leading-none">{value}</div>
-      {sub && <div className={`mt-1.5 text-[11px] ${destaque ? "text-brand-200/90" : "text-muted"}`}>{sub}</div>}
+    <div className={`rounded-xl2 border p-4 shadow-card ${KPI_TONS[tone]}`}>
+      <div className="mb-1.5 opacity-80">{icon}</div>
+      <div className="text-[11.5px] font-semibold opacity-80">{label}</div>
+      <div className="mt-0.5 text-[24px] font-bold tabular leading-none">{value}</div>
+      {trendPct !== undefined && trendPct !== null ? (
+        <div
+          className={`mt-1.5 flex items-center gap-1 text-[11px] font-bold ${
+            trendPct >= 0 ? "text-good-600" : "text-alert-600"
+          }`}
+        >
+          {trendPct >= 0 ? "▲" : "▼"} {Math.abs(trendPct).toFixed(0)}% em relação ao anterior
+        </div>
+      ) : (
+        sub && <div className="mt-1.5 text-[11px] opacity-70">{sub}</div>
+      )}
     </div>
+  );
+}
+
+function IconFolha() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M5 19c8 0 14-6 14-14-8 0-14 6-14 14Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M5 19c0-5 3-9 7-11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconClipboard() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <rect x="5" y="4" width="14" height="17" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M8 10h8M8 14h8M8 18h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconCheckCircle() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M8 12.5l2.5 2.5L16 9.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconTrator() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M3 7h11v9H3V7Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M14 10h4l3 3v3h-7v-6Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <circle cx="7" cy="18" r="1.6" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="17" cy="18" r="1.6" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function IconChart() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Selo de produtividade por faixa de TCH — faixas provisórias (precisam ser
+ * validadas com a operação); fácil de ajustar depois num só lugar. */
+function TchBadge({ tch }: { tch: number }) {
+  let label = "Baixo";
+  let classes = "bg-alert-50 text-alert-600";
+  if (tch > 80) {
+    label = "Excelente";
+    classes = "bg-good-50 text-good-600";
+  } else if (tch >= 60) {
+    label = "Bom";
+    classes = "bg-brand-50 text-brand-700";
+  } else if (tch >= 40) {
+    label = "Médio";
+    classes = "bg-amber-50 text-amber-600";
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${classes}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {label}
+    </span>
   );
 }
 
@@ -847,6 +1001,7 @@ function OrdemCard({
 }) {
   const m = calcOrdemMetrics(ordem, period, referencia);
   const areaColhidaHa = calcAreaColhidaHa(ordem);
+  const progresso = m.areaTotalHa > 0 ? Math.min(100, Math.round((areaColhidaHa / m.areaTotalHa) * 100)) : 0;
   const diaAnteriorIso = addDays(referencia, -1);
   const totalDiaAnteriorT =
     Math.round(
@@ -867,134 +1022,157 @@ function OrdemCard({
   }, [ordem.talhoes]);
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-      <div className="flex items-center justify-between gap-2 border-b border-amber-500/25 bg-amber-50 px-4 py-2.5">
-        <div>
-          <div className="text-[14px] font-extrabold tracking-tight text-navy-900">Ordem - {ordem.numero}</div>
-          <div className="text-[11.5px] text-muted">
-            {ordem.fazendaCodigo} · {ordem.fazendaNome}
-            {gruposFazenda.length > 1 && ` · +${gruposFazenda.length - 1} fazenda(s)`}
+    <div className="flex overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
+      <div className={`w-1.5 flex-shrink-0 ${ordem.status === "Aberta" ? "bg-good-500" : "bg-amber-500"}`} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-[17px] font-extrabold tracking-tight text-navy-900">Ordem {ordem.numero}</div>
+            <div className="truncate text-[11.5px] text-muted">
+              {ordem.fazendaCodigo} · {ordem.fazendaNome}
+              {gruposFazenda.length > 1 && ` · +${gruposFazenda.length - 1} fazenda(s)`}
+            </div>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-1.5">
+            <StatusBadge status={ordem.status} />
+            {onRemover && (
+              <button
+                type="button"
+                onClick={onRemover}
+                title="Remover da tela"
+                className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-muted hover:bg-alert-50 hover:text-alert-600"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <StatusBadge status={ordem.status} />
-          {onRemover && (
-            <button
-              type="button"
-              onClick={onRemover}
-              title="Remover da tela"
-              className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-muted hover:bg-alert-50 hover:text-alert-600"
-            >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
 
-      <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted">Talhões</div>
-      <div className="px-4">
-        <table className="w-full text-[12px]">
-          <thead className="bg-card">
-            <tr className="text-left text-muted">
-              <th className="py-1 font-semibold">Talhão</th>
-              <th className="py-1 text-right font-semibold">Área</th>
-              <th className="py-1 text-right font-semibold">Dia Anterior</th>
-              <th className="py-1 text-right font-semibold">Dia Atual</th>
-              <th className="py-1 text-right font-semibold">Acum(t)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ordem.talhoes.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-2 text-center text-muted">
-                  Sem talhões cadastrados.
-                </td>
-              </tr>
-            )}
-            {gruposFazenda.map((g) => (
-              <Fragment key={g.fazendaCodigo}>
-                {gruposFazenda.length > 1 && (
-                  <tr className="border-t border-line/70 bg-surface">
-                    <td colSpan={5} className="py-1 text-[10.5px] font-semibold text-muted">
-                      {g.fazendaCodigo} · {g.fazendaNome}
+        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[1.3fr_1fr]">
+          {/* Talhões */}
+          <div className="min-w-0">
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Talhões</div>
+            <table className="w-full text-[12px]">
+              <thead className="bg-card">
+                <tr className="text-left text-muted">
+                  <th className="py-1 font-semibold">Talhão</th>
+                  <th className="py-1 text-right font-semibold">Área</th>
+                  <th className="py-1 text-right font-semibold">Dia Anterior</th>
+                  <th className="py-1 text-right font-semibold">Dia Atual</th>
+                  <th className="py-1 text-right font-semibold">Acum(t)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ordem.talhoes.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-2 text-center text-muted">
+                      Sem talhões cadastrados.
                     </td>
                   </tr>
                 )}
-                {g.talhoes.map((t) => (
-                  <tr key={`${t.fazendaCodigo}-${t.talhao}`} className="border-t border-line/70">
-                    <td className="py-1 font-medium text-ink">{t.talhao}</td>
-                    <td className="py-1 text-right tabular text-muted">{fmtHa(t.areaHa)}</td>
-                    <td className="py-1 text-right tabular text-muted">
-                      {fmtT(calcTalhaoDiaAnterior(ordem, t, referencia))}
-                    </td>
-                    <td className="py-1 text-right tabular text-muted">
-                      {fmtT(calcTalhaoDiaAtualAte6h(ordem, t, referencia))}
-                    </td>
-                    <td className="py-1 text-right tabular font-medium text-ink">
-                      {fmtT(calcTalhaoEntradaPeriodo(ordem, t, "safra", referencia))}
-                    </td>
-                  </tr>
+                {gruposFazenda.map((g) => (
+                  <Fragment key={g.fazendaCodigo}>
+                    {gruposFazenda.length > 1 && (
+                      <tr className="border-t border-line/70 bg-surface">
+                        <td colSpan={5} className="py-1 text-[10.5px] font-semibold text-muted">
+                          {g.fazendaCodigo} · {g.fazendaNome}
+                        </td>
+                      </tr>
+                    )}
+                    {g.talhoes.map((t) => (
+                      <tr key={`${t.fazendaCodigo}-${t.talhao}`} className="border-t border-line/70">
+                        <td className="py-1 font-medium text-ink">{t.talhao}</td>
+                        <td className="py-1 text-right tabular text-muted">{fmtHa(t.areaHa)}</td>
+                        <td className="py-1 text-right tabular text-muted">
+                          {fmtT(calcTalhaoDiaAnterior(ordem, t, referencia))}
+                        </td>
+                        <td className="py-1 text-right tabular text-muted">
+                          {fmtT(calcTalhaoDiaAtualAte6h(ordem, t, referencia))}
+                        </td>
+                        <td className="py-1 text-right tabular font-medium text-ink">
+                          {fmtT(calcTalhaoEntradaPeriodo(ordem, t, "safra", referencia))}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
-              </Fragment>
-            ))}
-            {ordem.talhoes.length > 0 && (
-              <tr className="border-t border-line bg-surface font-semibold text-ink">
-                <td className="py-1">Total</td>
-                <td className="py-1 text-right tabular">{fmtHa(m.areaTotalHa)}</td>
-                <td className="py-1 text-right tabular">{fmtT(totalDiaAnteriorT)}</td>
-                <td className="py-1 text-right tabular">{fmtT(totalDiaAtual6hT)}</td>
-                <td className="py-1 text-right tabular">{fmtT(m.acumSafraT)}</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                {ordem.talhoes.length > 0 && (
+                  <tr className="border-t border-line bg-surface font-semibold text-ink">
+                    <td className="py-1">Total</td>
+                    <td className="py-1 text-right tabular">{fmtHa(m.areaTotalHa)}</td>
+                    <td className="py-1 text-right tabular">{fmtT(totalDiaAnteriorT)}</td>
+                    <td className="py-1 text-right tabular">{fmtT(totalDiaAtual6hT)}</td>
+                    <td className="py-1 text-right tabular">{fmtT(m.acumSafraT)}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      <div className="mx-4 mb-3 mt-6 grid grid-cols-3 gap-2 rounded-lg bg-surface p-2.5 text-[12px]">
-        <div>
-          <div className="text-muted">Área da ordem</div>
-          <div className="font-semibold tabular text-ink">{fmtHa(m.areaTotalHa)} ha</div>
-        </div>
-        <div>
-          <div className="text-muted">Área colhida</div>
-          <div className="font-semibold tabular text-ink">{fmtHa(areaColhidaHa)} ha</div>
-        </div>
-        <div>
-          <div className="text-muted">Acum. safra</div>
-          <div className="font-semibold tabular text-ink">{fmtT(m.acumSafraT)} t</div>
-        </div>
-        <div className="col-span-3 rounded-md px-2 py-1.5" style={{ backgroundColor: "rgb(255, 255, 209)" }}>
-          <div className="text-ink/80">Entrada no período selecionado</div>
-          <div className="text-[15px] font-bold tabular text-ink">{fmtT(m.entradaPeriodoT)} t</div>
-        </div>
-        {onLancarAreaColhida && (
-          <button
-            type="button"
-            onClick={onLancarAreaColhida}
-            className="col-span-3 rounded-md border border-line bg-card px-2 py-1.5 text-center text-[11.5px] font-semibold text-navy-800 hover:bg-navy-900/5"
-          >
-            Lançar área colhida
-          </button>
-        )}
-      </div>
+          {/* Painel de resumo */}
+          <div className="flex flex-col gap-2.5">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-surface p-2.5">
+                <div className="text-[10.5px] text-muted">Área da ordem</div>
+                <div className="text-[15px] font-bold tabular text-ink">{fmtHa(m.areaTotalHa)} ha</div>
+              </div>
+              <div className="rounded-lg bg-surface p-2.5">
+                <div className="text-[10.5px] text-muted">Área colhida</div>
+                <div className="text-[15px] font-bold tabular text-ink">{fmtHa(areaColhidaHa)} ha</div>
+              </div>
+            </div>
 
-      <div className="mx-4 mb-3 flex flex-wrap gap-1.5 text-[10.5px]">
-        <span className="rounded-full bg-surface px-2 py-1 font-semibold text-muted">
-          TCH geral realizado <b className="text-ink">{fmtTch(m.tchGeralRealizado)}</b>
-        </span>
-        {ordem.tipoCana && (
-          <span
-            className={`rounded-full px-2 py-1 font-semibold ${
-              ordem.tipoCana.toLowerCase().includes("queimada")
-                ? "bg-amber-50 text-amber-600"
-                : "bg-brand-50 text-brand-700"
-            }`}
-          >
-            {ordem.tipoCana}
-          </span>
-        )}
+            <div>
+              <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
+                <span>Progresso da colheita</span>
+                <span className="font-semibold text-ink">{progresso}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-surface">
+                <div className="h-2 rounded-full bg-good-500" style={{ width: `${progresso}%` }} />
+              </div>
+            </div>
+
+            <div className="rounded-lg px-3 py-2.5" style={{ backgroundColor: "rgb(255, 255, 209)" }}>
+              <div className="text-[11px] text-ink/80">Produção no período</div>
+              <div className="text-[19px] font-bold tabular text-ink">{fmtT(m.entradaPeriodoT)} t</div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg bg-surface px-3 py-2.5">
+              <div>
+                <div className="text-[10.5px] text-muted">TCH geral realizado</div>
+                <div className="text-[17px] font-bold tabular text-ink">{fmtTch(m.tchGeralRealizado)}</div>
+              </div>
+              <TchBadge tch={m.tchGeralRealizado} />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {ordem.tipoCana ? (
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                    ordem.tipoCana.toLowerCase().includes("queimada")
+                      ? "bg-amber-50 text-amber-600"
+                      : "bg-brand-50 text-brand-700"
+                  }`}
+                >
+                  {ordem.tipoCana}
+                </span>
+              ) : (
+                <span />
+              )}
+              {onLancarAreaColhida && (
+                <button
+                  type="button"
+                  onClick={onLancarAreaColhida}
+                  className="rounded-md border border-line bg-card px-2.5 py-1.5 text-center text-[11px] font-semibold text-navy-800 hover:bg-navy-900/5"
+                >
+                  Lançar área colhida
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
