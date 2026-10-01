@@ -130,31 +130,24 @@ function IconChevronRight() {
   );
 }
 
+const ITEM_INICIO: Item = { label: "Início / Dashboard", href: "/painel", icon: IconHome };
+
 const SECTIONS: Section[] = [
   {
-    title: "Visão Geral",
-    items: [{ label: "Painel", href: "/painel", icon: IconHome }],
-  },
-  {
-    title: "Acompanhamentos",
+    title: "Operação Agrícola",
     items: [
       { label: "Ordens de Corte", href: "/acompanhamentos/ordens-de-corte", icon: IconChart },
       { label: "Colheita", href: "/acompanhamentos/colheita", icon: IconLeaf },
       { label: "Insumos", href: "/acompanhamentos/insumos", icon: IconFlask },
       { label: "Ordem de Serviço Agr.", href: "/acompanhamentos/os-agricola", icon: IconWrench },
       { label: "Colheita Terceiro", href: "/acompanhamentos/colheita-terceiro", icon: IconUsers },
-    ],
-  },
-  {
-    title: "Operação",
-    items: [
       { label: "Painel de ocorrências", href: "/contencioso", icon: IconAlertTriangle },
-      { label: "Cadastro de Atividades", href: "/planejamento/cadastro-atividades", icon: IconClipboard },
     ],
   },
   {
-    title: "Agricultura",
+    title: "Planejamento Agrícola",
     items: [
+      { label: "Cadastro de Atividades", href: "/planejamento/cadastro-atividades", icon: IconClipboard },
       { label: "Fazendas e Talhões", href: "/agricultura/fazendas", icon: IconMap },
       { label: "Frentes e Equipes", href: "/agricultura/frentes", icon: IconUsers },
     ],
@@ -228,6 +221,7 @@ export default function Sidebar({
           {!collapsed && (
             <Link href="/" aria-label="Ir para o início" className="block min-w-0 flex-1">
               <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-auto w-full" />
+              <p className="mt-0.5 truncate text-[10.5px] font-medium text-slate-400">Açúcar Etanol e Energia</p>
             </Link>
           )}
           <button
@@ -271,6 +265,26 @@ export default function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-4">
+        {(() => {
+          const inicioAtivo = pathname === ITEM_INICIO.href || pathname === "/";
+          return (
+            <Link
+              href={ITEM_INICIO.href}
+              title={collapsed ? ITEM_INICIO.label : undefined}
+              onClick={onNavigate}
+              className={`mb-2 mt-1 flex items-center gap-2.5 rounded-lg border py-2 pl-3 pr-2.5 text-[13px] font-semibold transition-colors ${
+                inicioAtivo
+                  ? "border-transparent bg-white text-navy-900 shadow-card"
+                  : "border-white/10 bg-white/10 text-white hover:bg-white/15"
+              } ${collapsed ? "justify-center" : ""}`}
+            >
+              <span className={`flex-shrink-0 ${inicioAtivo ? "text-brand-600" : "text-white"}`}>
+                <IconHome />
+              </span>
+              {!collapsed && <span className="truncate">{ITEM_INICIO.label}</span>}
+            </Link>
+          );
+        })()}
         {secoesFiltradas.map((section) => (
           <div key={section.title} className="mb-1 mt-3 first:mt-1">
             {!collapsed && (
