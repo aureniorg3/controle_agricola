@@ -221,7 +221,6 @@ export default function Sidebar({
           {!collapsed && (
             <Link href="/" aria-label="Ir para o início" className="block min-w-0 flex-1">
               <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-auto w-full" />
-              <p className="mt-0.5 truncate text-[10.5px] font-medium text-slate-400">Açúcar Etanol e Energia</p>
             </Link>
           )}
           <button
