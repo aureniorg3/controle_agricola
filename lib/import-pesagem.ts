@@ -4,17 +4,19 @@ import { Readable } from "stream";
 import { EntradaDiaria, OrdemCorte, StatusOrdem, TalhaoOrdem } from "./types";
 
 /**
- * Importação a partir de 3 relatórios do sistema de origem (CHBWEB),
+ * Importação a partir de 2 relatórios do sistema de origem (CHBWEB),
  * gerados e anexados diariamente:
  *
- *  1. "Ordem de Colheita.xlsx"       — cadastro de cada ordem (status,
+ *  1. "Ordem de Colheita.xlsx"        — cadastro de cada ordem (status,
  *     frente, fazenda, talhões e suas áreas). Um bloco de linhas por ordem.
- *  2. "Pesagem de Cana por Hora"     — uma linha por viagem de caminhão
- *     (Controle+Sequência), com data, frente, fazenda, talhão e peso.
- *  3. "Conferência de Pesagens"      — mesma chave Controle+Sequência,
- *     usada só para descobrir a qual ordem (O.Q.) cada viagem pertence.
+ *  2. "Relatório de Pesagem de Cana"  — uma linha por viagem de caminhão já
+ *     com tudo junto: a coluna "Liberação" já é o número da ordem (O.Q.)
+ *     diretamente, então não precisa mais de um terceiro arquivo
+ *     (Conferência) só para descobrir a qual ordem cada viagem pertence —
+ *     esse cruzamento Controle+Sequência existia porque o relatório antigo
+ *     de pesagem não trazia a ordem junto; este traz.
  *
- * Os três cobrem a safra inteira até a data de geração (não é um
+ * Os dois cobrem a safra inteira até a data de geração (não é um
  * incremento do dia) — por isso a importação sempre SUBSTITUI a base
  * (ver `substituirOrdens` em lib/db.ts), nunca mescla com o que já existe.
  */
@@ -26,7 +28,6 @@ export interface ResultadoImportacaoArquivos {
   totalOrdens: number;
   totalViagens: number;
   viagensSemOrdem: number;
-  viagensSemConferencia: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,14 +251,13 @@ export function parseOrdemColheita(buffer: ArrayBuffer): {
 }
 
 // ---------------------------------------------------------------------------
-// 2) Pesagem de Cana por Hora — uma linha por viagem
+// 2) Relatório de Pesagem de Cana — uma linha por viagem, já com a ordem
 // ---------------------------------------------------------------------------
 //
-// O cruzamento com a Conferência (Controle+Sequência -> O.Q.) e a agregação
-// por (ordem, data, talhão) acontecem AQUI, linha a linha, em vez de guardar
-// as ~176 mil viagens num array para juntar depois — a instância gratuita do
-// Render (512 MB) não sobra memória para reter as viagens inteiras E a
-// agregação ao mesmo tempo.
+// A agregação por (ordem, data, fazenda, talhão) acontece AQUI, linha a
+// linha, em vez de guardar cada viagem num array para juntar depois — a
+// instância gratuita do Render (512 MB) não sobra memória para reter as
+// ~176 mil viagens inteiras E a agregação ao mesmo tempo.
 
 export interface EntradaAgregada {
   ordem: string;
@@ -265,21 +265,19 @@ export interface EntradaAgregada {
   fazendaCodigo: string;
   talhao: string;
   toneladas: number;
-  /** parte de `toneladas` pesada com Hora < 06:00 — usada pela coluna
-   * "Dia Atual" do resumo por frente. */
+  /** parte de `toneladas` pesada com "Hora Saída Indústria" < 06:00 — usada
+   * pela coluna "Dia Atual" do resumo por frente. */
   toneladasAte6h: number;
   viagens: number;
 }
 
 export async function agregarPesagem(
   buffer: ArrayBuffer,
-  conferencia: Map<number, string>,
   ordensCadastradas: Set<string>
 ): Promise<{
   agregados: Map<string, EntradaAgregada>;
   totalViagens: number;
   semOrdem: number;
-  semConferencia: number;
   ordensNaoCadastradas: Set<string>;
   avisos: string[];
   erros: string[];
@@ -291,130 +289,73 @@ export async function agregarPesagem(
 
   let numLinha = 0;
   let idxCabecalho: number | null = null;
-  let frenteAtual = "";
-  let semFrente = 0;
   let totalViagens = 0;
   let semOrdem = 0;
-  let semConferencia = 0;
 
   await paraCadaLinha(buffer, (l) => {
     const linhaAtual = numLinha++;
 
     if (idxCabecalho === null) {
-      if (linhaAtual < 15 && l[0] === "Data" && l[1] === "Hora" && l[2] === "Veiculo" && l[3] === "Controle") {
+      if (
+        linhaAtual < 15 &&
+        l[1] === "Data Mov." &&
+        l[2] === "Turno" &&
+        l[3] === "Liberação" &&
+        l[4] === "Controle"
+      ) {
         idxCabecalho = linhaAtual;
       }
       return;
     }
 
-    if (!l || l.every((v) => v === undefined || v === "")) return;
+    // Linhas de verdade sempre têm "Liberação" (a ordem) numérica — pula
+    // linhas em branco e o rodapé (totais) sem precisar reconhecer o
+    // formato exato deles.
+    if (typeof l[3] !== "number") return;
 
-    if (l[0] === "Frente:") {
-      frenteAtual = texto(l[2]);
-      return;
-    }
-
-    const data = dataIsoSerial(l[0]);
-    if (!data) return; // linhas de rodapé ("Total Frente.....", "Total Geral.....")
-    if (!frenteAtual) semFrente++;
+    const data = dataIsoSerial(l[1]); // "Data Mov." — sempre igual à "Data Saída Indústria"
+    if (!data) return;
     totalViagens++;
 
-    const controle = numeroBR(l[3]);
-    const seq = numeroBR(l[4]);
-    const ordemInfo = conferencia.get(chaveControleSeq(controle, seq));
-    if (ordemInfo === undefined) {
-      semConferencia++;
-      return;
-    }
-    if (!ordemInfo || !ordensCadastradas.has(ordemInfo)) {
-      if (ordemInfo) ordensNaoCadastradas.add(ordemInfo);
+    const ordem = texto(l[3]); // "Liberação" já é o número da ordem (O.Q.)
+    if (!ordensCadastradas.has(ordem)) {
+      ordensNaoCadastradas.add(ordem);
       semOrdem++;
       return;
     }
 
-    const fazendaCodigo = texto(l[6]);
-    const talhao = texto(l[8]);
-    const toneladas = numeroBR(l[12]) / 1000;
-    const horaFracao = numeroBR(l[1]); // fração do dia (0 a <1) — 0,25 = 06:00
+    // "Fundo Agrícola" vem como "9529 - FAZ. SANTA VITÓRIA", mesmo formato
+    // da linha "Propriedade" em Ordem de Colheita.xlsx — mesma lógica de
+    // split pra extrair o código.
+    const fundoAgricola = texto(l[13]);
+    const fazendaCodigo = fundoAgricola.split(" - ")[0]?.trim() || "-";
+    const talhao = texto(l[14]);
+    const toneladas = numeroBR(l[19]) / 1000; // Peso Líquido, em kg
+    const horaSaidaIndustria = texto(l[31]); // "HH:MM" — já é texto, não fração de dia
+
     // Fazenda entra na chave porque o número do talhão sozinho não é único
     // dentro da ordem quando ela abrange mais de uma fazenda (ver TalhaoOrdem).
-    const k = `${ordemInfo}|${data}|${fazendaCodigo}|${talhao}`;
+    const k = `${ordem}|${data}|${fazendaCodigo}|${talhao}`;
     const acc =
-      agregados.get(k) ?? { ordem: ordemInfo, data, fazendaCodigo, talhao, toneladas: 0, toneladasAte6h: 0, viagens: 0 };
+      agregados.get(k) ?? { ordem, data, fazendaCodigo, talhao, toneladas: 0, toneladasAte6h: 0, viagens: 0 };
     acc.toneladas += toneladas;
-    if (horaFracao < 0.25) acc.toneladasAte6h += toneladas;
+    if (horaSaidaIndustria && horaSaidaIndustria < "06:00") acc.toneladasAte6h += toneladas;
     acc.viagens += 1;
     agregados.set(k, acc);
   });
 
   if (idxCabecalho === null) {
     erros.push(
-      'Não encontrei o cabeçalho esperado (Data / Hora / Veiculo / Controle) nas primeiras linhas do arquivo "Pesagem de Cana por Hora". Confira se é o arquivo certo.'
+      'Não encontrei o cabeçalho esperado (Data Mov. / Turno / Liberação / Controle) nas primeiras linhas do arquivo "Relatório de Pesagem de Cana". Confira se é o arquivo certo.'
     );
-    return { agregados: new Map(), totalViagens: 0, semOrdem: 0, semConferencia: 0, ordensNaoCadastradas, avisos, erros };
+    return { agregados: new Map(), totalViagens: 0, semOrdem: 0, ordensNaoCadastradas, avisos, erros };
   }
 
-  if (semFrente > 0) {
-    avisos.push(`${semFrente} viagem(ns) apareceram antes de qualquer marcador "Frente:" — agrupadas em "SEM FRENTE".`);
-  }
   if (totalViagens === 0) {
-    erros.push('Nenhuma viagem foi lida do arquivo "Pesagem de Cana por Hora".');
+    erros.push('Nenhuma viagem foi lida do arquivo "Relatório de Pesagem de Cana".');
   }
 
-  return { agregados, totalViagens, semOrdem, semConferencia, ordensNaoCadastradas, avisos, erros };
-}
-
-// ---------------------------------------------------------------------------
-// 3) Conferência de Pesagens — só para o cruzamento Controle+Sequência -> O.Q.
-// ---------------------------------------------------------------------------
-
-/** Chave compacta Controle+Sequência — um número em vez de string, para não
- * pagar hashing de string nem o overhead de um objeto por entrada num mapa
- * de ~176 mil linhas (a Sequência nunca chega perto de 1 milhão). */
-function chaveControleSeq(controle: number, seq: number): number {
-  return controle * 1_000_000 + seq;
-}
-
-export async function parseConferencia(buffer: ArrayBuffer): Promise<{
-  porChave: Map<number, string>;
-  avisos: string[];
-  erros: string[];
-}> {
-  const avisos: string[] = [];
-  const erros: string[] = [];
-  const porChave = new Map<number, string>();
-
-  let numLinha = 0;
-  let idxCabecalho: number | null = null;
-  let colOQ = -1;
-
-  await paraCadaLinha(buffer, (l) => {
-    const linhaAtual = numLinha++;
-
-    if (idxCabecalho === null) {
-      if (linhaAtual < 15 && l[0] === "Controle" && l.includes("O.Q.")) {
-        idxCabecalho = linhaAtual;
-        colOQ = l.indexOf("O.Q.");
-      }
-      return;
-    }
-
-    if (!l || typeof l[0] !== "number") return;
-    porChave.set(chaveControleSeq(l[0], numeroBR(l[1])), texto(l[colOQ]));
-  });
-
-  if (idxCabecalho === null) {
-    erros.push(
-      'Não encontrei o cabeçalho esperado (Controle ... O.Q.) nas primeiras linhas do arquivo "Conferência de Pesagens". Confira se é o arquivo certo.'
-    );
-    return { porChave, avisos, erros };
-  }
-
-  if (porChave.size === 0) {
-    erros.push('Nenhuma linha foi lida do arquivo "Conferência de Pesagens".');
-  }
-
-  return { porChave, avisos, erros };
+  return { agregados, totalViagens, semOrdem, ordensNaoCadastradas, avisos, erros };
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +368,6 @@ export function montarOrdens(
     agregados: Map<string, EntradaAgregada>;
     totalViagens: number;
     semOrdem: number;
-    semConferencia: number;
     ordensNaoCadastradas: Set<string>;
   },
   safraLabel: string
@@ -469,11 +409,6 @@ export function montarOrdens(
     });
   }
 
-  if (agregado.semConferencia > 0) {
-    avisos.push(
-      `${agregado.semConferencia} viagem(ns) não encontraram o par Controle+Sequência na Conferência de Pesagens — não entraram em nenhuma ordem.`
-    );
-  }
   if (agregado.ordensNaoCadastradas.size > 0) {
     avisos.push(
       `${agregado.ordensNaoCadastradas.size} ordem(ns) aparecem nas viagens mas não têm cadastro em "Ordem de Colheita": ${[
@@ -496,6 +431,5 @@ export function montarOrdens(
     totalOrdens: ordens.length,
     totalViagens: agregado.totalViagens,
     viagensSemOrdem: agregado.semOrdem,
-    viagensSemConferencia: agregado.semConferencia,
   };
 }

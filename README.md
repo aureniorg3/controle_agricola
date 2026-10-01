@@ -2,9 +2,9 @@
 
 Sistema de acompanhamento agrícola da safra de cana-de-açúcar (Unidade
 Capinópolis-MG). Primeiro módulo entregue: **Acompanhamento de Ordens de
-Corte** — **100% derivado de 3 relatórios do sistema de origem (CHBWEB)**,
+Corte** — **100% derivado de 2 relatórios do sistema de origem (CHBWEB)**,
 importados diariamente. Não há cadastro nem lançamento manual de ordem: a
-base é sempre o retrato mais recente dos 3 arquivos.
+base é sempre o retrato mais recente dos 2 arquivos.
 
 ## Stack
 
@@ -188,8 +188,8 @@ só quando é OUTRA pessoa (um admin) quem define a senha.
   a única coluna com regra própria: só conta a entrada pesada entre 00:00 e
   06:00 daquele dia (é o número disponível assim que o relatório da
   madrugada sai, antes do resto do dia ser pesado). Essa janela de 6h vem da
-  coluna Hora do relatório de Pesagem (`toneladasAte6h` em `EntradaDiaria`,
-  calculada na importação). É sempre com base nas ordens selecionadas e
+  coluna "Hora Saída Indústria" do relatório de pesagem (`toneladasAte6h` em
+  `EntradaDiaria`, calculada na importação). É sempre com base nas ordens selecionadas e
   mostradas nos cards abaixo (já com os filtros de frente/status/busca
   aplicados) — nunca nas 314 ordens importadas inteiras; um aviso acima da
   tabela deixa isso explícito.
@@ -216,7 +216,7 @@ só quando é OUTRA pessoa (um admin) quem define a senha.
   exato por talhão). Mostrado no resumo do card, ao lado da área da ordem.
   As toneladas continuam 100% vindas da importação — isso não reabre
   lançamento manual de apontamento.
-- **Importar planilhas**: lê os 3 relatórios oficiais do CHBWEB e substitui
+- **Importar planilhas**: lê os 2 relatórios oficiais do CHBWEB e substitui
   a base inteira de ordens por eles — ver seção própria abaixo. As toneladas
   são 100% derivadas do sistema de origem; não há cadastro manual de ordem
   nem lançamento manual de apontamento.
@@ -224,8 +224,8 @@ só quando é OUTRA pessoa (um admin) quem define a senha.
 ## Importar planilhas (Ordens de Corte)
 
 Este módulo não tem cadastro manual: **toda a base de ordens de corte é
-reconstruída a partir de 3 arquivos exportados diariamente do ERP (CHBWEB)**.
-Na tela de Ordens de Corte, o botão **Importar planilhas** pede os 3 arquivos
+reconstruída a partir de 2 arquivos exportados diariamente do ERP (CHBWEB)**.
+Na tela de Ordens de Corte, o botão **Importar planilhas** pede os 2 arquivos
 de uma vez:
 
 1. **"Ordem de Colheita.xlsx"** — cadastro das ordens: número, frente,
@@ -234,52 +234,50 @@ de uma vez:
    Parseado por `parseOrdemColheita` em [lib/import-pesagem.ts](lib/import-pesagem.ts),
    que separa o arquivo em blocos (cada bloco começa numa linha
    `"Ordem de Colheita"`) e lê os sub-campos de cada um.
-2. **"Pesagem de Cana por Hora - Mod. B - Cana Moagem.xlsx"** — o relatório
-   de pesagem, uma linha por viagem de caminhão (`Data`, `Hora`, `Veículo`,
-   `Controle`, `Seq`, `Propriedade`, `Talhão`, peso líquido em kg). É a base
-   principal: cada linha vira uma viagem real de cana entrando.
-3. **"Conferência de Pesagens - Cana Moagem.xlsx"** — usado só para
-   descobrir a qual **ordem** (coluna O.Q.) cada viagem pertence, já que o
-   relatório de pesagem por hora não traz essa informação diretamente.
-   Parseado por `parseConferencia`.
+2. **"Relatório de Pesagem de Cana"** (ex.: `RSC0907R-275.xlsx`) — uma linha
+   por viagem de caminhão, já com tudo junto: a coluna **"Liberação" já é o
+   número da ordem (O.Q.) diretamente**, "Fundo Agrícola" já traz
+   fazenda código+nome ("9529 - FAZ. SANTA VITÓRIA", mesmo formato do
+   arquivo 1), além de Talhão, Peso Líquido e os horários reais de
+   acionamento/chegada/carregamento/saída (campo/indústria). Parseado por
+   `agregarPesagem`.
 
-**A ligação entre os arquivos 2 e 3 é composta: `Controle` + `Seq`**, não
-`Controle` sozinho — o mesmo número de Controle se repete para viagens
-diferentes (parciais do mesmo carregamento), e só o par `Controle+Seq` é
-único. Usar só `Controle` juntaria viagens de talhões/cortes diferentes por
-engano.
+   Esse relatório **substitui dois arquivos antigos** ("Pesagem de Cana por
+   Hora" + "Conferência de Pesagens", que exigiam cruzar `Controle+Seq`
+   entre os dois pra descobrir a ordem de cada viagem) — como a ordem já vem
+   direto na "Liberação", não tem mais cruzamento nenhum a fazer.
 
 Como o processamento funciona:
 
-- O arquivo 3 (Conferência) é lido primeiro, montando um mapa
-  `Controle+Seq → Ordem`.
-- O arquivo 2 (Pesagem) é lido **em streaming, linha a linha**
+- O arquivo 2 é lido **em streaming, linha a linha**
   (`agregarPesagem` em [lib/import-pesagem.ts](lib/import-pesagem.ts), via
-  `exceljs`) — para cada viagem, busca a ordem no mapa da Conferência e já
-  agrega direto em (ordem, data, talhão), sem guardar as ~176 mil viagens
-  num array à parte. O parser antigo (pacote `xlsx`, que carrega a planilha
-  inteira em objetos antes de converter) passava de 700 MB de RAM só para
-  ler um desses arquivos — o suficiente para derrubar por falta de memória
-  a instância gratuita do Render (512 MB). Ler em streaming e agregar na
-  hora mantém o pico bem abaixo disso.
-- Viagem sem `Controle+Seq` na Conferência, ou cuja ordem não está
-  cadastrada no arquivo 1, é contada à parte e **não** entra no total — o
-  resultado da importação mostra quantas viagens caíram em cada caso.
-- A importação é **substituição total**: os 3 arquivos são sempre a
+  `exceljs`) — para cada viagem, confere se a "Liberação" é uma ordem
+  cadastrada no arquivo 1 e já agrega direto em (ordem, data, fazenda,
+  talhão), sem guardar cada viagem num array à parte (o arquivo pode chegar
+  a centenas de milhares de linhas numa exportação de safra inteira, e a
+  instância gratuita do Render só tem 512 MB de RAM).
+- Viagem cuja "Liberação" não é uma ordem cadastrada no arquivo 1 é contada
+  à parte e **não** entra no total — o resultado da importação mostra
+  quantas viagens caíram nesse caso.
+- A coluna **"Dia Atual"** (resumo por frente e cards) usa a "Hora Saída
+  Indústria" de cada viagem pra saber se ela foi pesada antes das 06:00 —
+  diferente da "Data Mov." (sempre igual à "Data Saída Indústria", é o dia
+  que a viagem pertence pra todas as outras colunas).
+- A importação é **substituição total**: os 2 arquivos são sempre a
   exportação completa da safra corrente (não deltas diários), então cada
   importação **zera e recria** a base inteira de ordens (`substituirOrdens`
   em [lib/db.ts](lib/db.ts)), gravando o timestamp em `ultimaImportacao`.
-  Rodar o processo diariamente com os 3 arquivos mais recentes é o fluxo
+  Rodar o processo diariamente com os 2 arquivos mais recentes é o fluxo
   esperado.
-- Ao final, o modal mostra `totalOrdens`, `totalViagens`,
-  `viagensSemOrdem`, `viagensSemConferencia`, além de avisos e erros de
-  leitura — nada fica escondido.
+- Ao final, o modal mostra `totalOrdens`, `totalViagens` e
+  `viagensSemOrdem`, além de avisos e erros de leitura — nada fica escondido.
 
-Validado ponta a ponta com os arquivos reais de produção (176.123 viagens,
-314 ordens, 16 viagens sem correspondência — 0,009%, esperado): o acumulado
-da safra mostrado na tela bateu exatamente com o total do rodapé do arquivo
-de Conferência, e as áreas por talhão de uma ordem específica bateram com o
-que já estava publicado no sistema em produção.
+Validado ponta a ponta com um arquivo real do novo relatório (848 viagens de
+um dia, 0 sem ordem cadastrada): os totais por talhão e a divisão "Dia
+Atual" (antes/depois das 06:00) bateram exatamente com a soma manual feita
+direto na planilha de origem, e ordens com mais de uma fazenda (ex.: a
+2474, com talhões em "9479 - DOIS IRMÃOS" e "9529 - FAZ. SANTA VITÓRIA")
+continuaram sendo separadas corretamente por fazenda no card.
 
 ## Sobre o filtro de data mostrar zero
 
@@ -287,7 +285,7 @@ Os filtros de **Dia / Semana / Mês** só somam a entrada real de cana que
 existe para aquele intervalo (via `EntradaDiaria`, uma por ordem+data+talhão)
 — não existe estimativa nem rateio. Se uma ordem não teve viagem numa data,
 o filtro mostra zero corretamente para ela naquele período; isso é o
-esperado e reflete o que veio dos 3 arquivos, não um erro de cálculo.
+esperado e reflete o que veio dos 2 arquivos, não um erro de cálculo.
 
 ## Estrutura
 
@@ -316,7 +314,7 @@ app/
   api/
     ordens-corte/
       route.ts                   GET (listar ordens + ordensVisiveis)
-      importar/route.ts          POST (importa os 3 arquivos, exige gravação+)
+      importar/route.ts          POST (importa os 2 arquivos, exige gravação+)
       visiveis/route.ts          POST/DELETE (marca/desmarca ordem pra exibir, exige gravação+)
       area-colhida/route.ts      POST (lança área colhida por ordem/talhão, exige gravação+)
     usuarios/
@@ -337,8 +335,8 @@ lib/
   db.ts                          persistência em data/db.json + substituirOrdens() +
                                   CRUD de usuários + usuarioAtual()/usuarioDaRequisicao()
   permissoes.ts                  podeEditar()/ehAdmin() — checados na tela E na API
-  import-pesagem.ts              parseOrdemColheita/parsePesagemPorHora/parseConferencia
-                                  + montarOrdens() (join Controle+Seq e agregação)
+  import-pesagem.ts              parseOrdemColheita + agregarPesagem() (streaming,
+                                  "Liberação" já é a ordem) + montarOrdens()
   auth.ts                        hash de senha, senha provisória e cookie de sessão
   email.ts                       e-mail de boas-vindas via Resend (RESEND_API_KEY)
   period.ts                      cálculo de dia/semana/mês/safra a partir de EntradaDiaria

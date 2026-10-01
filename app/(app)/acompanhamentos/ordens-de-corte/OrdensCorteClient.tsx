@@ -949,7 +949,6 @@ interface ResultadoImportacaoUI {
   totalOrdens: number;
   totalViagens: number;
   viagensSemOrdem: number;
-  viagensSemConferencia: number;
   avisos: string[];
   erros: string[];
 }
@@ -958,7 +957,6 @@ const emptyResultado: ResultadoImportacaoUI = {
   totalOrdens: 0,
   totalViagens: 0,
   viagensSemOrdem: 0,
-  viagensSemConferencia: 0,
   avisos: [],
   erros: [],
 };
@@ -966,13 +964,12 @@ const emptyResultado: ResultadoImportacaoUI = {
 function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImportado: () => void }) {
   const [arqOrdens, setArqOrdens] = useState<File | null>(null);
   const [arqPesagem, setArqPesagem] = useState<File | null>(null);
-  const [arqConferencia, setArqConferencia] = useState<File | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoImportacaoUI | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   async function enviar() {
-    if (!arqOrdens || !arqPesagem || !arqConferencia) return;
+    if (!arqOrdens || !arqPesagem) return;
     setEnviando(true);
     setErro(null);
     setResultado(null);
@@ -980,7 +977,6 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
       const form = new FormData();
       form.append("ordens", arqOrdens);
       form.append("pesagem", arqPesagem);
-      form.append("conferencia", arqConferencia);
       const res = await fetch("/api/ordens-corte/importar", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) {
@@ -1000,8 +996,8 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
   return (
     <ModalShell titulo="Importar planilhas de Ordens de Corte" onFechar={onFechar}>
       <p className="mb-4 text-[12.5px] leading-relaxed text-muted">
-        Envie os <b className="text-ink">3 relatórios</b> gerados pelo sistema de origem, do jeito que saem de lá
-        — sem mexer nas colunas. Cada envio <b className="text-ink">substitui</b> a base inteira (os três relatórios
+        Envie os <b className="text-ink">2 relatórios</b> gerados pelo sistema de origem, do jeito que saem de lá
+        — sem mexer nas colunas. Cada envio <b className="text-ink">substitui</b> a base inteira (os dois relatórios
         já trazem a safra completa até a data de geração, não é um incremento do dia).
       </p>
 
@@ -1014,19 +1010,11 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
             className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
           />
         </Campo>
-        <Campo label='2. "Pesagem de Cana por Hora - Mod. B" — viagens (data, frente, talhão, peso)'>
+        <Campo label='2. "Relatório de Pesagem de Cana" — viagens já com a ordem (coluna Liberação), fazenda e peso'>
           <input
             type="file"
             accept=".xlsx,.xls"
             onChange={(e) => setArqPesagem(e.target.files?.[0] ?? null)}
-            className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
-          />
-        </Campo>
-        <Campo label='3. "Conferência de Pesagens" — cruza cada viagem com sua ordem (O.Q.)'>
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={(e) => setArqConferencia(e.target.files?.[0] ?? null)}
             className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
           />
         </Campo>
@@ -1043,13 +1031,8 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
           <p className="font-semibold">
             {resultado.totalOrdens} ordem(ns) · {resultado.totalViagens} viagem(ns) lida(s).
           </p>
-          {(resultado.viagensSemOrdem > 0 || resultado.viagensSemConferencia > 0) && (
-            <p className="mt-1 text-good-600">
-              {resultado.viagensSemConferencia > 0 && (
-                <>{resultado.viagensSemConferencia} sem par na Conferência. </>
-              )}
-              {resultado.viagensSemOrdem > 0 && <>{resultado.viagensSemOrdem} sem ordem cadastrada.</>}
-            </p>
+          {resultado.viagensSemOrdem > 0 && (
+            <p className="mt-1 text-good-600">{resultado.viagensSemOrdem} sem ordem cadastrada.</p>
           )}
         </div>
       )}
@@ -1086,7 +1069,7 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
         </button>
         <button
           type="button"
-          disabled={!arqOrdens || !arqPesagem || !arqConferencia || enviando}
+          disabled={!arqOrdens || !arqPesagem || enviando}
           onClick={enviar}
           className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
         >
