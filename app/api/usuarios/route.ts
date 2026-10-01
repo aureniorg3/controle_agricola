@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { insertUsuario, listUsuarios, usuarioDaRequisicao } from "@/lib/db";
-import { enviarEmailBoasVindas } from "@/lib/email";
 import { ehAdmin } from "@/lib/permissoes";
 import { PerfilUsuario, Usuario } from "@/lib/types";
 
 const PERFIS_VALIDOS: PerfilUsuario[] = ["leitura", "gravacao", "admin"];
+// letras minúsculas, números, ponto, underscore e hífen — sem espaços/acentos
+const USUARIO_REGEX = /^[a-z0-9._-]{3,30}$/;
 
 function semSenha(u: Usuario) {
   const { senhaHash: _senhaHash, ...resto } = u;
@@ -24,6 +25,7 @@ interface NovoUsuarioBody {
   nome: string;
   sobrenome: string;
   email: string;
+  usuario: string;
   perfil: PerfilUsuario;
 }
 
@@ -34,8 +36,14 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json()) as NovoUsuarioBody;
-  if (!body.nome?.trim() || !body.sobrenome?.trim() || !body.email?.trim()) {
-    return NextResponse.json({ error: "Informe nome, sobrenome e e-mail." }, { status: 400 });
+  if (!body.nome?.trim() || !body.sobrenome?.trim() || !body.email?.trim() || !body.usuario?.trim()) {
+    return NextResponse.json({ error: "Informe nome, sobrenome, e-mail e nome de usuário." }, { status: 400 });
+  }
+  if (!USUARIO_REGEX.test(body.usuario.trim().toLowerCase())) {
+    return NextResponse.json(
+      { error: "Nome de usuário deve ter 3-30 caracteres: letras, números, ponto, hífen ou underscore." },
+      { status: 400 }
+    );
   }
   if (!PERFIS_VALIDOS.includes(body.perfil)) {
     return NextResponse.json({ error: "Nível de acesso inválido." }, { status: 400 });
@@ -45,6 +53,7 @@ export async function POST(req: NextRequest) {
     nome: body.nome,
     sobrenome: body.sobrenome,
     email: body.email,
+    usuario: body.usuario,
     perfil: body.perfil,
   });
   if ("erro" in resultado) {
@@ -52,21 +61,5 @@ export async function POST(req: NextRequest) {
   }
 
   const { usuario: criado, senhaProvisoria } = resultado;
-  const { enviado, erro: erroEnvio } = await enviarEmailBoasVindas({
-    destinatario: criado.email,
-    nomeCompleto: `${criado.nome} ${criado.sobrenome}`.trim(),
-    senhaProvisoria,
-  });
-
-  return NextResponse.json(
-    {
-      usuario: semSenha(criado),
-      emailEnviado: enviado,
-      // só devolve a senha em texto puro quando o e-mail NÃO foi enviado —
-      // é o jeito de quem cadastrou repassar manualmente nesse caso.
-      senhaProvisoria: enviado ? undefined : senhaProvisoria,
-      avisoEmail: enviado ? undefined : erroEnvio,
-    },
-    { status: 201 }
-  );
+  return NextResponse.json({ usuario: semSenha(criado), senhaProvisoria }, { status: 201 });
 }

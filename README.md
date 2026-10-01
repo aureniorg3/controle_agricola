@@ -93,21 +93,6 @@ seguir os passos:
      ```
      MCyed2WYMhzXmYr3LFWpRIMA55TL9LocbIUjEZfZvMI
      ```
-   - `RESEND_API_KEY` (opcional, mas recomendado) — pra mandar o e-mail de
-     boas-vindas quando um usuário é cadastrado (link do sistema + senha
-     provisória). Crie uma conta grátis em [resend.com](https://resend.com),
-     gere uma API key em resend.com/api-keys e cole aqui. **Eu não posso
-     criar essa conta por você** — precisa ser feito manualmente. Sem essa
-     variável, o cadastro de usuário continua funcionando normalmente: a
-     senha provisória só aparece na tela em vez de ir por e-mail, pra quem
-     cadastrou repassar manualmente.
-   - `RESEND_FROM_EMAIL` (opcional) — remetente do e-mail de boas-vindas.
-     Sem essa variável, usa `onboarding@resend.dev` (só entrega pro e-mail da
-     sua própria conta Resend — pra mandar pra qualquer usuário de verdade,
-     verifique um domínio seu em resend.com/domains e use um e-mail desse
-     domínio aqui).
-   - `APP_URL` (opcional) — link do sistema que entra no e-mail de boas-vindas.
-     Sem essa variável, usa `https://controle-agricola.onrender.com`.
 4. **Sem `DATABASE_URL` o sistema não funciona de verdade** (não é mais um
    fallback silencioso pra um arquivo local): toda leitura/gravação falha, e
    qualquer admin logado vê uma faixa vermelha no topo de toda tela
@@ -130,12 +115,14 @@ seguir os passos:
 
 ## Login
 
-O sistema agora exige login (`middleware.ts` + `app/(app)/layout.tsx`). Um
-usuário administrador é criado automaticamente na primeira vez que o servidor
-sobe (ou na primeira vez que rodar depois desta atualização, mesmo com um
-`data/db.json` já existente):
+O sistema agora exige login (`middleware.ts` + `app/(app)/layout.tsx`). O
+campo de login aceita **e-mail OU nome de usuário** — qualquer um dos dois
+funciona (`getUsuarioPorIdentificador` em `lib/db.ts`). Um usuário
+administrador é criado automaticamente na primeira vez que o sistema
+consulta a tabela `usuarios` e ela está vazia:
 
 - **E-mail:** `aureniorg3@gmail.com`
+- **Usuário:** `admin`
 - **Senha inicial:** `crv@2026`
 
 Troque essa senha assim que possível — em **Configurações → Cadastros** (só
@@ -174,17 +161,19 @@ Usuário desativado (`ativo: false`) mantém o cadastro e o histórico, só não
 consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
 
 **Cadastro com senha provisória:** ao criar um usuário, o nome vem em dois
-campos (Nome e Sobrenome) e a senha **não é digitada por quem cadastra** — o
-sistema gera uma senha provisória sozinho (`gerarSenhaProvisoria` em
-`lib/auth.ts`) e tenta mandar por e-mail (link do sistema, usuário e senha)
-via Resend (ver `RESEND_API_KEY` em "Deploy no Render"). Sem essa variável
-configurada, ou se o envio falhar, a senha aparece na tela na hora de criar,
-pra quem cadastrou repassar manualmente. No primeiro login com essa senha
-(ou depois de um admin resetar a senha de alguém em Editar), o sistema
-obriga a trocar por uma definitiva em `/trocar-senha` antes de liberar
-qualquer outra tela (`precisaTrocarSenha` em `Usuario`, checado em
-`app/(app)/layout.tsx`) — trocar a própria senha não ativa essa trava,
-só quando é OUTRA pessoa (um admin) quem define a senha.
+campos (Nome e Sobrenome), mais e-mail e um **nome de usuário** (login
+alternativo — 3-30 caracteres: letras, números, ponto, hífen ou underscore).
+A senha **não é digitada por quem cadastra** — o sistema gera uma senha
+provisória sozinha (`gerarSenhaProvisoria` em `lib/auth.ts`) e mostra na tela
+na hora de criar, pra quem cadastrou repassar manualmente (não há envio
+automático por e-mail). No primeiro login com essa senha (ou depois de um
+admin resetar a senha de alguém em Editar), o sistema obriga a trocar por uma
+definitiva em `/trocar-senha` antes de liberar qualquer outra tela
+(`precisaTrocarSenha` em `Usuario`, checado em `app/(app)/layout.tsx`) —
+trocar a própria senha não ativa essa trava, só quando é OUTRA pessoa (um
+admin) quem define a senha. Todo campo de senha (login, trocar senha,
+cadastro/edição de usuário) tem um botão de olho pra mostrar/ocultar o que
+foi digitado (`InputSenha` em `components/ui.tsx`).
 
 ## O que já funciona no Acompanhamento de Ordens de Corte
 
@@ -386,7 +375,6 @@ lib/
   import-pesagem.ts              parseOrdemColheita + agregarPesagem() (streaming,
                                   "Liberação" já é a ordem) + montarOrdens()
   auth.ts                        hash de senha, senha provisória e cookie de sessão
-  email.ts                       e-mail de boas-vindas via Resend (RESEND_API_KEY)
   period.ts                      cálculo de dia/semana/mês/safra a partir de EntradaDiaria
   format.ts                      formatação de número/data em pt-BR
 ```

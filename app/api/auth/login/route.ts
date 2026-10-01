@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUsuarioPorEmail } from "@/lib/db";
+import { getUsuarioPorIdentificador } from "@/lib/db";
 import {
   criarTokenSessao,
   SESSION_COOKIE_NAME,
@@ -9,16 +9,16 @@ import {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const email = typeof body?.email === "string" ? body.email.trim() : "";
+  const identificador = typeof body?.identificador === "string" ? body.identificador.trim() : "";
   const senha = typeof body?.senha === "string" ? body.senha : "";
 
-  if (!email || !senha) {
-    return NextResponse.json({ erro: "Informe e-mail e senha." }, { status: 400 });
+  if (!identificador || !senha) {
+    return NextResponse.json({ erro: "Informe e-mail/usuário e senha." }, { status: 400 });
   }
 
-  const usuario = await getUsuarioPorEmail(email);
+  const usuario = await getUsuarioPorIdentificador(identificador);
   if (!usuario || !verificarSenha(senha, usuario.senhaHash)) {
-    return NextResponse.json({ erro: "E-mail ou senha inválidos." }, { status: 401 });
+    return NextResponse.json({ erro: "E-mail/usuário ou senha inválidos." }, { status: 401 });
   }
 
   const token = criarTokenSessao(usuario.id);

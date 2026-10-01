@@ -4,7 +4,7 @@ import { useState } from "react";
 import { PerfilUsuario, UsuarioPublico } from "@/lib/types";
 import { PERFIL_DESCRICAO, PERFIL_LABEL } from "@/lib/permissoes";
 import { fmtDateBR } from "@/lib/format";
-import { Campo, ModalShell } from "@/components/ui";
+import { Campo, InputSenha, ModalShell } from "@/components/ui";
 
 const PERFIS: PerfilUsuario[] = ["leitura", "gravacao", "admin"];
 
@@ -106,6 +106,7 @@ export default function UsuariosClient({
             <thead>
               <tr className="border-b border-line bg-surface text-left text-muted">
                 <th className="px-4 py-2.5 font-semibold">Nome</th>
+                <th className="px-4 py-2.5 font-semibold">Usuário</th>
                 <th className="px-4 py-2.5 font-semibold">E-mail</th>
                 <th className="px-4 py-2.5 font-semibold">Nível</th>
                 <th className="px-4 py-2.5 font-semibold">Status</th>
@@ -130,6 +131,7 @@ export default function UsuariosClient({
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-2.5 text-muted">{u.usuario}</td>
                   <td className="px-4 py-2.5 text-muted">{u.email}</td>
                   <td className="px-4 py-2.5">
                     <PerfilBadge perfil={u.perfil} />
@@ -204,16 +206,15 @@ export default function UsuariosClient({
 }
 
 interface ResultadoCriacao {
-  email: string;
-  emailEnviado: boolean;
-  senhaProvisoria?: string;
-  avisoEmail?: string;
+  usuario: string;
+  senhaProvisoria: string;
 }
 
 function NovoUsuarioModal({ onFechar, onCriado }: { onFechar: () => void; onCriado: () => void }) {
   const [nome, setNome] = useState("");
   const [sobrenome, setSobrenome] = useState("");
   const [email, setEmail] = useState("");
+  const [usuario, setUsuario] = useState("");
   const [perfil, setPerfil] = useState<PerfilUsuario>("leitura");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -226,19 +227,14 @@ function NovoUsuarioModal({ onFechar, onCriado }: { onFechar: () => void; onCria
       const res = await fetch("/api/usuarios", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome, sobrenome, email, perfil }),
+        body: JSON.stringify({ nome, sobrenome, email, usuario, perfil }),
       });
       const data = await res.json();
       if (!res.ok) {
         setErro(data?.error ?? "Não foi possível criar o usuário.");
         return;
       }
-      setResultado({
-        email,
-        emailEnviado: data.emailEnviado,
-        senhaProvisoria: data.senhaProvisoria,
-        avisoEmail: data.avisoEmail,
-      });
+      setResultado({ usuario, senhaProvisoria: data.senhaProvisoria });
     } catch {
       setErro("Não foi possível enviar. Verifique a conexão e tente novamente.");
     } finally {
@@ -249,20 +245,21 @@ function NovoUsuarioModal({ onFechar, onCriado }: { onFechar: () => void; onCria
   if (resultado) {
     return (
       <ModalShell titulo="Usuário criado" onFechar={onCriado}>
-        {resultado.emailEnviado ? (
-          <div className="rounded-lg border border-good-500/30 bg-good-50 px-3 py-2.5 text-[12.5px] text-good-700">
-            E-mail enviado para <b>{resultado.email}</b> com o link do sistema, usuário e senha provisória.
-          </div>
-        ) : (
-          <div className="rounded-lg border border-brand-500/25 bg-brand-50 px-3 py-2.5 text-[12.5px] text-brand-700">
-            <p className="font-semibold">Envio automático de e-mail ainda não configurado.</p>
-            <p className="mt-1">Repasse a senha provisória manualmente pra {resultado.email}:</p>
-            <p className="mt-2 rounded-md bg-card px-2.5 py-1.5 font-mono text-[13px] text-ink">
+        <div className="rounded-lg border border-brand-500/25 bg-brand-50 px-3 py-2.5 text-[12.5px] text-brand-700">
+          <p className="font-semibold">Repasse esses dados de acesso pra {resultado.usuario}:</p>
+          <p className="mt-2">
+            Usuário: <span className="font-mono text-[13px] text-ink">{resultado.usuario}</span>
+          </p>
+          <p className="mt-1">
+            Senha provisória:{" "}
+            <span className="rounded-md bg-card px-2 py-0.5 font-mono text-[13px] text-ink">
               {resultado.senhaProvisoria}
-            </p>
-            {resultado.avisoEmail && <p className="mt-1.5 text-[11px] text-muted">({resultado.avisoEmail})</p>}
-          </div>
-        )}
+            </span>
+          </p>
+          <p className="mt-2 text-[11px] text-brand-700/80">
+            No primeiro acesso, o sistema vai pedir pra trocar essa senha por uma definitiva.
+          </p>
+        </div>
         <div className="mt-5 flex justify-end">
           <button
             type="button"
@@ -303,6 +300,17 @@ function NovoUsuarioModal({ onFechar, onCriado }: { onFechar: () => void; onCria
             className="w-full rounded-lg border border-line px-3 py-1.5 text-[13px]"
           />
         </Campo>
+        <Campo label="Nome de usuário (login)">
+          <input
+            value={usuario}
+            onChange={(e) => setUsuario(e.target.value.toLowerCase())}
+            placeholder="ex.: joao.silva"
+            className="w-full rounded-lg border border-line px-3 py-1.5 text-[13px]"
+          />
+          <span className="mt-1 block text-[11.5px] text-muted">
+            3-30 caracteres: letras, números, ponto, hífen ou underscore. O login aceita e-mail ou esse usuário.
+          </span>
+        </Campo>
         <Campo label="Nível de acesso">
           <select
             value={perfil}
@@ -318,8 +326,8 @@ function NovoUsuarioModal({ onFechar, onCriado }: { onFechar: () => void; onCria
           <span className="mt-1 block text-[11.5px] text-muted">{PERFIL_DESCRICAO[perfil]}</span>
         </Campo>
         <p className="text-[11.5px] text-muted">
-          A senha é gerada automaticamente e enviada por e-mail (ou mostrada na tela, se o envio não estiver
-          configurado) — o usuário troca por uma definitiva no primeiro acesso.
+          A senha é gerada automaticamente e mostrada na tela ao concluir — o usuário troca por uma definitiva no
+          primeiro acesso.
         </p>
       </div>
 
@@ -339,7 +347,7 @@ function NovoUsuarioModal({ onFechar, onCriado }: { onFechar: () => void; onCria
         </button>
         <button
           type="button"
-          disabled={!nome.trim() || !sobrenome.trim() || !email.trim() || enviando}
+          disabled={!nome.trim() || !sobrenome.trim() || !email.trim() || !usuario.trim() || enviando}
           onClick={salvar}
           className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
         >
@@ -363,6 +371,7 @@ function EditarUsuarioModal({
 }) {
   const [nome, setNome] = useState(usuario.nome);
   const [sobrenome, setSobrenome] = useState(usuario.sobrenome);
+  const [nomeUsuario, setNomeUsuario] = useState(usuario.usuario);
   const [perfil, setPerfil] = useState<PerfilUsuario>(usuario.perfil);
   const [novaSenha, setNovaSenha] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -375,7 +384,7 @@ function EditarUsuarioModal({
       const res = await fetch(`/api/usuarios/${usuario.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome, sobrenome, perfil, senha: novaSenha || undefined }),
+        body: JSON.stringify({ nome, sobrenome, usuario: nomeUsuario, perfil, senha: novaSenha || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -416,6 +425,16 @@ function EditarUsuarioModal({
             className="w-full rounded-lg border border-line bg-surface px-3 py-1.5 text-[13px] text-muted"
           />
         </Campo>
+        <Campo label="Nome de usuário (login)">
+          <input
+            value={nomeUsuario}
+            onChange={(e) => setNomeUsuario(e.target.value.toLowerCase())}
+            className="w-full rounded-lg border border-line px-3 py-1.5 text-[13px]"
+          />
+          <span className="mt-1 block text-[11.5px] text-muted">
+            3-30 caracteres: letras, números, ponto, hífen ou underscore.
+          </span>
+        </Campo>
         <Campo label="Nível de acesso">
           <select
             value={perfil}
@@ -438,8 +457,7 @@ function EditarUsuarioModal({
           )}
         </Campo>
         <Campo label="Nova senha (deixe em branco para manter a atual)">
-          <input
-            type="password"
+          <InputSenha
             value={novaSenha}
             onChange={(e) => setNovaSenha(e.target.value)}
             className="w-full rounded-lg border border-line px-3 py-1.5 text-[13px]"
@@ -468,7 +486,13 @@ function EditarUsuarioModal({
         </button>
         <button
           type="button"
-          disabled={!nome.trim() || !sobrenome.trim() || (novaSenha.length > 0 && novaSenha.length < 6) || enviando}
+          disabled={
+            !nome.trim() ||
+            !sobrenome.trim() ||
+            !nomeUsuario.trim() ||
+            (novaSenha.length > 0 && novaSenha.length < 6) ||
+            enviando
+          }
           onClick={salvar}
           className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
         >

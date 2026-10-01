@@ -3,10 +3,11 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { InputSenha } from "@/components/ui";
 
 export default function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [identificador, setIdentificador] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
@@ -19,7 +20,7 @@ export default function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, senha }),
+        body: JSON.stringify({ identificador, senha }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -52,30 +53,29 @@ export default function LoginForm() {
         <form onSubmit={handleSubmit} className="rounded-xl2 border border-line bg-card p-6 shadow-pop">
           <h1 className="mb-1 text-[16px] font-bold text-ink">Entrar</h1>
           <p className="mb-5 text-[12.5px] text-muted">
-            Acesse com seu e-mail e senha cadastrados.
+            Acesse com seu e-mail (ou usuário) e senha cadastrados.
           </p>
 
-          <label className="mb-1 block text-[12px] font-medium text-ink" htmlFor="email">
-            E-mail
+          <label className="mb-1 block text-[12px] font-medium text-ink" htmlFor="identificador">
+            E-mail ou usuário
           </label>
           <input
-            id="email"
-            type="email"
+            id="identificador"
+            type="text"
             autoComplete="username"
             required
             autoFocus
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={identificador}
+            onChange={(e) => setIdentificador(e.target.value)}
             className="input mb-3"
-            placeholder="seu.email@crv.com.br"
+            placeholder="seu.email@crv.com.br ou usuário"
           />
 
           <label className="mb-1 block text-[12px] font-medium text-ink" htmlFor="senha">
             Senha
           </label>
-          <input
+          <InputSenha
             id="senha"
-            type="password"
             autoComplete="current-password"
             required
             value={senha}

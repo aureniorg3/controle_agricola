@@ -18,12 +18,22 @@ create table if not exists usuarios (
   nome text not null,
   sobrenome text not null default '',
   email text not null unique,
+  usuario text,
   senha_hash text not null,
   perfil text not null check (perfil in ('leitura', 'gravacao', 'admin')),
   ativo boolean not null default true,
   precisa_trocar_senha boolean not null default false,
   criado_em timestamptz not null default now()
 );
+
+-- Login por usuário, além de e-mail — coluna adicionada numa versão
+-- posterior deste schema; os comandos abaixo são seguros de rodar de novo
+-- em bancos que já tinham a tabela `usuarios` sem essa coluna (preenche com
+-- a parte antes do "@" do e-mail pra quem já existe, só na primeira vez).
+alter table usuarios add column if not exists usuario text;
+update usuarios set usuario = split_part(email, '@', 1) where usuario is null;
+alter table usuarios alter column usuario set not null;
+create unique index if not exists idx_usuarios_usuario_lower on usuarios (lower(usuario));
 
 -- Ordens de corte — 100% derivadas da importação das planilhas do CHBWEB
 -- (nunca cadastradas nem editadas manualmente, exceto área colhida)

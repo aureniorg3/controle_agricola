@@ -90,6 +90,7 @@ function buildAdminPadrao(): Usuario {
     nome: "Administrador",
     sobrenome: "",
     email: "aureniorg3@gmail.com",
+    usuario: "admin",
     senhaHash: hashSenha("crv@2026"),
     perfil: "admin",
     ativo: true,
@@ -121,9 +122,20 @@ function prepararBanco(pool: Pool): Promise<void> {
       if (count === 0) {
         const admin = buildAdminPadrao();
         await pool.query(
-          `INSERT INTO usuarios (id, nome, sobrenome, email, senha_hash, perfil, ativo, precisa_trocar_senha, criado_em)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING`,
-          [admin.id, admin.nome, admin.sobrenome, admin.email, admin.senhaHash, admin.perfil, admin.ativo, admin.precisaTrocarSenha, admin.criadoEm]
+          `INSERT INTO usuarios (id, nome, sobrenome, email, usuario, senha_hash, perfil, ativo, precisa_trocar_senha, criado_em)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING`,
+          [
+            admin.id,
+            admin.nome,
+            admin.sobrenome,
+            admin.email,
+            admin.usuario,
+            admin.senhaHash,
+            admin.perfil,
+            admin.ativo,
+            admin.precisaTrocarSenha,
+            admin.criadoEm,
+          ]
         );
       }
     })();
@@ -471,6 +483,7 @@ function mapUsuario(r: {
   nome: string;
   sobrenome: string;
   email: string;
+  usuario: string;
   senha_hash: string;
   perfil: string;
   ativo: boolean;
@@ -482,6 +495,7 @@ function mapUsuario(r: {
     nome: r.nome,
     sobrenome: r.sobrenome,
     email: r.email,
+    usuario: r.usuario,
     senhaHash: r.senha_hash,
     perfil: r.perfil as Usuario["perfil"],
     ativo: r.ativo,
@@ -511,6 +525,18 @@ export async function getUsuarioPorEmail(email: string): Promise<Usuario | undef
   return rows[0] ? mapUsuario(rows[0]) : undefined;
 }
 
+export async function getUsuarioPorNomeDeUsuario(usuario: string): Promise<Usuario | undefined> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query("SELECT * FROM usuarios WHERE lower(usuario) = lower($1)", [usuario.trim()]);
+  return rows[0] ? mapUsuario(rows[0]) : undefined;
+}
+
+/** Login aceita e-mail OU nome de usuário — tenta os dois. */
+export async function getUsuarioPorIdentificador(identificador: string): Promise<Usuario | undefined> {
+  return (await getUsuarioPorEmail(identificador)) ?? (await getUsuarioPorNomeDeUsuario(identificador));
+}
+
 /** Usuário da sessão atual, para Server Components (usa `cookies()` de `next/headers`). */
 export async function usuarioAtual(): Promise<Usuario | undefined> {
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
@@ -537,14 +563,15 @@ export interface NovoUsuarioInput {
   nome: string;
   sobrenome: string;
   email: string;
+  usuario: string;
   perfil: Usuario["perfil"];
 }
 
 /**
  * A senha não vem mais de quem cadastra — é gerada aqui (provisória,
- * legível) e volta no retorno pra quem chamou decidir o que fazer com ela
- * (mandar por e-mail, mostrar na tela como reserva) — nunca fica só no
- * hash. O usuário criado começa com `precisaTrocarSenha: true`.
+ * legível) e volta no retorno pra quem chamou mostrar na tela (não há mais
+ * envio automático por e-mail) — nunca fica só no hash. O usuário criado
+ * começa com `precisaTrocarSenha: true`.
  */
 export async function insertUsuario(
   input: NovoUsuarioInput
@@ -554,12 +581,16 @@ export async function insertUsuario(
   if (await getUsuarioPorEmail(input.email)) {
     return { erro: "Já existe um usuário com esse e-mail." };
   }
+  if (await getUsuarioPorNomeDeUsuario(input.usuario)) {
+    return { erro: "Já existe um usuário com esse nome de usuário." };
+  }
   const senhaProvisoria = gerarSenhaProvisoria();
   const usuario: Usuario = {
     id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     nome: input.nome.trim(),
     sobrenome: input.sobrenome.trim(),
     email: input.email.trim().toLowerCase(),
+    usuario: input.usuario.trim().toLowerCase(),
     senhaHash: hashSenha(senhaProvisoria),
     perfil: input.perfil,
     ativo: true,
@@ -567,13 +598,14 @@ export async function insertUsuario(
     criadoEm: new Date().toISOString(),
   };
   await pool.query(
-    `INSERT INTO usuarios (id, nome, sobrenome, email, senha_hash, perfil, ativo, precisa_trocar_senha, criado_em)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    `INSERT INTO usuarios (id, nome, sobrenome, email, usuario, senha_hash, perfil, ativo, precisa_trocar_senha, criado_em)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     [
       usuario.id,
       usuario.nome,
       usuario.sobrenome,
       usuario.email,
+      usuario.usuario,
       usuario.senhaHash,
       usuario.perfil,
       usuario.ativo,
@@ -587,6 +619,7 @@ export async function insertUsuario(
 export interface EditarUsuarioInput {
   nome?: string;
   sobrenome?: string;
+  usuario?: string;
   perfil?: Usuario["perfil"];
   ativo?: boolean;
   senha?: string; // se informado, troca a senha
@@ -617,9 +650,16 @@ export async function updateUsuario(
   if ((vaiDesativar || vaiRebaixar) && usuario.perfil === "admin" && (await contarAdminsAtivos(pool, id)) === 0) {
     return { erro: "Este é o último administrador ativo — promova outro usuário antes de mudar isso." };
   }
+  if (input.usuario !== undefined && input.usuario.trim().toLowerCase() !== usuario.usuario) {
+    const existente = await getUsuarioPorNomeDeUsuario(input.usuario);
+    if (existente && existente.id !== id) {
+      return { erro: "Já existe um usuário com esse nome de usuário." };
+    }
+  }
 
   if (input.nome !== undefined) usuario.nome = input.nome.trim();
   if (input.sobrenome !== undefined) usuario.sobrenome = input.sobrenome.trim();
+  if (input.usuario !== undefined) usuario.usuario = input.usuario.trim().toLowerCase();
   if (input.perfil !== undefined) usuario.perfil = input.perfil;
   if (input.ativo !== undefined) usuario.ativo = input.ativo;
   if (input.senha) {
@@ -630,8 +670,17 @@ export async function updateUsuario(
   }
 
   await pool.query(
-    "UPDATE usuarios SET nome=$1, sobrenome=$2, perfil=$3, ativo=$4, senha_hash=$5, precisa_trocar_senha=$6 WHERE id=$7",
-    [usuario.nome, usuario.sobrenome, usuario.perfil, usuario.ativo, usuario.senhaHash, usuario.precisaTrocarSenha, id]
+    "UPDATE usuarios SET nome=$1, sobrenome=$2, usuario=$3, perfil=$4, ativo=$5, senha_hash=$6, precisa_trocar_senha=$7 WHERE id=$8",
+    [
+      usuario.nome,
+      usuario.sobrenome,
+      usuario.usuario,
+      usuario.perfil,
+      usuario.ativo,
+      usuario.senhaHash,
+      usuario.precisaTrocarSenha,
+      id,
+    ]
   );
   return usuario;
 }

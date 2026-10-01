@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { InputSenha } from "@/components/ui";
 
 export default function TrocarSenhaForm({ nomeCompleto }: { nomeCompleto: string }) {
   const router = useRouter();
@@ -61,9 +62,8 @@ export default function TrocarSenhaForm({ nomeCompleto }: { nomeCompleto: string
           <label className="mb-1 block text-[12px] font-medium text-ink" htmlFor="nova-senha">
             Nova senha
           </label>
-          <input
+          <InputSenha
             id="nova-senha"
-            type="password"
             autoComplete="new-password"
             required
             autoFocus
@@ -76,9 +76,8 @@ export default function TrocarSenhaForm({ nomeCompleto }: { nomeCompleto: string
           <label className="mb-1 block text-[12px] font-medium text-ink" htmlFor="confirmar-senha">
             Confirmar nova senha
           </label>
-          <input
+          <InputSenha
             id="confirmar-senha"
-            type="password"
             autoComplete="new-password"
             required
             value={confirmar}

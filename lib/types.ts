@@ -69,6 +69,8 @@ export interface Usuario {
   nome: string;
   sobrenome: string;
   email: string;
+  /** nome de usuário curto — alternativa ao e-mail pra entrar no sistema. */
+  usuario: string;
   /** formato "salt:hash" (scrypt) — nunca a senha em texto puro */
   senhaHash: string;
   perfil: PerfilUsuario;
