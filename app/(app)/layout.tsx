@@ -1,6 +1,6 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import Sidebar from "@/components/Sidebar";
+import AppShell from "@/components/AppShell";
 import { SESSION_COOKIE_NAME, verificarTokenSessao } from "@/lib/auth";
 import { diagnosticoArmazenamento, getUsuarioPorId } from "@/lib/db";
 
@@ -24,21 +24,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const armazenamento = diagnosticoArmazenamento();
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-surface">
-      <Sidebar
-        usuario={{ nome: `${usuario.nome} ${usuario.sobrenome}`.trim(), email: usuario.email, perfil: usuario.perfil }}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        {usuario.perfil === "admin" && !armazenamento.persistente && (
-          <div className="shrink-0 border-b border-alert-500/30 bg-alert-50 px-4 py-2 text-center text-[12.5px] font-semibold text-alert-600">
-            ⚠ Banco de dados não configurado — usuários, ordens e a seleção de
-            ordens visíveis não estão sendo salvos. Configure a variável{" "}
-            <code>DATABASE_URL</code> no Render (ver README, seção &quot;Deploy
-            no Render&quot;).
-          </div>
-        )}
-        {children}
-      </div>
-    </div>
+    <AppShell
+      usuario={{ nome: `${usuario.nome} ${usuario.sobrenome}`.trim(), email: usuario.email, perfil: usuario.perfil }}
+    >
+      {usuario.perfil === "admin" && !armazenamento.persistente && (
+        <div className="shrink-0 border-b border-alert-500/30 bg-alert-50 px-4 py-2 text-center text-[12.5px] font-semibold text-alert-600">
+          ⚠ Banco de dados não configurado — usuários, ordens e a seleção de
+          ordens visíveis não estão sendo salvos. Configure a variável{" "}
+          <code>DATABASE_URL</code> no Render (ver README, seção &quot;Deploy
+          no Render&quot;).
+        </div>
+      )}
+      {children}
+    </AppShell>
   );
 }
