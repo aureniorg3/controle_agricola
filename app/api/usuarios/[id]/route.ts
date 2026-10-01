@@ -19,7 +19,7 @@ interface PatchBody {
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const solicitante = usuarioDaRequisicao(req);
+  const solicitante = await usuarioDaRequisicao(req);
   if (!solicitante || !ehAdmin(solicitante.perfil)) {
     return NextResponse.json({ error: "Só administradores podem editar usuários." }, { status: 403 });
   }
@@ -34,7 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "A senha precisa ter ao menos 6 caracteres." }, { status: 400 });
   }
 
-  const resultado = updateUsuario(
+  const resultado = await updateUsuario(
     id,
     {
       nome: body.nome,
@@ -52,13 +52,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const solicitante = usuarioDaRequisicao(req);
+  const solicitante = await usuarioDaRequisicao(req);
   if (!solicitante || !ehAdmin(solicitante.perfil)) {
     return NextResponse.json({ error: "Só administradores podem excluir usuários." }, { status: 403 });
   }
 
   const { id } = await params;
-  const resultado = deleteUsuario(id, solicitante.id);
+  const resultado = await deleteUsuario(id, solicitante.id);
   if (resultado !== true) {
     return NextResponse.json({ error: resultado.erro }, { status: 409 });
   }

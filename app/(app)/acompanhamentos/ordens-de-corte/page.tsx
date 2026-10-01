@@ -4,8 +4,8 @@ import OrdensCorteClient from "./OrdensCorteClient";
 export const dynamic = "force-dynamic";
 
 export default async function OrdensDeCortePage() {
-  const ordens = listOrdens();
-  const ordensVisiveis = listOrdensVisiveis();
+  const ordens = await listOrdens();
+  const ordensVisiveis = await listOrdensVisiveis();
   const usuario = await usuarioAtual();
   return (
     <OrdensCorteClient

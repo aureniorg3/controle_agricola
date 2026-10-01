@@ -13,7 +13,7 @@ async function lerNumero(req: NextRequest): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest) {
-  const usuario = usuarioDaRequisicao(req);
+  const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
     return NextResponse.json({ error: "Você não tem permissão para escolher ordens exibidas." }, { status: 403 });
   }
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (!numero) {
     return NextResponse.json({ error: "Informe o número da ordem." }, { status: 400 });
   }
-  const resultado = adicionarOrdemVisivel(numero);
+  const resultado = await adicionarOrdemVisivel(numero);
   if (resultado !== true) {
     return NextResponse.json({ error: resultado.erro }, { status: 404 });
   }
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const usuario = usuarioDaRequisicao(req);
+  const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
     return NextResponse.json({ error: "Você não tem permissão para escolher ordens exibidas." }, { status: 403 });
   }
@@ -37,6 +37,6 @@ export async function DELETE(req: NextRequest) {
   if (!numero) {
     return NextResponse.json({ error: "Informe o número da ordem." }, { status: 400 });
   }
-  removerOrdemVisivel(numero);
+  await removerOrdemVisivel(numero);
   return NextResponse.json({ ok: true });
 }

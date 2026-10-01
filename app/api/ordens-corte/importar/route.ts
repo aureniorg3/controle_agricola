@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
-  const usuario = usuarioDaRequisicao(req);
+  const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
     return NextResponse.json({ error: "Você não tem permissão para importar planilha." }, { status: 403 });
   }
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
   }
 
   const resultado = montarOrdens(resOrdens.ordens, resPesagem, "2026/27");
-  substituirOrdens(resultado.ordens);
+  await substituirOrdens(resultado.ordens);
 
   return NextResponse.json({
     totalOrdens: resultado.totalOrdens,

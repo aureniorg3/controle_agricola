@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage() {
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   const uid = verificarTokenSessao(token);
-  const usuario = uid ? getUsuarioPorId(uid) : undefined;
+  const usuario = uid ? await getUsuarioPorId(uid) : undefined;
 
   if (usuario) {
     redirect(usuario.precisaTrocarSenha ? "/trocar-senha" : "/");

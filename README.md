@@ -10,11 +10,41 @@ base é sempre o retrato mais recente dos 2 arquivos.
 
 - **Next.js 16** (App Router, Turbopack) + **TypeScript** + **Tailwind CSS**
   — exige **Node 20.9+** (fixado em `package.json` → `engines.node`)
-- Persistência em **arquivo JSON no servidor** (`data/db.json`), lido e
-  gravado pelas rotas de API.
-- Sem dependências externas de banco de dados para começar. Quando quiser
-  migrar para Postgres/Supabase, só é preciso reimplementar `lib/db.ts`
-  (`getDb`/`saveDb`/`substituirOrdens`) — nenhuma tela precisa mudar.
+- Persistência em **Postgres** (driver oficial `pg`, sem ORM) — tabelas
+  normais (`usuarios`, `ordens`, `talhoes`, `entradas_diarias`,
+  `ordens_visiveis`, `app_meta`), compartilhadas e persistentes entre
+  deploys/restarts. Ver `supabase/schema.sql` (DDL completo, rode no SQL
+  Editor do Supabase **antes do primeiro uso** — a aplicação não cria as
+  tabelas sozinha, só semeia o usuário admin padrão se `usuarios` estiver
+  vazia) e `lib/db.ts` (as consultas). Usamos o tier **grátis** do
+  [Supabase](https://supabase.com) — ver `DATABASE_URL` na seção "Deploy no
+  Render" abaixo.
+  - **Por que trocamos de um arquivo local (`data/db.json`) pra isso:** o
+    Render free não suporta disco persistente (só a partir do plano pago
+    Starter) — sem disco, qualquer arquivo local é apagado a cada
+    deploy/restart. Isso já causou perda de usuários cadastrados e ordens
+    importadas em produção. Um banco externo resolve isso sem custo,
+    independente do plano de hospedagem.
+  - **Atenção (Supabase free):** o projeto pausa sozinho depois de ~1 semana
+    sem uso. Se o sistema parar de responder depois de um tempo sem acesso,
+    entre no [painel do Supabase](https://supabase.com/dashboard) e
+    reative o projeto (um clique) antes de investigar outra coisa.
+
+### Configurar o banco (uma vez só, antes do primeiro uso)
+
+1. Abra o projeto no [painel do Supabase](https://supabase.com/dashboard) →
+   **SQL Editor** → **New query**.
+2. Cole o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) inteiro e
+   clique em **Run**. Cria as tabelas (`usuarios`, `ordens`, `talhoes`,
+   `entradas_diarias`, `ordens_visiveis`, `app_meta`) e os índices — pode
+   rodar de novo sem problema, nenhum comando apaga dado existente.
+3. Pegue a connection string (`DATABASE_URL`) — ver instruções na seção
+   "Deploy no Render" abaixo — e configure localmente (`.env.local`) e no
+   Render.
+
+Não precisa rodar nenhum outro script: a aplicação cria o usuário
+administrador padrão sozinha na primeira consulta, se a tabela `usuarios`
+estiver vazia (mesmo comportamento de antes).
 
 ## Como rodar localmente
 
@@ -46,13 +76,23 @@ seguir os passos:
 2. **Runtime:** Node. **Build Command:** `npm install && npm run build`.
    **Start Command:** `npm start`.
 3. **Environment** (aba Environment do serviço) → adicione:
+   - `DATABASE_URL` — **obrigatório**, a connection string do seu projeto
+     gratuito no [Supabase](https://supabase.com/dashboard). No painel do
+     Supabase: botão **Connect** (topo da página) → aba **Direto** → método
+     **Session pooler** (recomendado pra servidores de longa duração como o
+     Render, e evita depender de IPv6) → copie a string (formato
+     `postgresql://postgres.xxxxx:[YOUR-PASSWORD]@aws-0-xxxxx.pooler.supabase.com:5432/postgres`)
+     e substitua `[YOUR-PASSWORD]` pela senha real do banco (a que você
+     definiu ao criar o projeto — se perdeu, redefina em **Project Settings
+     → Database → Reset database password**). Essa etapa envolve uma senha
+     de verdade — faça você mesmo, direto no painel do Render; eu não
+     insiro credenciais em formulários por política.
    - `AUTH_SECRET` — um valor aleatório, só seu, usado para assinar o cookie
      de login. Pode usar este (gerado agora), ou qualquer string longa e
      aleatória:
      ```
      MCyed2WYMhzXmYr3LFWpRIMA55TL9LocbIUjEZfZvMI
      ```
-   - `DATA_DIR` — `/var/data` (ver disco persistente no próximo passo).
    - `RESEND_API_KEY` (opcional, mas recomendado) — pra mandar o e-mail de
      boas-vindas quando um usuário é cadastrado (link do sistema + senha
      provisória). Crie uma conta grátis em [resend.com](https://resend.com),
@@ -68,35 +108,15 @@ seguir os passos:
      domínio aqui).
    - `APP_URL` (opcional) — link do sistema que entra no e-mail de boas-vindas.
      Sem essa variável, usa `https://controle-agricola.onrender.com`.
-4. **Disco persistente (obrigatório para não perder dados a cada deploy):**
-   Settings → **Disks** → Add Disk → *Mount Path* `/var/data` (mesmo caminho
-   do `DATA_DIR` acima), qualquer tamanho pequeno (1 GB já sobra). Sem isso, a
-   cada novo deploy o Render apaga o disco do serviço, a base de ordens fica
-   vazia (é preciso reimportar as planilhas) e o usuário admin volta para a
-   senha padrão.
-
-   `lib/db.ts` grava sempre em arquivo temporário + `rename` atômico (nunca
-   sobrescreve `db.json` direto) — um processo encerrado no meio de uma
-   gravação (ex.: instância gratuita ficando sem memória) não deixa mais o
-   arquivo corrompido. Se `db.json` ainda assim aparecer com um JSON
-   inválido (de uma gravação antiga, antes dessa proteção), o sistema nunca
-   apaga o arquivo sozinho: guarda uma cópia (`db.json.corrompido-<hora>`,
-   no mesmo disco) e serve uma base vazia só naquela resposta, sem
-   sobrescrever o original — dá pra recuperar manualmente ou reimportar as
-   planilhas sem perder a cópia com problema.
-
-   **Se esse passo for esquecido ou desfeito**, o sistema avisa sozinho em
-   vez de falhar em silêncio: qualquer admin logado vê uma faixa vermelha no
-   topo de toda tela enquanto `DATA_DIR` não estiver configurado
+4. **Sem `DATABASE_URL` o sistema não funciona de verdade** (não é mais um
+   fallback silencioso pra um arquivo local): toda leitura/gravação falha, e
+   qualquer admin logado vê uma faixa vermelha no topo de toda tela
    (`diagnosticoArmazenamento()` em `lib/db.ts`, checado em
-   `app/(app)/layout.tsx`), e o log do serviço no Render imprime o mesmo
-   aviso assim que o processo sobe. **Importante:** sem esse disco, usuários
-   cadastrados, ordens importadas e a seleção de quais ordens aparecem na
-   tela são **sempre globais** (um único arquivo compartilhado por todo
-   mundo que acessa o sistema — não há nada "por usuário" no modelo de
-   dados) — o sintoma de "só quem importou/selecionou enxerga" ou "o usuário
-   cadastrado sumiu" não é um problema de permissão, é esse arquivo sendo
-   recriado do zero a cada deploy/restart porque não tem onde persistir.
+   `app/(app)/layout.tsx`), além do aviso no log do serviço assim que o
+   processo sobe. **Importante:** usuários cadastrados, ordens importadas e
+   a seleção de quais ordens aparecem na tela são **sempre globais** (um
+   único documento compartilhado por todo mundo que acessa o sistema — não
+   há nada "por usuário" no modelo de dados).
 5. **Create Web Service.** O primeiro deploy demora alguns minutos (build do
    Next.js); depois disso o Render mostra a URL pública do serviço no topo da
    página (algo como `https://controle-agricola.onrender.com`) — esse é o

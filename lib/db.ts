@@ -1,56 +1,83 @@
-import fs from "fs";
-import path from "path";
+import { Pool, types } from "pg";
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
-import { Database, OrdemCorte, Usuario } from "./types";
+import { Database, EntradaDiaria, OrdemCorte, TalhaoOrdem, Usuario } from "./types";
 import { gerarSenhaProvisoria, hashSenha, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
 
-// Em produção (Render/qualquer Node host) isso grava no disco do serviço.
-// Se o disco não for persistente entre deploys, trocar este arquivo por um
-// adaptador de banco real (Postgres/Supabase) mantendo a mesma interface
-// (getDb/saveDb) é a única mudança necessária — nenhuma tela precisa mudar.
-//
-// DATA_DIR pode ser sobrescrito pela variável de ambiente `DATA_DIR` — use
-// isso para apontar para o Persistent Disk do Render (ver README, seção
-// "Deploy no Render") sem depender de adivinhar o caminho de build do
-// serviço.
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "db.json");
+// `numeric` volta como string por padrão no driver `pg` (pra não perder
+// precisão) — como este app só lida com área/tonelada em ponto flutuante
+// normal, converte pra number direto. `date` também merece tratamento
+// especial: sem isso, o driver monta um `Date` na meia-noite UTC, que pode
+// "voltar um dia" dependendo do fuso de quem lê — mantemos como string
+// "YYYY-MM-DD" crua, igual ao que `EntradaDiaria.data` já espera.
+types.setTypeParser(1700, (val) => parseFloat(val)); // numeric
+types.setTypeParser(1082, (val) => val); // date
+
+// A base inteira (ordens, talhões, entradas diárias, usuários, seleção de
+// visibilidade) mora em tabelas normais no Postgres do Supabase — ver
+// supabase/schema.sql pro DDL completo (rode esse arquivo no SQL Editor do
+// Supabase antes do primeiro uso). Esse arquivo só faz as consultas; a
+// criação das tabelas é responsabilidade do schema.sql, não deste código.
+const DATABASE_URL = process.env.DATABASE_URL;
 
 /**
- * Sem a variável `DATA_DIR` apontando pro disco persistente do Render, todo
- * dado gravado (usuários, ordens, seleção de visibilidade) vive só dentro da
- * imagem do deploy atual — o próximo deploy ou restart apaga tudo. Isso já
- * causou usuários "sumindo" e ordens "só aparecendo pra quem importou": não é
- * um bug de lógica (o `Database` é um arquivo único e global, sem nada
- * por-usuário), é o arquivo inteiro sendo recriado do zero. Avisa alto no log
+ * Sem `DATABASE_URL`, não tem pra onde gravar — melhor travar alto (e óbvio)
+ * do que servir uma base vazia em memória sem avisar ninguém, como acontecia
+ * antes com o arquivo local em disco não-persistente. Avisa alto no log
  * assim que o módulo carrega, pra aparecer nos logs do Render mesmo que
  * ninguém olhe a tela.
  */
-if (process.env.NODE_ENV === "production" && !process.env.DATA_DIR) {
+if (process.env.NODE_ENV === "production" && !DATABASE_URL) {
   console.error(
     "\n" +
       "!".repeat(70) +
-      "\n[db] ATENÇÃO: variável DATA_DIR não configurada em produção.\n" +
-      `Os dados em ${DB_PATH} serão apagados no próximo deploy/restart —\n` +
-      "configure um disco persistente no Render (Settings → Disks) e a\n" +
-      "variável de ambiente DATA_DIR apontando pro mount path dele. Ver\n" +
-      'README.md, seção "Deploy no Render".\n' +
+      "\n[db] ATENÇÃO: variável DATABASE_URL não configurada em produção.\n" +
+      "O sistema não tem como gravar nem ler usuários/ordens sem ela —\n" +
+      "configure a connection string do Postgres do Supabase na variável\n" +
+      'de ambiente DATABASE_URL. Ver README.md, seção "Deploy no Render".\n' +
       "!".repeat(70) +
       "\n"
   );
 }
 
 export interface DiagnosticoArmazenamento {
-  /** `false` quando `DATA_DIR` não está configurado — nesse caso os dados
-   * vivem dentro da imagem de build e são apagados no próximo deploy. */
+  /** `false` quando `DATABASE_URL` não está configurada — nesse caso toda
+   * leitura/gravação falha (propositalmente, em vez de perder dados em
+   * silêncio num arquivo local não-persistente). */
   persistente: boolean;
   caminho: string;
 }
 
 export function diagnosticoArmazenamento(): DiagnosticoArmazenamento {
-  return { persistente: Boolean(process.env.DATA_DIR), caminho: DATA_DIR };
+  return { persistente: Boolean(DATABASE_URL), caminho: DATABASE_URL ? "Postgres (Supabase)" : "(DATABASE_URL não configurada)" };
 }
+
+// Reaproveita o pool de conexões entre requisições do mesmo processo (e, em
+// desenvolvimento, entre reloads do Next.js via `globalThis` — sem isso, o
+// Fast Refresh recriaria um pool novo a cada edição de arquivo).
+declare global {
+  // eslint-disable-next-line no-var
+  var _pgPool: Pool | undefined;
+}
+
+function getPool(): Pool {
+  if (!DATABASE_URL) {
+    throw new Error(
+      'DATABASE_URL não configurada — não é possível conectar ao banco de dados. Ver README.md, seção "Deploy no Render".'
+    );
+  }
+  if (process.env.NODE_ENV === "development") {
+    if (!global._pgPool) {
+      global._pgPool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    }
+    return global._pgPool;
+  }
+  if (!cachedPool) {
+    cachedPool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  }
+  return cachedPool;
+}
+let cachedPool: Pool | undefined;
 
 /**
  * Usuário administrador padrão, criado automaticamente na primeira execução.
@@ -71,199 +98,301 @@ function buildAdminPadrao(): Usuario {
   };
 }
 
-function buildSeedDb(): Database {
-  return {
-    ordens: [],
-    ordensVisiveis: [],
-    usuarios: [buildAdminPadrao()],
-    ultimaAtualizacao: new Date().toISOString(),
-  };
+/**
+ * Confere que as tabelas existem (devem ter sido criadas rodando
+ * supabase/schema.sql no SQL Editor do Supabase) e semeia o usuário admin
+ * padrão na primeiríssima execução (tabela `usuarios` vazia). Roda uma vez
+ * só por processo — chamadas seguintes reaproveitam a mesma promise.
+ */
+let prepararBancoPromise: Promise<void> | undefined;
+function prepararBanco(pool: Pool): Promise<void> {
+  if (!prepararBancoPromise) {
+    prepararBancoPromise = (async () => {
+      let count: number;
+      try {
+        const { rows } = await pool.query<{ count: number }>("SELECT COUNT(*)::int AS count FROM usuarios");
+        count = rows[0].count;
+      } catch (err) {
+        throw new Error(
+          "Tabelas do banco não encontradas no Postgres do Supabase. Rode supabase/schema.sql no SQL Editor do " +
+            `Supabase antes de usar o sistema. Erro original: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      if (count === 0) {
+        const admin = buildAdminPadrao();
+        await pool.query(
+          `INSERT INTO usuarios (id, nome, sobrenome, email, senha_hash, perfil, ativo, precisa_trocar_senha, criado_em)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING`,
+          [admin.id, admin.nome, admin.sobrenome, admin.email, admin.senhaHash, admin.perfil, admin.ativo, admin.precisaTrocarSenha, admin.criadoEm]
+        );
+      }
+    })();
+  }
+  return prepararBancoPromise;
+}
+
+function paraIso(valor: unknown): string {
+  if (valor instanceof Date) return valor.toISOString();
+  return String(valor);
+}
+
+interface OrdemRow {
+  numero: string;
+  frente: string;
+  fazenda_codigo: string;
+  fazenda_nome: string;
+  proprietario_codigo: string | null;
+  proprietario_nome: string | null;
+  status: string;
+  tipo_cana: string | null;
+  data_queima: string | null;
+  observacao: string | null;
+  safra_label: string;
+  atualizado_em: Date | string;
+}
+interface TalhaoRow {
+  ordem_numero: string;
+  fazenda_codigo: string;
+  fazenda_nome: string;
+  talhao: string;
+  area_ha: number;
+  area_colhida_ha: number;
+}
+interface EntradaRow {
+  ordem_numero: string;
+  data: string;
+  fazenda_codigo: string;
+  talhao: string;
+  toneladas: number;
+  toneladas_ate_6h: number;
+  viagens: number;
+}
+
+/** Monta OrdemCorte[] completas (com talhões e entradas aninhados) a partir
+ * das 3 tabelas relacionadas — opcionalmente restrito a uma lista de
+ * números de ordem. 3 consultas no total, independente de quantas ordens. */
+async function carregarOrdensCompletas(pool: Pool, numeros?: string[]): Promise<OrdemCorte[]> {
+  const { rows: ordensRows } = await pool.query<OrdemRow>(
+    numeros ? "SELECT * FROM ordens WHERE numero = ANY($1::text[])" : "SELECT * FROM ordens",
+    numeros ? [numeros] : []
+  );
+  if (ordensRows.length === 0) return [];
+
+  const todosNumeros = ordensRows.map((r) => r.numero);
+  const [{ rows: talhoesRows }, { rows: entradasRows }] = await Promise.all([
+    pool.query<TalhaoRow>("SELECT * FROM talhoes WHERE ordem_numero = ANY($1::text[])", [todosNumeros]),
+    pool.query<EntradaRow>("SELECT * FROM entradas_diarias WHERE ordem_numero = ANY($1::text[])", [todosNumeros]),
+  ]);
+
+  const talhoesPorOrdem = new Map<string, TalhaoOrdem[]>();
+  for (const t of talhoesRows) {
+    const lista = talhoesPorOrdem.get(t.ordem_numero) ?? [];
+    lista.push({
+      fazendaCodigo: t.fazenda_codigo,
+      fazendaNome: t.fazenda_nome,
+      talhao: t.talhao,
+      areaHa: t.area_ha,
+      areaColhidaHa: t.area_colhida_ha,
+    });
+    talhoesPorOrdem.set(t.ordem_numero, lista);
+  }
+
+  const entradasPorOrdem = new Map<string, EntradaDiaria[]>();
+  for (const e of entradasRows) {
+    const lista = entradasPorOrdem.get(e.ordem_numero) ?? [];
+    lista.push({
+      data: e.data,
+      fazendaCodigo: e.fazenda_codigo,
+      talhao: e.talhao,
+      toneladas: e.toneladas,
+      toneladasAte6h: e.toneladas_ate_6h,
+      viagens: e.viagens,
+    });
+    entradasPorOrdem.set(e.ordem_numero, lista);
+  }
+
+  return ordensRows.map((r) => ({
+    id: r.numero,
+    numero: r.numero,
+    frente: r.frente,
+    fazendaCodigo: r.fazenda_codigo,
+    fazendaNome: r.fazenda_nome,
+    proprietarioCodigo: r.proprietario_codigo ?? undefined,
+    proprietarioNome: r.proprietario_nome ?? undefined,
+    status: r.status as OrdemCorte["status"],
+    tipoCana: r.tipo_cana ?? undefined,
+    dataQueima: r.data_queima ?? undefined,
+    observacao: r.observacao ?? undefined,
+    safraLabel: r.safra_label,
+    talhoes: talhoesPorOrdem.get(r.numero) ?? [],
+    entradas: entradasPorOrdem.get(r.numero) ?? [],
+    atualizadoEm: paraIso(r.atualizado_em),
+  }));
+}
+
+export async function listOrdens(): Promise<OrdemCorte[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const ordens = await carregarOrdensCompletas(pool);
+  return ordens.sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true }));
+}
+
+export async function getOrdem(id: string): Promise<OrdemCorte | undefined> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const ordens = await carregarOrdensCompletas(pool, [id]);
+  return ordens[0];
 }
 
 /**
- * Gravação atômica: escreve num arquivo temporário e só troca pelo arquivo
- * real com `renameSync` (atômico no Linux/Render) depois que a escrita
- * inteira terminou. Sem isso, um processo encerrado no meio de
- * `writeFileSync` (ex.: a instância do Render ficando sem memória) deixa
- * `db.json` com um JSON truncado — e é exatamente esse arquivo corrompido
- * que já causou perda de dados importados antes.
+ * Substitui TODAS as ordens pelo resultado de uma importação — os relatórios
+ * de origem são sempre a safra inteira até a data de geração, não um
+ * incremento do dia, então não há o que mesclar: cada importação é o
+ * retrato mais atual e substitui o anterior por completo.
+ *
+ * Ordens que saem da base (não estão mais no novo arquivo) são removidas de
+ * verdade (`DELETE ... WHERE numero NOT IN`), o que também apaga sua linha
+ * em `ordens_visiveis` via `ON DELETE CASCADE`. Ordens que continuam
+ * existindo são atualizadas em UPSERT (nunca apagadas+recriadas) — assim a
+ * seleção de visibilidade sobrevive a uma reimportação, igual antes.
  */
-function escreverDbAtomico(db: Database) {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  const tmpPath = `${DB_PATH}.tmp-${process.pid}`;
-  fs.writeFileSync(tmpPath, JSON.stringify(db, null, 2), "utf-8");
-  fs.renameSync(tmpPath, DB_PATH);
-}
-
-function ensureDb(): Database {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(DB_PATH)) {
-    const seeded = buildSeedDb();
-    escreverDbAtomico(seeded);
-    return seeded;
-  }
-  const raw = fs.readFileSync(DB_PATH, "utf-8");
-  let db: Database;
+export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const client = await pool.connect();
   try {
-    db = JSON.parse(raw) as Database;
-  } catch {
-    // NUNCA sobrescreve um arquivo corrompido/truncado com uma base vazia —
-    // isso já apagou dados importados de verdade (ex.: se o processo for
-    // encerrado no meio de uma gravação, o arquivo em disco fica com JSON
-    // inválido; a versão antiga deste código reagia a isso recriando a base
-    // do zero E GRAVANDO por cima, destruindo o que ainda podia ser
-    // recuperado). Agora: guarda uma cópia do arquivo com problema ao lado
-    // (pra recuperação manual) e serve uma base vazia só nesta resposta, sem
-    // tocar no arquivo original.
-    const backupPath = `${DB_PATH}.corrompido-${Date.now()}`;
-    try {
-      fs.writeFileSync(backupPath, raw, "utf-8");
-    } catch {
-      // mesmo se o backup falhar, não sobrescreve o original abaixo.
+    await client.query("BEGIN");
+
+    const numeros = ordens.map((o) => o.numero);
+    await client.query("DELETE FROM ordens WHERE NOT (numero = ANY($1::text[]))", [numeros]);
+
+    // Talhões/entradas são sempre o retrato completo da importação —
+    // limpa e reconstrói do zero pras ordens que sobraram, mais simples e
+    // seguro do que tentar diffar linha a linha.
+    await client.query("DELETE FROM talhoes");
+    await client.query("DELETE FROM entradas_diarias");
+
+    if (ordens.length > 0) {
+      await client.query(
+        `INSERT INTO ordens
+           (numero, frente, fazenda_codigo, fazenda_nome, proprietario_codigo, proprietario_nome,
+            status, tipo_cana, data_queima, observacao, safra_label, atualizado_em)
+         SELECT * FROM unnest(
+           $1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
+           $7::text[], $8::text[], $9::date[], $10::text[], $11::text[], $12::timestamptz[]
+         )
+         ON CONFLICT (numero) DO UPDATE SET
+           frente = EXCLUDED.frente, fazenda_codigo = EXCLUDED.fazenda_codigo, fazenda_nome = EXCLUDED.fazenda_nome,
+           proprietario_codigo = EXCLUDED.proprietario_codigo, proprietario_nome = EXCLUDED.proprietario_nome,
+           status = EXCLUDED.status, tipo_cana = EXCLUDED.tipo_cana, data_queima = EXCLUDED.data_queima,
+           observacao = EXCLUDED.observacao, safra_label = EXCLUDED.safra_label, atualizado_em = EXCLUDED.atualizado_em`,
+        [
+          numeros,
+          ordens.map((o) => o.frente),
+          ordens.map((o) => o.fazendaCodigo),
+          ordens.map((o) => o.fazendaNome),
+          ordens.map((o) => o.proprietarioCodigo ?? null),
+          ordens.map((o) => o.proprietarioNome ?? null),
+          ordens.map((o) => o.status),
+          ordens.map((o) => o.tipoCana ?? null),
+          ordens.map((o) => o.dataQueima ?? null),
+          ordens.map((o) => o.observacao ?? null),
+          ordens.map((o) => o.safraLabel),
+          ordens.map((o) => o.atualizadoEm),
+        ]
+      );
     }
-    console.error(
-      `[db] ${DB_PATH} não é um JSON válido — não foi sobrescrito. Cópia (se possível) em ${backupPath}. Servindo uma base vazia só nesta resposta.`
-    );
-    return buildSeedDb();
-  }
-  // Migração leve: bancos gravados antes da tela de login não têm `usuarios`.
-  if (!db.usuarios || db.usuarios.length === 0) {
-    db.usuarios = [buildAdminPadrao()];
-    escreverDbAtomico(db);
-    return db;
-  }
-  // Migração leve: bancos gravados antes dos níveis leitura/gravação/admin
-  // tinham só "admin" | "operacional", e nenhum usuário tinha `ativo`.
-  let migrou = false;
-  for (const u of db.usuarios) {
-    if ((u.perfil as string) === "operacional") {
-      u.perfil = "gravacao";
-      migrou = true;
-    }
-    if (u.ativo === undefined) {
-      u.ativo = true;
-      migrou = true;
-    }
-    // Migração leve: bancos gravados antes de nome/sobrenome separados e da
-    // senha provisória no primeiro acesso. Usuários já existentes não ficam
-    // de repente obrigados a trocar senha — só os criados depois disso.
-    if (u.sobrenome === undefined) {
-      u.sobrenome = "";
-      migrou = true;
-    }
-    if (u.precisaTrocarSenha === undefined) {
-      u.precisaTrocarSenha = false;
-      migrou = true;
-    }
-  }
-  // Migração leve: bancos gravados antes da reformulação com os 3 relatórios
-  // do CHBWEB tinham `ordens` no formato antigo (com `criadoEm`/`lancamentos`
-  // etc.) — como a base agora é 100% derivada da importação, o mais seguro é
-  // zerar e pedir uma reimportação, em vez de tentar converter o formato.
-  if (db.ordens.some((o) => !("entradas" in o))) {
-    db.ordens = [];
-    migrou = true;
-  }
-  // Migração leve: bancos gravados antes da seleção manual de ordens não têm
-  // `ordensVisiveis`.
-  if (!db.ordensVisiveis) {
-    db.ordensVisiveis = [];
-    migrou = true;
-  }
-  // Migração leve: bancos gravados antes do suporte a ordens com mais de uma
-  // fazenda não têm `fazendaCodigo`/`fazendaNome`/`areaColhidaHa` por talhão
-  // nem `fazendaCodigo` por entrada — preenche com a fazenda "principal" da
-  // ordem (o melhor palpite possível sem reimportar; correto para a maioria
-  // das ordens, que têm só uma fazenda). NUNCA zera `db.ordens` aqui — os
-  // dados importados continuam de pé até uma reimportação manual trazer a
-  // divisão certa por fazenda para as ordens que têm mais de uma.
-  for (const o of db.ordens) {
-    // Array.isArray() por segurança — nunca deixa um registro inesperado
-    // (ex.: `talhoes`/`entradas` ausente ou nulo por algum motivo) derrubar
-    // a leitura inteira da base com uma exceção não tratada.
-    for (const t of (Array.isArray(o.talhoes) ? o.talhoes : []) as unknown as Array<Record<string, unknown>>) {
-      if (t.fazendaCodigo === undefined) {
-        t.fazendaCodigo = o.fazendaCodigo;
-        t.fazendaNome = o.fazendaNome;
-        migrou = true;
-      }
-      if (t.areaColhidaHa === undefined) {
-        t.areaColhidaHa = 0;
-        migrou = true;
+
+    const tOrdemNumero: string[] = [];
+    const tFazendaCodigo: string[] = [];
+    const tFazendaNome: string[] = [];
+    const tTalhao: string[] = [];
+    const tAreaHa: number[] = [];
+    const tAreaColhidaHa: number[] = [];
+    for (const o of ordens) {
+      for (const t of o.talhoes) {
+        tOrdemNumero.push(o.numero);
+        tFazendaCodigo.push(t.fazendaCodigo);
+        tFazendaNome.push(t.fazendaNome);
+        tTalhao.push(t.talhao);
+        tAreaHa.push(t.areaHa);
+        tAreaColhidaHa.push(t.areaColhidaHa);
       }
     }
-    for (const e of (Array.isArray(o.entradas) ? o.entradas : []) as unknown as Array<Record<string, unknown>>) {
-      if (e.fazendaCodigo === undefined) {
-        e.fazendaCodigo = o.fazendaCodigo;
-        migrou = true;
+    if (tOrdemNumero.length > 0) {
+      await client.query(
+        `INSERT INTO talhoes (ordem_numero, fazenda_codigo, fazenda_nome, talhao, area_ha, area_colhida_ha)
+         SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::numeric[], $6::numeric[])`,
+        [tOrdemNumero, tFazendaCodigo, tFazendaNome, tTalhao, tAreaHa, tAreaColhidaHa]
+      );
+    }
+
+    const eOrdemNumero: string[] = [];
+    const eData: string[] = [];
+    const eFazendaCodigo: string[] = [];
+    const eTalhao: string[] = [];
+    const eToneladas: number[] = [];
+    const eToneladasAte6h: number[] = [];
+    const eViagens: number[] = [];
+    for (const o of ordens) {
+      for (const e of o.entradas) {
+        eOrdemNumero.push(o.numero);
+        eData.push(e.data);
+        eFazendaCodigo.push(e.fazendaCodigo);
+        eTalhao.push(e.talhao);
+        eToneladas.push(e.toneladas);
+        eToneladasAte6h.push(e.toneladasAte6h);
+        eViagens.push(e.viagens);
       }
     }
+    if (eOrdemNumero.length > 0) {
+      await client.query(
+        `INSERT INTO entradas_diarias
+           (ordem_numero, data, fazenda_codigo, talhao, toneladas, toneladas_ate_6h, viagens)
+         SELECT * FROM unnest(
+           $1::text[], $2::date[], $3::text[], $4::text[], $5::numeric[], $6::numeric[], $7::int[]
+         )`,
+        [eOrdemNumero, eData, eFazendaCodigo, eTalhao, eToneladas, eToneladasAte6h, eViagens]
+      );
+    }
+
+    await client.query("UPDATE app_meta SET ultima_importacao = now(), ultima_atualizacao = now() WHERE id = true");
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
   }
-  if (migrou) {
-    escreverDbAtomico(db);
-  }
-  return db;
 }
 
-export function getDb(): Database {
-  return ensureDb();
+/** Números de ordem marcados para exibição — o `JOIN` garante que uma ordem
+ * que sumiu numa reimportação não fica presa na lista (a linha já teria
+ * sido removida via `ON DELETE CASCADE`, mas o filtro é uma rede extra). */
+export async function listOrdensVisiveis(): Promise<string[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ ordem_numero: string }>(
+    "SELECT ov.ordem_numero FROM ordens_visiveis ov JOIN ordens o ON o.numero = ov.ordem_numero"
+  );
+  return rows.map((r) => r.ordem_numero);
 }
 
-export function saveDb(db: Database) {
-  db.ultimaAtualizacao = new Date().toISOString();
-  escreverDbAtomico(db);
-}
-
-export function listOrdens(): OrdemCorte[] {
-  return getDb().ordens.sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true }));
-}
-
-export function getOrdem(id: string): OrdemCorte | undefined {
-  return getDb().ordens.find((o) => o.id === id);
-}
-
-/**
- * Substitui TODAS as ordens pelo resultado de uma importação — os três
- * relatórios de origem (Ordem de Colheita, Pesagem de Cana por Hora,
- * Conferência de Pesagens) são sempre a safra inteira até a data de
- * geração, não um incremento do dia, então não há o que mesclar: cada
- * importação é o retrato mais atual e substitui o anterior por completo.
- */
-export function substituirOrdens(ordens: OrdemCorte[]) {
-  const db = getDb();
-  db.ordens = ordens;
-  db.ultimaImportacao = new Date().toISOString();
-  saveDb(db);
-}
-
-/** Números de ordem marcados para exibição, restrito ao que existe hoje na
- * base (uma ordem que sumiu numa reimportação não fica presa na lista). */
-export function listOrdensVisiveis(): string[] {
-  const db = getDb();
-  const existentes = new Set(db.ordens.map((o) => o.numero));
-  return db.ordensVisiveis.filter((n) => existentes.has(n));
-}
-
-export function adicionarOrdemVisivel(numero: string): true | { erro: string } {
-  const db = getDb();
-  if (!db.ordens.some((o) => o.numero === numero)) {
+export async function adicionarOrdemVisivel(numero: string): Promise<true | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query("SELECT 1 FROM ordens WHERE numero = $1", [numero]);
+  if (rows.length === 0) {
     return { erro: `Ordem ${numero} não encontrada na última importação.` };
   }
-  if (!db.ordensVisiveis.includes(numero)) {
-    db.ordensVisiveis.push(numero);
-    saveDb(db);
-  }
+  await pool.query("INSERT INTO ordens_visiveis (ordem_numero) VALUES ($1) ON CONFLICT (ordem_numero) DO NOTHING", [numero]);
   return true;
 }
 
-export function removerOrdemVisivel(numero: string) {
-  const db = getDb();
-  db.ordensVisiveis = db.ordensVisiveis.filter((n) => n !== numero);
-  saveDb(db);
+export async function removerOrdemVisivel(numero: string): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  await pool.query("DELETE FROM ordens_visiveis WHERE ordem_numero = $1", [numero]);
 }
 
 export type LancamentoAreaColhida =
@@ -277,9 +406,13 @@ export type LancamentoAreaColhida =
  * cada talhão (mesmo critério do sistema antigo); "por talhão" grava os
  * valores exatos informados.
  */
-export function lancarAreaColhida(numero: string, input: LancamentoAreaColhida): OrdemCorte | { erro: string } {
-  const db = getDb();
-  const ordem = db.ordens.find((o) => o.numero === numero);
+export async function lancarAreaColhida(
+  numero: string,
+  input: LancamentoAreaColhida
+): Promise<OrdemCorte | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const ordem = (await carregarOrdensCompletas(pool, [numero]))[0];
   if (!ordem) return { erro: `Ordem ${numero} não encontrada.` };
 
   if (input.modo === "ordem") {
@@ -311,21 +444,71 @@ export function lancarAreaColhida(numero: string, input: LancamentoAreaColhida):
   }
 
   ordem.atualizadoEm = new Date().toISOString();
-  saveDb(db);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const t of ordem.talhoes) {
+      await client.query(
+        "UPDATE talhoes SET area_colhida_ha = $1 WHERE ordem_numero = $2 AND fazenda_codigo = $3 AND talhao = $4",
+        [t.areaColhidaHa, numero, t.fazendaCodigo, t.talhao]
+      );
+    }
+    await client.query("UPDATE ordens SET atualizado_em = $1 WHERE numero = $2", [ordem.atualizadoEm, numero]);
+    await client.query("UPDATE app_meta SET ultima_atualizacao = now() WHERE id = true");
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
   return ordem;
 }
 
-export function listUsuarios(): Usuario[] {
-  return getDb().usuarios;
+function mapUsuario(r: {
+  id: string;
+  nome: string;
+  sobrenome: string;
+  email: string;
+  senha_hash: string;
+  perfil: string;
+  ativo: boolean;
+  precisa_trocar_senha: boolean;
+  criado_em: Date | string;
+}): Usuario {
+  return {
+    id: r.id,
+    nome: r.nome,
+    sobrenome: r.sobrenome,
+    email: r.email,
+    senhaHash: r.senha_hash,
+    perfil: r.perfil as Usuario["perfil"],
+    ativo: r.ativo,
+    precisaTrocarSenha: r.precisa_trocar_senha,
+    criadoEm: paraIso(r.criado_em),
+  };
 }
 
-export function getUsuarioPorId(id: string): Usuario | undefined {
-  return listUsuarios().find((u) => u.id === id);
+export async function listUsuarios(): Promise<Usuario[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query("SELECT * FROM usuarios ORDER BY criado_em");
+  return rows.map(mapUsuario);
 }
 
-export function getUsuarioPorEmail(email: string): Usuario | undefined {
-  const alvo = email.trim().toLowerCase();
-  return listUsuarios().find((u) => u.email.toLowerCase() === alvo);
+export async function getUsuarioPorId(id: string): Promise<Usuario | undefined> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query("SELECT * FROM usuarios WHERE id = $1", [id]);
+  return rows[0] ? mapUsuario(rows[0]) : undefined;
+}
+
+export async function getUsuarioPorEmail(email: string): Promise<Usuario | undefined> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query("SELECT * FROM usuarios WHERE lower(email) = lower($1)", [email.trim()]);
+  return rows[0] ? mapUsuario(rows[0]) : undefined;
 }
 
 /** Usuário da sessão atual, para Server Components (usa `cookies()` de `next/headers`). */
@@ -336,14 +519,18 @@ export async function usuarioAtual(): Promise<Usuario | undefined> {
 }
 
 /** Mesma coisa, para Route Handlers — lê o cookie direto do `NextRequest`. */
-export function usuarioDaRequisicao(req: NextRequest): Usuario | undefined {
+export async function usuarioDaRequisicao(req: NextRequest): Promise<Usuario | undefined> {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
   const uid = verificarTokenSessao(token);
   return uid ? getUsuarioPorId(uid) : undefined;
 }
 
-function contarAdminsAtivos(db: Database, ignorarId?: string): number {
-  return db.usuarios.filter((u) => u.perfil === "admin" && u.ativo && u.id !== ignorarId).length;
+async function contarAdminsAtivos(pool: Pool, ignorarId?: string): Promise<number> {
+  const { rows } = await pool.query<{ count: number }>(
+    "SELECT COUNT(*)::int AS count FROM usuarios WHERE perfil = 'admin' AND ativo = true AND id IS DISTINCT FROM $1",
+    [ignorarId ?? null]
+  );
+  return rows[0].count;
 }
 
 export interface NovoUsuarioInput {
@@ -359,9 +546,12 @@ export interface NovoUsuarioInput {
  * (mandar por e-mail, mostrar na tela como reserva) — nunca fica só no
  * hash. O usuário criado começa com `precisaTrocarSenha: true`.
  */
-export function insertUsuario(input: NovoUsuarioInput): { usuario: Usuario; senhaProvisoria: string } | { erro: string } {
-  const db = getDb();
-  if (getUsuarioPorEmail(input.email)) {
+export async function insertUsuario(
+  input: NovoUsuarioInput
+): Promise<{ usuario: Usuario; senhaProvisoria: string } | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  if (await getUsuarioPorEmail(input.email)) {
     return { erro: "Já existe um usuário com esse e-mail." };
   }
   const senhaProvisoria = gerarSenhaProvisoria();
@@ -376,8 +566,21 @@ export function insertUsuario(input: NovoUsuarioInput): { usuario: Usuario; senh
     precisaTrocarSenha: true,
     criadoEm: new Date().toISOString(),
   };
-  db.usuarios.push(usuario);
-  saveDb(db);
+  await pool.query(
+    `INSERT INTO usuarios (id, nome, sobrenome, email, senha_hash, perfil, ativo, precisa_trocar_senha, criado_em)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [
+      usuario.id,
+      usuario.nome,
+      usuario.sobrenome,
+      usuario.email,
+      usuario.senhaHash,
+      usuario.perfil,
+      usuario.ativo,
+      usuario.precisaTrocarSenha,
+      usuario.criadoEm,
+    ]
+  );
   return { usuario, senhaProvisoria };
 }
 
@@ -395,13 +598,14 @@ export interface EditarUsuarioInput {
  * último administrador ativo não pode ser desativado, rebaixado nem excluído
  * — senão o sistema fica sem ninguém para gerenciar usuários.
  */
-export function updateUsuario(
+export async function updateUsuario(
   id: string,
   input: EditarUsuarioInput,
   solicitanteId: string
-): Usuario | { erro: string } {
-  const db = getDb();
-  const usuario = db.usuarios.find((u) => u.id === id);
+): Promise<Usuario | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const usuario = await getUsuarioPorId(id);
   if (!usuario) return { erro: "Usuário não encontrado." };
 
   const vaiDesativar = input.ativo === false && usuario.ativo;
@@ -410,7 +614,7 @@ export function updateUsuario(
   if (id === solicitanteId && (vaiDesativar || vaiRebaixar)) {
     return { erro: "Você não pode desativar nem rebaixar o próprio usuário." };
   }
-  if ((vaiDesativar || vaiRebaixar) && usuario.perfil === "admin" && contarAdminsAtivos(db, id) === 0) {
+  if ((vaiDesativar || vaiRebaixar) && usuario.perfil === "admin" && (await contarAdminsAtivos(pool, id)) === 0) {
     return { erro: "Este é o último administrador ativo — promova outro usuário antes de mudar isso." };
   }
 
@@ -425,31 +629,59 @@ export function updateUsuario(
     if (id !== solicitanteId) usuario.precisaTrocarSenha = true;
   }
 
-  saveDb(db);
+  await pool.query(
+    "UPDATE usuarios SET nome=$1, sobrenome=$2, perfil=$3, ativo=$4, senha_hash=$5, precisa_trocar_senha=$6 WHERE id=$7",
+    [usuario.nome, usuario.sobrenome, usuario.perfil, usuario.ativo, usuario.senhaHash, usuario.precisaTrocarSenha, id]
+  );
   return usuario;
 }
 
 /** Chamado pela tela /trocar-senha — sempre o próprio usuário logado
  * trocando a senha provisória (ou uma resetada por um admin) pela definitiva. */
-export function trocarSenhaPrimeiroAcesso(userId: string, novaSenha: string): true | { erro: string } {
-  const db = getDb();
-  const usuario = db.usuarios.find((u) => u.id === userId);
-  if (!usuario) return { erro: "Usuário não encontrado." };
-  usuario.senhaHash = hashSenha(novaSenha);
-  usuario.precisaTrocarSenha = false;
-  saveDb(db);
+export async function trocarSenhaPrimeiroAcesso(userId: string, novaSenha: string): Promise<true | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rowCount } = await pool.query("UPDATE usuarios SET senha_hash = $1, precisa_trocar_senha = false WHERE id = $2", [
+    hashSenha(novaSenha),
+    userId,
+  ]);
+  if (!rowCount) return { erro: "Usuário não encontrado." };
   return true;
 }
 
-export function deleteUsuario(id: string, solicitanteId: string): true | { erro: string } {
-  const db = getDb();
-  const usuario = db.usuarios.find((u) => u.id === id);
+export async function deleteUsuario(id: string, solicitanteId: string): Promise<true | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const usuario = await getUsuarioPorId(id);
   if (!usuario) return { erro: "Usuário não encontrado." };
   if (id === solicitanteId) return { erro: "Você não pode excluir o próprio usuário." };
-  if (usuario.perfil === "admin" && usuario.ativo && contarAdminsAtivos(db, id) === 0) {
+  if (usuario.perfil === "admin" && usuario.ativo && (await contarAdminsAtivos(pool, id)) === 0) {
     return { erro: "Este é o último administrador ativo — promova outro usuário antes de excluir." };
   }
-  db.usuarios = db.usuarios.filter((u) => u.id !== id);
-  saveDb(db);
+  await pool.query("DELETE FROM usuarios WHERE id = $1", [id]);
   return true;
+}
+
+/** Lê a base inteira de uma vez (ordens completas + usuários + seleção de
+ * visibilidade) — conveniência pra depuração/exportação; as rotas da API
+ * usam as funções específicas acima, mais baratas para cada caso de uso. */
+export async function getDb(): Promise<Database> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const [ordens, ordensVisiveis, usuarios, metaRes] = await Promise.all([
+    carregarOrdensCompletas(pool),
+    listOrdensVisiveis(),
+    listUsuarios(),
+    pool.query<{ ultima_importacao: Date | null; ultima_atualizacao: Date }>(
+      "SELECT ultima_importacao, ultima_atualizacao FROM app_meta WHERE id = true"
+    ),
+  ]);
+  const meta = metaRes.rows[0];
+  return {
+    ordens,
+    ordensVisiveis,
+    usuarios,
+    ultimaImportacao: meta?.ultima_importacao ? paraIso(meta.ultima_importacao) : undefined,
+    ultimaAtualizacao: meta?.ultima_atualizacao ? paraIso(meta.ultima_atualizacao) : new Date().toISOString(),
+  };
 }

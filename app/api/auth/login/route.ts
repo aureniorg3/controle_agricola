@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: "Informe e-mail e senha." }, { status: 400 });
   }
 
-  const usuario = getUsuarioPorEmail(email);
+  const usuario = await getUsuarioPorEmail(email);
   if (!usuario || !verificarSenha(senha, usuario.senhaHash)) {
     return NextResponse.json({ erro: "E-mail ou senha inválidos." }, { status: 401 });
   }

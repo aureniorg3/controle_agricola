@@ -29,6 +29,7 @@ export default async function CadastrosPage() {
     );
   }
 
-  const usuarios = listUsuarios().map(({ senhaHash: _senhaHash, ...resto }) => resto);
+  const todos = await listUsuarios();
+  const usuarios = todos.map(({ senhaHash: _senhaHash, ...resto }) => resto);
   return <UsuariosClient initialUsuarios={usuarios} usuarioLogadoId={usuario.id} />;
 }

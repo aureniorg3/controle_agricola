@@ -12,11 +12,12 @@ function semSenha(u: Usuario) {
 }
 
 export async function GET(req: NextRequest) {
-  const usuario = usuarioDaRequisicao(req);
+  const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !ehAdmin(usuario.perfil)) {
     return NextResponse.json({ error: "Só administradores podem ver usuários." }, { status: 403 });
   }
-  return NextResponse.json({ usuarios: listUsuarios().map(semSenha) });
+  const usuarios = await listUsuarios();
+  return NextResponse.json({ usuarios: usuarios.map(semSenha) });
 }
 
 interface NovoUsuarioBody {
@@ -27,7 +28,7 @@ interface NovoUsuarioBody {
 }
 
 export async function POST(req: NextRequest) {
-  const usuario = usuarioDaRequisicao(req);
+  const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !ehAdmin(usuario.perfil)) {
     return NextResponse.json({ error: "Só administradores podem criar usuários." }, { status: 403 });
   }
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Nível de acesso inválido." }, { status: 400 });
   }
 
-  const resultado = insertUsuario({
+  const resultado = await insertUsuario({
     nome: body.nome,
     sobrenome: body.sobrenome,
     email: body.email,

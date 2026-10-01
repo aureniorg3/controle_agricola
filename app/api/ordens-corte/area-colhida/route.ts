@@ -3,7 +3,7 @@ import { lancarAreaColhida, usuarioDaRequisicao } from "@/lib/db";
 import { podeEditar } from "@/lib/permissoes";
 
 export async function POST(req: NextRequest) {
-  const usuario = usuarioDaRequisicao(req);
+  const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
     return NextResponse.json({ error: "Você não tem permissão para lançar área colhida." }, { status: 403 });
   }
@@ -20,13 +20,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Informe o número da ordem." }, { status: 400 });
   }
 
-  let resultado: ReturnType<typeof lancarAreaColhida>;
+  let resultado: Awaited<ReturnType<typeof lancarAreaColhida>>;
   if (modo === "ordem") {
     const totalHa = Number((body as { totalHa?: unknown }).totalHa);
     if (!Number.isFinite(totalHa)) {
       return NextResponse.json({ error: "Informe a área colhida (número válido)." }, { status: 400 });
     }
-    resultado = lancarAreaColhida(numero.trim(), { modo: "ordem", totalHa });
+    resultado = await lancarAreaColhida(numero.trim(), { modo: "ordem", totalHa });
   } else if (modo === "talhoes") {
     const valoresRaw = (body as { valores?: unknown }).valores;
     if (!Array.isArray(valoresRaw)) {
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     if (valores.some((v) => !Number.isFinite(v.areaColhidaHa))) {
       return NextResponse.json({ error: "Algum valor de área colhida não é um número válido." }, { status: 400 });
     }
-    resultado = lancarAreaColhida(numero.trim(), { modo: "talhoes", valores });
+    resultado = await lancarAreaColhida(numero.trim(), { modo: "talhoes", valores });
   } else {
     return NextResponse.json({ error: 'Modo inválido — use "ordem" ou "talhoes".' }, { status: 400 });
   }
