@@ -159,7 +159,8 @@ só quando é OUTRA pessoa (um admin) quem define a senha.
   impresso), agrupados por frente, com o mini-relatório de talhões (Talhão /
   Área / **Dia Anterior** / **Dia Atual** até 06h / Acum(t) — essas duas
   últimas colunas usam sempre esse recorte fixo, independente dos botões
-  Dia/Semana/Mês/Safra), área total, acumulado da safra e o TCH geral
+  Dia/Semana/Mês/Safra), terminando numa linha **Total** (soma das colunas
+  acima, antes do resumo), área total, acumulado da safra e o TCH geral
   realizado. Status **Aberta** em verde, **Encerrada** em âmbar; tipo de
   cana **queimada** em laranja claro, as demais em azul.
 - **Ordens com mais de uma fazenda**: o arquivo "Ordem de Colheita.xlsx" pode
@@ -176,28 +177,42 @@ só quando é OUTRA pessoa (um admin) quem define a senha.
   início.
 - Filtro por frente, por status (aberta/encerrada, vindo direto do ERP) e
   busca por número/fazenda.
-- **Resumo por frente**: uma linha por frente com 7 colunas de uma vez —
+- **Resumo por frente**: uma linha por frente com **Ordens** e **Área
+  Selecionada** (contagem e área só das ordens marcadas e mostradas nos
+  cards abaixo) seguidas de **Área Acumulada** e 7 colunas de tonelada —
   Safra, Mês Anterior, Mês Atual, Quinzena, Semana, Dia Anterior e Dia Atual
   — todas recalculadas a partir da data selecionada no filtro (mudar a data
   recalcula a tabela inteira na hora; ela não segue os botões
-  Dia/Semana/Mês/Safra, que só afetam os KPIs e os cards). Semana, Quinzena,
-  Mês Atual e Safra são sempre "até a data selecionada" (o fim do recorte é
-  a própria data de referência, nunca o fim natural do período) — escolher
-  uma data retroativa não mistura produção de dias depois dela, mesmo que já
-  estejam na base por causa de uma importação mais recente. **Dia Atual** é
-  a única coluna com regra própria: só conta a entrada pesada entre 00:00 e
-  06:00 daquele dia (é o número disponível assim que o relatório da
-  madrugada sai, antes do resto do dia ser pesado). Essa janela de 6h vem da
-  coluna "Hora Saída Indústria" do relatório de pesagem (`toneladasAte6h` em
-  `EntradaDiaria`, calculada na importação). É sempre com base nas ordens selecionadas e
-  mostradas nos cards abaixo (já com os filtros de frente/status/busca
-  aplicados) — nunca nas 314 ordens importadas inteiras; um aviso acima da
-  tabela deixa isso explícito.
-- **Imprimir / PDF**: baixa um PDF completo — a tabela de resumo por frente
-  (mesmas colunas e valores da tela) seguida de um bloco por ordem (mesmo
-  conteúdo dos cards: talhões, área/área colhida/acumulado, TCH, tipo de
-  cana), agrupados por frente, paginando automaticamente conforme o
-  conteúdo cresce. Cabeçalho com título + safra + data de referência, e
+  Dia/Semana/Mês/Safra, que só afetam os KPIs e os cards). Essas colunas são
+  sempre de **todas as ordens que batem com os filtros de frente/status/busca**
+  — não só as marcadas pra aparecer nos cards; só "Ordens" e "Área
+  Selecionada" refletem a seleção manual (um aviso acima da tabela deixa
+  isso explícito). Semana, Quinzena, Mês Atual e Safra são sempre "até a
+  data selecionada" (o fim do recorte é a própria data de referência, nunca
+  o fim natural do período) — escolher uma data retroativa não mistura
+  produção de dias depois dela, mesmo que já estejam na base por causa de
+  uma importação mais recente. **Dia Atual** é a única coluna com regra
+  própria: só conta a entrada pesada entre 00:00 e 06:00 daquele dia (é o
+  número disponível assim que o relatório da madrugada sai, antes do resto
+  do dia ser pesado). Essa janela de 6h vem da coluna "Hora Saída Indústria"
+  do relatório de pesagem (`toneladasAte6h` em `EntradaDiaria`, calculada na
+  importação).
+- **Resumo Detalhado por Ordem e Fazenda**: tabela no final da tela (Frente /
+  Ordem / Fazenda / Fundo Agrícola / Área(ha) Colhida / Prod.(t) Total Real.
+  Até Hoje / TCH(t/ha) Real. Parcial) com uma linha por fazenda — uma ordem
+  com mais de uma fazenda vira mais de uma linha — subtotal por frente e
+  total geral no final, igual ao relatório impresso de referência. Mesmo
+  critério de escopo do resumo por frente: todas as ordens do filtro atual,
+  não só as selecionadas. Seguida de um gráfico de barras de Produção Total
+  (t) por frente (`resumoDetalhadoPorOrdemFazenda`/`LinhaResumoDetalhado` em
+  `lib/period.ts`).
+- **Imprimir / PDF**: baixa um PDF completo seguindo o padrão visual CRV
+  Industrial (cabeçalho azul `#23396B` com filete verde e logo da empresa,
+  tabelas com cabeçalho azul/linhas alternadas/linha de total em azul) — a
+  tabela de resumo por frente, os cards de ordem em **grade de 4 colunas**
+  (igual à tela) agrupados por frente, e por fim o resumo detalhado por
+  ordem/fazenda com o gráfico de barras, paginando automaticamente conforme
+  o conteúdo cresce. Cabeçalho com título + safra + data de referência, e
   rodapé em toda página — empresa/usuário/data-hora à esquerda, nome do
   relatório ao centro, "Página X de Y" à direita. Gerado no navegador
   (`jspdf` + `jspdf-autotable`, ver `lib/relatorio-pdf.ts`), sem precisar de

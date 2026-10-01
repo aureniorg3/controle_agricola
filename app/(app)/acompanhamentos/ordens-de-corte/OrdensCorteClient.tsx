@@ -12,8 +12,10 @@ import {
   calcTalhaoEntradaPeriodo,
   endOfMonth,
   endOfWeekMonday,
+  LinhaResumoDetalhado,
   mesAnteriorRange,
   quinzenaRange,
+  resumoDetalhadoPorOrdemFazenda,
   resumoPorFrente,
   startOfMonth,
   startOfWeekMonday,
@@ -138,9 +140,9 @@ export default function OrdensCorteClient({
 
   const ordensSelecionadas = useMemo(() => ordens.filter((o) => ordensVisiveis.has(o.numero)), [ordens, ordensVisiveis]);
 
-  const ordensFiltradas = useMemo(() => {
+  const filtroFrenteStatusBusca = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return ordensSelecionadas.filter((o) => {
+    return (o: OrdemCorte) => {
       if (frenteFiltro !== "todas" && o.frente !== frenteFiltro) return false;
       if (statusFiltro !== "todas" && o.status !== statusFiltro) return false;
       if (termo) {
@@ -148,8 +150,19 @@ export default function OrdensCorteClient({
         if (!alvo.includes(termo)) return false;
       }
       return true;
-    });
-  }, [ordensSelecionadas, frenteFiltro, statusFiltro, busca]);
+    };
+  }, [frenteFiltro, statusFiltro, busca]);
+
+  const ordensFiltradas = useMemo(
+    () => ordensSelecionadas.filter(filtroFrenteStatusBusca),
+    [ordensSelecionadas, filtroFrenteStatusBusca]
+  );
+
+  // Mesmos filtros de frente/status/busca, mas sobre TODAS as ordens
+  // importadas — não só as marcadas pra aparecer nos cards. O resumo por
+  // frente e o resumo detalhado usam essa lista (o retrato real da frente
+  // inteira); só os cards abaixo deles usam `ordensFiltradas` (a seleção).
+  const ordensFiltradasTodas = useMemo(() => ordens.filter(filtroFrenteStatusBusca), [ordens, filtroFrenteStatusBusca]);
 
   const porFrente = useMemo(() => {
     const map = new Map<string, OrdemCorte[]>();
@@ -161,14 +174,18 @@ export default function OrdensCorteClient({
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [ordensFiltradas]);
 
-  const resumoFrentes = useMemo(() => resumoPorFrente(ordensFiltradas, referencia), [ordensFiltradas, referencia]);
+  const resumoFrentes = useMemo(
+    () => resumoPorFrente(ordensFiltradas, ordensFiltradasTodas, referencia),
+    [ordensFiltradas, ordensFiltradasTodas, referencia]
+  );
 
   const resumoTotais = useMemo(
     () =>
       resumoFrentes.reduce(
         (acc, r) => ({
-          ordens: acc.ordens + r.ordens,
-          areaHa: acc.areaHa + r.areaHa,
+          ordensSelecionadas: acc.ordensSelecionadas + r.ordensSelecionadas,
+          areaSelecionadaHa: acc.areaSelecionadaHa + r.areaSelecionadaHa,
+          areaAcumuladaHa: acc.areaAcumuladaHa + r.areaAcumuladaHa,
           safraT: acc.safraT + r.safraT,
           mesAnteriorT: acc.mesAnteriorT + r.mesAnteriorT,
           mesAtualT: acc.mesAtualT + r.mesAtualT,
@@ -178,8 +195,9 @@ export default function OrdensCorteClient({
           diaAtualT: acc.diaAtualT + r.diaAtualT,
         }),
         {
-          ordens: 0,
-          areaHa: 0,
+          ordensSelecionadas: 0,
+          areaSelecionadaHa: 0,
+          areaAcumuladaHa: 0,
           safraT: 0,
           mesAnteriorT: 0,
           mesAtualT: 0,
@@ -191,6 +209,42 @@ export default function OrdensCorteClient({
       ),
     [resumoFrentes]
   );
+
+  const resumoDetalhado = useMemo(() => resumoDetalhadoPorOrdemFazenda(ordensFiltradasTodas), [ordensFiltradasTodas]);
+
+  const resumoDetalhadoPorFrenteComSubtotal = useMemo(() => {
+    const grupos = new Map<string, LinhaResumoDetalhado[]>();
+    for (const linha of resumoDetalhado) {
+      const arr = grupos.get(linha.frente) ?? [];
+      arr.push(linha);
+      grupos.set(linha.frente, arr);
+    }
+    return Array.from(grupos.entries())
+      .map(([frente, linhas]) => {
+        const areaColhidaHa = Math.round(linhas.reduce((s, l) => s + l.areaColhidaHa, 0) * 100) / 100;
+        const producaoTotalT = Math.round(linhas.reduce((s, l) => s + l.producaoTotalT, 0) * 100) / 100;
+        return {
+          frente,
+          linhas,
+          subtotal: {
+            areaColhidaHa,
+            producaoTotalT,
+            tchRealParcial: areaColhidaHa > 0 ? Math.round((producaoTotalT / areaColhidaHa) * 100) / 100 : 0,
+          },
+        };
+      })
+      .sort((a, b) => a.frente.localeCompare(b.frente));
+  }, [resumoDetalhado]);
+
+  const resumoDetalhadoTotalGeral = useMemo(() => {
+    const areaColhidaHa = Math.round(resumoDetalhado.reduce((s, l) => s + l.areaColhidaHa, 0) * 100) / 100;
+    const producaoTotalT = Math.round(resumoDetalhado.reduce((s, l) => s + l.producaoTotalT, 0) * 100) / 100;
+    return {
+      areaColhidaHa,
+      producaoTotalT,
+      tchRealParcial: areaColhidaHa > 0 ? Math.round((producaoTotalT / areaColhidaHa) * 100) / 100 : 0,
+    };
+  }, [resumoDetalhado]);
 
   const rotulosResumo = useMemo(() => {
     // Os fins de Semana/Quinzena/Mês Atual são sempre a própria referência
@@ -221,6 +275,8 @@ export default function OrdensCorteClient({
         resumoFrentes,
         resumoTotais,
         porFrente,
+        resumoDetalhadoPorFrente: resumoDetalhadoPorFrenteComSubtotal,
+        resumoDetalhadoTotalGeral,
         nomeUsuario,
       });
     } finally {
@@ -443,21 +499,31 @@ export default function OrdensCorteClient({
         )}
 
         {/* Resumo por frente — todos os recortes de período de uma vez, sempre
-            recalculados a partir da data de referência selecionada acima, e
-            só das ordens marcadas pra exibição (mesmo grupo dos cards abaixo,
-            com os filtros de frente/status/busca já aplicados) */}
+            recalculados a partir da data de referência selecionada acima.
+            "Ordens"/"Área Selecionada" refletem só os cards mostrados
+            abaixo; as demais colunas (inclusive "Área Acumulada") são o
+            retrato real da frente inteira (todas as ordens importadas que
+            batem com os filtros de frente/status/busca). */}
         {resumoFrentes.length > 0 && (
           <div className="mb-5 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
             <p className="border-b border-line bg-surface px-4 py-1.5 text-[11px] text-muted">
-              Com base nas {totalGeral.total} ordem(ns) selecionada(s) e mostradas abaixo — não nas {ordens.length}{" "}
-              ordens importadas.
+              "Ordens" e "Área Selecionada" são das {totalGeral.total} ordem(ns) marcadas e mostradas nos cards
+              abaixo; as demais colunas são de todas as ordens importadas (
+              {ordensFiltradasTodas.length} no filtro atual).
             </p>
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="border-b border-line bg-surface text-left text-muted">
                   <th className="px-4 py-2 font-semibold">Frente</th>
                   <th className="px-3 py-2 text-right font-semibold">Ordens</th>
-                  <th className="px-3 py-2 text-right font-semibold">Área (ha)</th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Área Selecionada
+                    <div className="font-normal normal-case text-muted/70">ha</div>
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Área Acumulada
+                    <div className="font-normal normal-case text-muted/70">ha · todas as ordens</div>
+                  </th>
                   <th className="px-3 py-2 text-right font-semibold">
                     Safra
                     <div className="font-normal normal-case text-muted/70">acumulado</div>
@@ -492,8 +558,9 @@ export default function OrdensCorteClient({
                 {resumoFrentes.map((r) => (
                   <tr key={r.frente} className="border-b border-line last:border-0">
                     <td className="px-4 py-1.5 font-semibold text-ink">{r.frente}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-muted">{r.ordens}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtHa(r.areaHa)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-muted">{r.ordensSelecionadas}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtHa(r.areaSelecionadaHa)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtHa(r.areaAcumuladaHa)}</td>
                     <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.safraT)}</td>
                     <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.mesAnteriorT)}</td>
                     <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.mesAtualT)}</td>
@@ -507,8 +574,9 @@ export default function OrdensCorteClient({
                 ))}
                 <tr className="bg-surface font-bold text-ink">
                   <td className="px-4 py-1.5">Total geral</td>
-                  <td className="px-3 py-1.5 text-right tabular">{resumoTotais.ordens}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(resumoTotais.areaHa)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{resumoTotais.ordensSelecionadas}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(resumoTotais.areaSelecionadaHa)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(resumoTotais.areaAcumuladaHa)}</td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.safraT)}</td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.mesAnteriorT)}</td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.mesAtualT)}</td>
@@ -593,6 +661,87 @@ export default function OrdensCorteClient({
           );
         })}
 
+        {/* Resumo detalhado por ordem e fazenda — todas as ordens do filtro
+            (não só as selecionadas), uma linha por fazenda dentro de cada
+            ordem, igual ao relatório impresso de referência. */}
+        {resumoDetalhado.length > 0 && (
+          <div className="mb-5 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
+            <div className="border-b border-line px-4 py-2.5">
+              <div className="text-[13px] font-bold text-ink">Resumo Detalhado por Ordem e Fazenda</div>
+              <div className="text-[11px] text-muted">
+                Área colhida, produção total e TCH parcial de todas as ordens do filtro atual, por fazenda.
+              </div>
+            </div>
+            <table className="w-full text-[12.5px]">
+              <thead>
+                <tr className="border-b border-line bg-navy-900 text-left text-white">
+                  <th className="px-4 py-2 font-semibold">Frente</th>
+                  <th className="px-3 py-2 font-semibold">Ordem</th>
+                  <th className="px-3 py-2 font-semibold">Fazenda</th>
+                  <th className="px-3 py-2 font-semibold">Fundo Agrícola</th>
+                  <th className="px-3 py-2 text-right font-semibold">Área(ha) Colhida</th>
+                  <th className="px-3 py-2 text-right font-semibold">Prod.(t) Total Real. Até Hoje</th>
+                  <th className="px-4 py-2 text-right font-semibold">TCH(t/ha) Real. Parcial</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumoDetalhadoPorFrenteComSubtotal.map((grupo) => (
+                  <Fragment key={grupo.frente}>
+                    {grupo.linhas.map((l, i) => (
+                      <tr
+                        key={`${l.ordem}-${l.fazendaCodigo}`}
+                        className={`border-b border-line/60 ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}
+                      >
+                        <td className="px-4 py-1.5 text-ink">{i === 0 ? l.frente : ""}</td>
+                        <td className="px-3 py-1.5 text-ink">{l.ordem}</td>
+                        <td className="px-3 py-1.5 text-muted">{l.fazendaCodigo}</td>
+                        <td className="px-3 py-1.5 text-ink">{l.fazendaNome}</td>
+                        <td className="px-3 py-1.5 text-right tabular text-ink">
+                          {l.areaColhidaHa > 0 ? fmtHa(l.areaColhidaHa) : "–"}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular text-ink">
+                          {l.producaoTotalT > 0 ? fmtT(l.producaoTotalT) : "–"}
+                        </td>
+                        <td className="px-4 py-1.5 text-right tabular font-medium text-ink">
+                          {l.tchRealParcial > 0 ? fmtTch(l.tchRealParcial) : "–"}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-navy-900 font-semibold text-white">
+                      <td className="px-4 py-1.5" colSpan={4}>
+                        {grupo.frente} Total
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular">{fmtHa(grupo.subtotal.areaColhidaHa)}</td>
+                      <td className="px-3 py-1.5 text-right tabular">{fmtT(grupo.subtotal.producaoTotalT)}</td>
+                      <td className="px-4 py-1.5 text-right tabular">{fmtTch(grupo.subtotal.tchRealParcial)}</td>
+                    </tr>
+                  </Fragment>
+                ))}
+                <tr className="bg-navy-950 font-bold text-white">
+                  <td className="px-4 py-2" colSpan={4}>
+                    Total Geral
+                  </td>
+                  <td className="px-3 py-2 text-right tabular">{fmtHa(resumoDetalhadoTotalGeral.areaColhidaHa)}</td>
+                  <td className="px-3 py-2 text-right tabular">{fmtT(resumoDetalhadoTotalGeral.producaoTotalT)}</td>
+                  <td className="px-4 py-2 text-right tabular">{fmtTch(resumoDetalhadoTotalGeral.tchRealParcial)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {resumoDetalhadoPorFrenteComSubtotal.length > 0 && (
+          <div className="mb-5 rounded-xl2 border border-line bg-card p-4 shadow-card">
+            <div className="mb-3 text-[13px] font-bold text-ink">Produção Total (t) por Frente</div>
+            <GraficoBarras
+              dados={resumoDetalhadoPorFrenteComSubtotal.map((g) => ({
+                label: g.frente,
+                valor: g.subtotal.producaoTotalT,
+              }))}
+            />
+          </div>
+        )}
+
         <p className="mb-2 mt-6 text-center text-[11.5px] text-muted">
           Sincronizado com o servidor {new Date(ultimaSincronizacao).toLocaleString("pt-BR")}
         </p>
@@ -651,6 +800,33 @@ function StatusBadge({ status }: { status: StatusOrdem }) {
   );
 }
 
+function GraficoBarras({ dados }: { dados: { label: string; valor: number }[] }) {
+  const max = Math.max(1, ...dados.map((d) => d.valor));
+  const linha = 30;
+  const altura = dados.length * linha + 8;
+  const larguraMaxBarra = 380;
+  const colunaLabel = 220;
+  return (
+    <svg viewBox={`0 0 700 ${altura}`} className="w-full" style={{ height: altura }}>
+      {dados.map((d, i) => {
+        const y = i * linha;
+        const largura = (d.valor / max) * larguraMaxBarra;
+        return (
+          <g key={d.label}>
+            <text x={colunaLabel - 8} y={y + 16} textAnchor="end" fontSize={11} className="fill-ink">
+              {d.label}
+            </text>
+            <rect x={colunaLabel} y={y + 5} width={Math.max(largura, 1)} height={18} rx={3} className="fill-navy-700" />
+            <text x={colunaLabel + largura + 6} y={y + 18} fontSize={11} fontWeight={600} className="fill-ink tabular">
+              {fmtT(d.valor)} t
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 function OrdemCard({
   ordem,
   period,
@@ -666,6 +842,14 @@ function OrdemCard({
 }) {
   const m = calcOrdemMetrics(ordem, period, referencia);
   const areaColhidaHa = calcAreaColhidaHa(ordem);
+  const diaAnteriorIso = addDays(referencia, -1);
+  const totalDiaAnteriorT =
+    Math.round(
+      ordem.entradas.filter((e) => e.data === diaAnteriorIso).reduce((s, e) => s + e.toneladas, 0) * 100
+    ) / 100;
+  const totalDiaAtual6hT =
+    Math.round(ordem.entradas.filter((e) => e.data === referencia).reduce((s, e) => s + e.toneladasAte6h, 0) * 100) /
+    100;
 
   const gruposFazenda = useMemo(() => {
     const map = new Map<string, { fazendaCodigo: string; fazendaNome: string; talhoes: TalhaoOrdem[] }>();
@@ -750,6 +934,15 @@ function OrdemCard({
                 ))}
               </Fragment>
             ))}
+            {ordem.talhoes.length > 0 && (
+              <tr className="border-t border-line bg-surface font-semibold text-ink">
+                <td className="py-1">Total</td>
+                <td className="py-1 text-right tabular">{fmtHa(m.areaTotalHa)}</td>
+                <td className="py-1 text-right tabular">{fmtT(totalDiaAnteriorT)}</td>
+                <td className="py-1 text-right tabular">{fmtT(totalDiaAtual6hT)}</td>
+                <td className="py-1 text-right tabular">{fmtT(m.acumSafraT)}</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

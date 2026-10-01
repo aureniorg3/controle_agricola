@@ -109,6 +109,57 @@ export function calcTalhaoDiaAtualAte6h(ordem: OrdemCorte, talhao: TalhaoOrdem, 
   return Math.round(total * 100) / 100;
 }
 
+export interface LinhaResumoDetalhado {
+  frente: string;
+  ordem: string;
+  fazendaCodigo: string;
+  fazendaNome: string;
+  areaColhidaHa: number;
+  producaoTotalT: number;
+  /** Produção ÷ área colhida — "parcial" porque divide pelo que já foi
+   * colhido até agora, não pela área total da ordem. */
+  tchRealParcial: number;
+}
+
+/**
+ * Uma linha por (ordem, fazenda) — uma ordem com mais de uma fazenda vira
+ * mais de uma linha, igual ao relatório impresso de referência. Usada no
+ * resumo detalhado da tela e no PDF.
+ */
+export function resumoDetalhadoPorOrdemFazenda(ordens: OrdemCorte[]): LinhaResumoDetalhado[] {
+  const linhas: LinhaResumoDetalhado[] = [];
+  for (const ordem of ordens) {
+    const porFazenda = new Map<string, { fazendaNome: string; areaColhidaHa: number; producaoT: number }>();
+    for (const t of ordem.talhoes) {
+      const atual = porFazenda.get(t.fazendaCodigo) ?? { fazendaNome: t.fazendaNome, areaColhidaHa: 0, producaoT: 0 };
+      atual.areaColhidaHa += t.areaColhidaHa;
+      porFazenda.set(t.fazendaCodigo, atual);
+    }
+    for (const e of ordem.entradas) {
+      const atual = porFazenda.get(e.fazendaCodigo);
+      if (atual) atual.producaoT += e.toneladas;
+    }
+    for (const [fazendaCodigo, dados] of porFazenda) {
+      const areaColhidaHa = round2(dados.areaColhidaHa);
+      const producaoTotalT = round2(dados.producaoT);
+      linhas.push({
+        frente: ordem.frente,
+        ordem: ordem.numero,
+        fazendaCodigo,
+        fazendaNome: dados.fazendaNome,
+        areaColhidaHa,
+        producaoTotalT,
+        tchRealParcial: areaColhidaHa > 0 ? round2(producaoTotalT / areaColhidaHa) : 0,
+      });
+    }
+  }
+  return linhas.sort((a, b) =>
+    a.frente === b.frente
+      ? a.ordem.localeCompare(b.ordem, undefined, { numeric: true })
+      : a.frente.localeCompare(b.frente)
+  );
+}
+
 export function calcOrdemMetrics(ordem: OrdemCorte, period: Periodo, referencia: string): OrdemMetrics {
   const acumSafraT = calcAcumSafraT(ordem);
   const areaTotalHa = calcAreaTotalHa(ordem);
@@ -131,8 +182,12 @@ export function calcOrdemMetrics(ordem: OrdemCorte, period: Periodo, referencia:
 
 export interface FrenteResumo {
   frente: string;
-  ordens: number;
-  areaHa: number;
+  /** contagem e área só das ordens selecionadas/mostradas nos cards. */
+  ordensSelecionadas: number;
+  areaSelecionadaHa: number;
+  /** área de TODAS as ordens da frente no filtro (frente/status/busca),
+   * sem o recorte de seleção — mesmo critério dos campos abaixo. */
+  areaAcumuladaHa: number;
   safraT: number;
   mesAnteriorT: number;
   mesAtualT: number;
@@ -141,6 +196,10 @@ export interface FrenteResumo {
   diaAnteriorT: number;
   /** só a fração das entradas do dia de referência pesada até 06:00. */
   diaAtualT: number;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 function somaNoIntervalo(entradas: EntradaDiaria[], range: { inicio: string; fim: string } | null): number {
@@ -154,8 +213,19 @@ function somaNoIntervalo(entradas: EntradaDiaria[], range: { inicio: string; fim
  * Resumo por frente com todos os recortes de período de uma vez (em vez de
  * um só, controlado pelos botões Dia/Semana/Mês/Safra) — cada coluna se
  * recalcula sozinha sempre que a data de referência muda.
+ *
+ * Recebe duas listas: `ordensSelecionadas` (as marcadas pra aparecer nos
+ * cards — alimenta só "Ordens" e "Área" selecionada) e `ordensTodas` (todo
+ * mundo que bate com os filtros de frente/status/busca, sem o recorte de
+ * seleção — alimenta a área acumulada e todas as colunas de tonelada). A
+ * tabela de resumo é sempre o retrato real da frente inteira; só os cards
+ * abaixo dela é que são curados pela seleção manual.
  */
-export function resumoPorFrente(ordens: OrdemCorte[], referencia: string): FrenteResumo[] {
+export function resumoPorFrente(
+  ordensSelecionadas: OrdemCorte[],
+  ordensTodas: OrdemCorte[],
+  referencia: string
+): FrenteResumo[] {
   // Semana/Quinzena/Mês Atual/Safra são recortes "até a data selecionada":
   // o fim de cada um é sempre a própria referência, nunca o fim natural do
   // período — senão, escolher uma data retroativa mostraria produção de
@@ -171,21 +241,36 @@ export function resumoPorFrente(ordens: OrdemCorte[], referencia: string): Frent
   const safra = { inicio: "0000-01-01", fim: referencia };
 
   const map = new Map<string, FrenteResumo>();
-  for (const ordem of ordens) {
-    const atual = map.get(ordem.frente) ?? {
-      frente: ordem.frente,
-      ordens: 0,
-      areaHa: 0,
-      safraT: 0,
-      mesAnteriorT: 0,
-      mesAtualT: 0,
-      quinzenaT: 0,
-      semanaT: 0,
-      diaAnteriorT: 0,
-      diaAtualT: 0,
-    };
-    atual.ordens += 1;
-    atual.areaHa += calcAreaTotalHa(ordem);
+  function getOrInit(frente: string): FrenteResumo {
+    let atual = map.get(frente);
+    if (!atual) {
+      atual = {
+        frente,
+        ordensSelecionadas: 0,
+        areaSelecionadaHa: 0,
+        areaAcumuladaHa: 0,
+        safraT: 0,
+        mesAnteriorT: 0,
+        mesAtualT: 0,
+        quinzenaT: 0,
+        semanaT: 0,
+        diaAnteriorT: 0,
+        diaAtualT: 0,
+      };
+      map.set(frente, atual);
+    }
+    return atual;
+  }
+
+  for (const ordem of ordensSelecionadas) {
+    const atual = getOrInit(ordem.frente);
+    atual.ordensSelecionadas += 1;
+    atual.areaSelecionadaHa += calcAreaTotalHa(ordem);
+  }
+
+  for (const ordem of ordensTodas) {
+    const atual = getOrInit(ordem.frente);
+    atual.areaAcumuladaHa += calcAreaTotalHa(ordem);
     atual.safraT += somaNoIntervalo(ordem.entradas, safra);
     atual.mesAnteriorT += somaNoIntervalo(ordem.entradas, mesAnterior);
     atual.mesAtualT += somaNoIntervalo(ordem.entradas, mesAtual);
@@ -195,19 +280,20 @@ export function resumoPorFrente(ordens: OrdemCorte[], referencia: string): Frent
     atual.diaAtualT += ordem.entradas
       .filter((e) => e.data === referencia)
       .reduce((s, e) => s + e.toneladasAte6h, 0);
-    map.set(ordem.frente, atual);
   }
+
   return Array.from(map.values())
     .map((r) => ({
       ...r,
-      areaHa: Math.round(r.areaHa * 100) / 100,
-      safraT: Math.round(r.safraT * 100) / 100,
-      mesAnteriorT: Math.round(r.mesAnteriorT * 100) / 100,
-      mesAtualT: Math.round(r.mesAtualT * 100) / 100,
-      quinzenaT: Math.round(r.quinzenaT * 100) / 100,
-      semanaT: Math.round(r.semanaT * 100) / 100,
-      diaAnteriorT: Math.round(r.diaAnteriorT * 100) / 100,
-      diaAtualT: Math.round(r.diaAtualT * 100) / 100,
+      areaSelecionadaHa: round2(r.areaSelecionadaHa),
+      areaAcumuladaHa: round2(r.areaAcumuladaHa),
+      safraT: round2(r.safraT),
+      mesAnteriorT: round2(r.mesAnteriorT),
+      mesAtualT: round2(r.mesAtualT),
+      quinzenaT: round2(r.quinzenaT),
+      semanaT: round2(r.semanaT),
+      diaAnteriorT: round2(r.diaAnteriorT),
+      diaAtualT: round2(r.diaAtualT),
     }))
     .sort((a, b) => a.frente.localeCompare(b.frente));
 }
