@@ -210,7 +210,11 @@ export default function OrdensCorteClient({
     [resumoFrentes]
   );
 
-  const resumoDetalhado = useMemo(() => resumoDetalhadoPorOrdemFazenda(ordensFiltradasTodas), [ordensFiltradasTodas]);
+  // Diferente do resumo por frente (que é de todas as ordens do filtro), o
+  // resumo detalhado no final do relatório segue só as ordens marcadas e
+  // mostradas nos cards — mesmo critério das colunas "Ordens"/"Área
+  // Selecionada" lá em cima.
+  const resumoDetalhado = useMemo(() => resumoDetalhadoPorOrdemFazenda(ordensFiltradas), [ordensFiltradas]);
 
   const resumoDetalhadoPorFrenteComSubtotal = useMemo(() => {
     const grupos = new Map<string, LinhaResumoDetalhado[]>();
@@ -661,15 +665,16 @@ export default function OrdensCorteClient({
           );
         })}
 
-        {/* Resumo detalhado por ordem e fazenda — todas as ordens do filtro
-            (não só as selecionadas), uma linha por fazenda dentro de cada
-            ordem, igual ao relatório impresso de referência. */}
+        {/* Resumo detalhado por ordem e fazenda — só as ordens marcadas e
+            mostradas nos cards (mesmo critério de "Ordens"/"Área
+            Selecionada" no resumo por frente), uma linha por fazenda dentro
+            de cada ordem, igual ao relatório impresso de referência. */}
         {resumoDetalhado.length > 0 && (
           <div className="mb-5 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
             <div className="border-b border-line px-4 py-2.5">
               <div className="text-[13px] font-bold text-ink">Resumo Detalhado por Ordem e Fazenda</div>
               <div className="text-[11px] text-muted">
-                Área colhida, produção total e TCH parcial de todas as ordens do filtro atual, por fazenda.
+                Área colhida, produção total e TCH parcial das ordens marcadas e mostradas nos cards, por fazenda.
               </div>
             </div>
             <table className="w-full text-[12.5px]">
@@ -947,7 +952,7 @@ function OrdemCard({
         </table>
       </div>
 
-      <div className="mx-4 my-3 mt-auto grid grid-cols-3 gap-2 rounded-lg bg-surface p-2.5 text-[12px]">
+      <div className="mx-4 mb-3 mt-6 grid grid-cols-3 gap-2 rounded-lg bg-surface p-2.5 text-[12px]">
         <div>
           <div className="text-muted">Área da ordem</div>
           <div className="font-semibold tabular text-ink">{fmtHa(m.areaTotalHa)} ha</div>
@@ -960,9 +965,9 @@ function OrdemCard({
           <div className="text-muted">Acum. safra</div>
           <div className="font-semibold tabular text-ink">{fmtT(m.acumSafraT)} t</div>
         </div>
-        <div className="col-span-3 rounded-md bg-brand-50 px-2 py-1.5">
-          <div className="text-brand-700">Entrada no período selecionado</div>
-          <div className="text-[15px] font-bold tabular text-brand-700">{fmtT(m.entradaPeriodoT)} t</div>
+        <div className="col-span-3 rounded-md px-2 py-1.5" style={{ backgroundColor: "rgb(255, 255, 209)" }}>
+          <div className="text-ink/80">Entrada no período selecionado</div>
+          <div className="text-[15px] font-bold tabular text-ink">{fmtT(m.entradaPeriodoT)} t</div>
         </div>
         {onLancarAreaColhida && (
           <button
