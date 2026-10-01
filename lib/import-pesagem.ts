@@ -1,5 +1,7 @@
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
+import archiver from "archiver";
+import yauzl from "yauzl";
 import { Readable } from "stream";
 import { EntradaDiaria, OrdemCorte, StatusOrdem, TalhaoOrdem } from "./types";
 
@@ -72,12 +74,59 @@ function lerLinhas(buffer: ArrayBuffer): unknown[][] {
   return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" }) as unknown[][];
 }
 
+/**
+ * Alguns exportadores de xlsx (o relatório de Pesagem do CHBWEB entre eles)
+ * geram o .xlsx com a flag de "data descriptor" do ZIP ligada (bit 3 do
+ * general purpose flag) só que já preenchendo CRC/tamanho no cabeçalho local
+ * mesmo assim — tecnicamente fora da especificação, mas muitos leitores de
+ * ZIP aceitam. O parser interno do `exceljs` (pacote `unzipper`) não aceita:
+ * ele some o data descriptor "sobrando" de cada entrada como se fosse o
+ * início da próxima, e quebra com "invalid signature: 0x8074b50" (justamente
+ * a assinatura do data descriptor, PK\x07\x08, onde esperava PK\x03\x04).
+ *
+ * A correção é descompactar com um leitor tolerante (`yauzl`, que segue a
+ * especificação à risca) e recompactar num ZIP "limpo" (sem a flag de data
+ * descriptor) antes de entregar pro `exceljs` — o conteúdo não muda, só o
+ * contêiner ZIP em volta.
+ */
+function repararZipParaExceljs(buffer: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    yauzl.fromBuffer(buffer, { lazyEntries: true }, (err, zipfile) => {
+      if (err || !zipfile) return reject(err ?? new Error("Não foi possível abrir o arquivo como ZIP/XLSX."));
+
+      const archive = archiver("zip", { zlib: { level: 1 } });
+      const partes: Buffer[] = [];
+      archive.on("data", (parte: Buffer) => partes.push(parte));
+      archive.on("warning", () => {});
+      archive.on("error", reject);
+      archive.on("end", () => resolve(Buffer.concat(partes)));
+
+      zipfile.on("error", reject);
+      zipfile.on("entry", (entry) => {
+        // diretórios não precisam ser recriados explicitamente no novo zip
+        if (/\/$/.test(entry.fileName)) {
+          zipfile.readEntry();
+          return;
+        }
+        zipfile.openReadStream(entry, (err2, readStream) => {
+          if (err2 || !readStream) return reject(err2 ?? new Error(`Falha ao ler "${entry.fileName}" do ZIP.`));
+          archive.append(readStream, { name: entry.fileName });
+          readStream.on("end", () => zipfile.readEntry());
+        });
+      });
+      zipfile.on("end", () => archive.finalize());
+      zipfile.readEntry();
+    });
+  });
+}
+
 /** Lê a primeira aba linha a linha, sem materializar a planilha inteira em
  * memória — os relatórios de Pesagem/Conferência têm ~176 mil linhas, e o
  * parser padrão do pacote xlsx passa de 700 MB de RAM nesses arquivos
  * (estoura o limite de 512 MB da instância gratuita do Render). */
 async function paraCadaLinha(buffer: ArrayBuffer, onLinha: (linha: unknown[]) => void): Promise<void> {
-  const stream = Readable.from(Buffer.from(buffer));
+  const bufferReparado = await repararZipParaExceljs(Buffer.from(buffer));
+  const stream = Readable.from(bufferReparado);
   const wb = new ExcelJS.stream.xlsx.WorkbookReader(stream, {
     entries: "emit",
     sharedStrings: "cache",
