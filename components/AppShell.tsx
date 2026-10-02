@@ -19,7 +19,7 @@ export default function AppShell({ usuario, children }: { usuario?: UsuarioLogad
   const [mobileAberto, setMobileAberto] = useState(false);
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-surface">
+    <div className="app-shell-root flex h-screen w-full overflow-hidden bg-surface">
       {mobileAberto && (
         <div
           className="fixed inset-0 z-40 bg-navy-950/60 md:hidden"
@@ -28,7 +28,7 @@ export default function AppShell({ usuario, children }: { usuario?: UsuarioLogad
         />
       )}
       <div
-        className={`fixed inset-y-0 left-0 z-50 transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+        className={`print-hide fixed inset-y-0 left-0 z-50 transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
           mobileAberto ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -36,7 +36,7 @@ export default function AppShell({ usuario, children }: { usuario?: UsuarioLogad
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-line bg-card px-3 py-2 md:hidden">
+        <div className="print-hide flex flex-shrink-0 items-center gap-2.5 border-b border-line bg-card px-3 py-2 md:hidden">
           <button
             type="button"
             onClick={() => setMobileAberto(true)}

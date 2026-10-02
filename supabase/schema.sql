@@ -18,7 +18,8 @@
 -- Legenda das abreviações
 --   Tabelas: usr=usuários, ord=ordens, tlh=talhões, ent_dia=entradas diárias,
 --            ord_vis=ordens visíveis, met_frt=metas por frente, conf_pes=conferência
---            de pesagem, eqp_frt=equipamento x frente, app_met=metadados
+--            de pesagem (frt_cor=frente correta lançada), eqp_frt=equipamento x frente,
+--            app_met=metadados
 --   Colunas: nm=nome, snm=sobrenome, eml=e-mail, usr=usuário, sen_hsh=senha (hash),
 --            prf=perfil, atv=ativo, prc_trc_sen=precisa trocar senha, cri_em=criado em,
 --            atu_em=atualizado em, num=número, frt=frente, faz_cod/faz_nm=fazenda
@@ -119,6 +120,8 @@ create table if not exists conf_pes (
   faz_nm text not null default '',
   ton numeric not null default 0,
   imp_em timestamptz not null default now(),
+  -- frente correta lançada pelo usuário (correção no sistema de origem)
+  frt_cor text,
   primary key (dt, eqp, frt, faz_cod)
 );
 

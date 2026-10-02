@@ -10,6 +10,7 @@ import {
   type StatusConferencia,
 } from "@/lib/conferencia";
 import { fmtDateBR, fmtT } from "@/lib/format";
+import { gerarConferenciaPdf, gerarConferenciaXlsx } from "@/lib/relatorio-conferencia";
 import { podeEditar } from "@/lib/permissoes";
 import type { ConferenciaLinha, EquiptoFrente, OrdemConferencia, PerfilUsuario } from "@/lib/types";
 
@@ -29,14 +30,19 @@ export default function ConferenciaClient({
   equiptos,
   ordens,
   perfil,
+  nomeUsuario,
 }: {
   linhas: ConferenciaLinha[];
   equiptos: EquiptoFrente[];
   ordens: OrdemConferencia[];
   perfil: PerfilUsuario;
+  nomeUsuario: string;
 }) {
   const podeGravar = podeEditar(perfil);
   const [importarAberto, setImportarAberto] = useState(false);
+  const [exportando, setExportando] = useState<"pdf" | "xlsx" | null>(null);
+  // correções lançadas nesta sessão (valem na hora, antes da página recarregar)
+  const [correcoes, setCorrecoes] = useState<Record<string, string>>({});
 
   const conferidas = useMemo(() => conferirLinhas(linhas, equiptos, ordens), [linhas, equiptos, ordens]);
 
@@ -53,6 +59,14 @@ export default function ConferenciaClient({
         new Set(conferidas.flatMap((l) => [l.frente, l.frenteCadastro].filter((f): f is string => !!f)))
       ).sort((a, b) => a.localeCompare(b)),
     [conferidas]
+  );
+
+  const frentesDisponiveis = useMemo(
+    () =>
+      Array.from(new Set([...frentes, ...ordens.map((o) => o.frente), ...equiptos.map((e) => e.frente)])).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [frentes, ordens, equiptos]
   );
 
   const filtradas = useMemo(() => {
@@ -85,6 +99,66 @@ export default function ConferenciaClient({
       );
   }, [conferidas, de, ate, frenteFiltro, statusFiltro, busca]);
 
+  const chaveLinha = (l: { data: string; eqp: string; frente: string; fazendaCodigo: string }) =>
+    `${l.data}|${l.eqp}|${l.frente}|${l.fazendaCodigo}`;
+  const correcaoDe = (l: ConferenciaLinha & { frenteCorrecao?: string | null }) =>
+    correcoes[chaveLinha(l)] ?? l.frenteCorrecao ?? "";
+
+  async function lancarCorrecao(l: ConferenciaLinha, frenteCorreta: string) {
+    const chave = chaveLinha(l);
+    const anterior = correcoes[chave];
+    setCorrecoes((c) => ({ ...c, [chave]: frenteCorreta }));
+    const res = await fetch("/api/conferencia/correcao", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        data: l.data,
+        eqp: l.eqp,
+        frente: l.frente,
+        fazendaCodigo: l.fazendaCodigo,
+        frenteCorreta,
+      }),
+    });
+    if (!res.ok) {
+      setCorrecoes((c) => {
+        const novo = { ...c };
+        if (anterior === undefined) delete novo[chave];
+        else novo[chave] = anterior;
+        return novo;
+      });
+      const json = await res.json().catch(() => ({}));
+      window.alert(json.error ?? "Não foi possível salvar a correção.");
+    }
+  }
+
+  const filtrosTexto = useMemo(() => {
+    const partes: string[] = [];
+    if (de || ate) partes.push(`Período ${de ? fmtDateBR(de) : "início"} a ${ate ? fmtDateBR(ate) : "hoje"}`);
+    if (frenteFiltro !== "todas") partes.push(`Frente: ${frenteFiltro}`);
+    if (statusFiltro !== "todos") {
+      partes.push(
+        `Status: ${statusFiltro === "divergencias" ? "só o que precisa conferir" : STATUS_CONFERENCIA_LABEL[statusFiltro]}`
+      );
+    }
+    if (busca.trim()) partes.push(`Busca: ${busca.trim()}`);
+    return partes.join(" · ");
+  }, [de, ate, frenteFiltro, statusFiltro, busca]);
+
+  async function exportar(tipo: "pdf" | "xlsx") {
+    setExportando(tipo);
+    try {
+      const dados = {
+        linhas: filtradas.map((l) => ({ ...l, frenteCorrecao: correcaoDe(l) || null })),
+        filtrosTexto,
+        nomeUsuario,
+      };
+      if (tipo === "pdf") await gerarConferenciaPdf(dados);
+      else await gerarConferenciaXlsx(dados);
+    } finally {
+      setExportando(null);
+    }
+  }
+
   const totais = useMemo(() => {
     const equipamentos = new Set(filtradas.map((l) => l.eqp));
     return {
@@ -95,8 +169,8 @@ export default function ConferenciaClient({
   }, [filtradas]);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
+    <div className="print-scroll flex min-w-0 flex-1 flex-col overflow-hidden">
+      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3 print:hidden">
         <nav className="min-w-0 flex-1 text-[13px] text-muted">
           <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Colheita</span>
           <div className="truncate text-[15px] font-bold text-ink">Conferência de Pesagem</div>
@@ -106,18 +180,52 @@ export default function ConferenciaClient({
             Somente leitura
           </div>
         )}
+        {linhas.length > 0 && (
+          <div className="flex items-center gap-1.5 print:hidden">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="rounded-lg border border-line bg-card px-3 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+            >
+              Imprimir
+            </button>
+            <button
+              type="button"
+              disabled={exportando !== null}
+              onClick={() => exportar("pdf")}
+              className="rounded-lg border border-line bg-card px-3 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
+            >
+              {exportando === "pdf" ? "Gerando…" : "PDF"}
+            </button>
+            <button
+              type="button"
+              disabled={exportando !== null}
+              onClick={() => exportar("xlsx")}
+              className="rounded-lg border border-line bg-card px-3 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
+            >
+              {exportando === "xlsx" ? "Gerando…" : "Excel"}
+            </button>
+          </div>
+        )}
         {podeGravar && (
           <button
             type="button"
             onClick={() => setImportarAberto(true)}
-            className="rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
+            className="rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 print:hidden"
           >
             Importar arquivos
           </button>
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="print-scroll flex-1 overflow-y-auto px-6 py-5">
+        <div className="mb-3 hidden print:block">
+          <div className="text-[16px] font-bold text-ink">Conferência de Pesagem — CRV Industrial</div>
+          <div className="text-[11px] text-muted">
+            {filtrosTexto || "Todos os registros importados"} · Gerado por {nomeUsuario} em{" "}
+            {new Date().toLocaleString("pt-BR")}
+          </div>
+        </div>
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
             <div className="text-[11.5px] font-semibold text-muted">Toneladas (t)</div>
@@ -148,7 +256,7 @@ export default function ConferenciaClient({
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-            <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
+            <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5 print:hidden">
               <h2 className="text-[14px] font-bold text-ink">Conferência</h2>
               <label className="flex items-center gap-1.5 text-[12px] text-muted">
                 De
@@ -209,7 +317,15 @@ export default function ConferenciaClient({
                     <th className="px-3 py-2 font-semibold">Frente (Ordem)</th>
                     <th className="px-3 py-2 font-semibold">Status Ordem</th>
                     <th className="px-3 py-2 text-right font-semibold">Toneladas (t)</th>
-                    <th className="px-4 py-2 font-semibold">Status</th>
+                    <th className="px-3 py-2 font-semibold">Status</th>
+                    <th className="bg-brand-50/60 px-3 py-2 font-semibold">
+                      Equipamento
+                      <div className="font-normal normal-case text-muted/70">correção</div>
+                    </th>
+                    <th className="bg-brand-50/60 px-4 py-2 font-semibold">
+                      Frente
+                      <div className="font-normal normal-case text-muted/70">correção (sistema origem)</div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -227,10 +343,31 @@ export default function ConferenciaClient({
                       <td className="px-3 py-1.5 text-ink">{l.ordemFrente ?? "—"}</td>
                       <td className="px-3 py-1.5 text-muted">{l.ordemStatus ?? "—"}</td>
                       <td className="px-3 py-1.5 text-right font-semibold tabular text-ink">{fmtT(l.toneladas)}</td>
-                      <td className="px-4 py-1.5">
+                      <td className="px-3 py-1.5">
                         <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${COR_STATUS[l.conferencia]}`}>
                           {STATUS_CONFERENCIA_LABEL[l.conferencia]}
                         </span>
+                      </td>
+                      <td className="bg-brand-50/30 px-3 py-1.5 font-semibold text-ink">
+                        {correcaoDe(l) ? l.eqp : ""}
+                      </td>
+                      <td className="bg-brand-50/30 px-4 py-1.5">
+                        {podeGravar ? (
+                          <select
+                            value={correcaoDe(l)}
+                            onChange={(e) => lancarCorrecao(l, e.target.value)}
+                            aria-label="Frente correta"
+                            className="w-full min-w-[150px] rounded-md border border-line bg-card px-2 py-1 text-[12px] text-ink focus:border-brand-600 focus:outline-none print:hidden"
+                          >
+                            <option value="">—</option>
+                            {frentesDisponiveis.map((f) => (
+                              <option key={f} value={f}>
+                                {f}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                        <span className={`${podeGravar ? "hidden print:inline" : ""} text-ink`}>{correcaoDe(l)}</span>
                       </td>
                     </tr>
                   ))}
@@ -239,7 +376,7 @@ export default function ConferenciaClient({
                       Total geral
                     </td>
                     <td className="px-3 py-1.5 text-right tabular">{fmtT(totais.toneladas)}</td>
-                    <td className="px-4 py-1.5" />
+                    <td className="px-3 py-1.5" colSpan={3} />
                   </tr>
                 </tbody>
               </table>

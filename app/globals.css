@@ -47,3 +47,37 @@ body {
   from { width: 0%; }
   to { width: 100%; }
 }
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  .app-shell-root {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .print-hide {
+    display: none !important;
+  }
+  .print-scroll {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  table {
+    font-size: 9px !important;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    break-inside: avoid;
+  }
+}

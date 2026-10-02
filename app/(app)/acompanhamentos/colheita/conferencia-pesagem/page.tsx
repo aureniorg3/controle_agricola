@@ -16,6 +16,7 @@ export default async function ConferenciaPesagemPage() {
       equiptos={equiptos}
       ordens={ordens}
       perfil={usuario?.perfil ?? "leitura"}
+      nomeUsuario={usuario?.nome ?? "Usuário"}
     />
   );
 }

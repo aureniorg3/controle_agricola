@@ -118,6 +118,8 @@ export interface ConferenciaLinha {
   fazendaCodigo: string;
   fazendaNome: string;
   toneladas: number;
+  /** frente correta, lançada pelo usuário para corrigir no sistema de origem */
+  frenteCorrecao?: string | null;
 }
 
 /** Em qual frente um equipamento está a partir de uma data (vale até o

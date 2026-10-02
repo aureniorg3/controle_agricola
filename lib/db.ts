@@ -281,6 +281,7 @@ function prepararBanco(pool: Pool): Promise<void> {
            PRIMARY KEY (dt, eqp, frt, faz_cod)
          )`
       );
+      await pool.query("ALTER TABLE conf_pes ADD COLUMN IF NOT EXISTS frt_cor text");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_conf_pes_dt ON conf_pes(dt)");
       await pool.query(
         `CREATE TABLE IF NOT EXISTS eqp_frt (
@@ -639,6 +640,11 @@ export async function substituirConferenciaDia(data: string, linhas: Conferencia
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // reimportar o dia não pode apagar as correções já lançadas pelo usuário
+    const { rows: correcoes } = await client.query<{ eqp: string; frt: string; faz_cod: string; frt_cor: string }>(
+      "SELECT eqp, frt, faz_cod, frt_cor FROM conf_pes WHERE dt = $1 AND frt_cor IS NOT NULL",
+      [data]
+    );
     await client.query("DELETE FROM conf_pes WHERE dt = $1", [data]);
     if (linhas.length > 0) {
       await client.query(
@@ -654,6 +660,20 @@ export async function substituirConferenciaDia(data: string, linhas: Conferencia
           linhas.map((l) => l.toneladas),
         ]
       );
+      if (correcoes.length > 0) {
+        await client.query(
+          `UPDATE conf_pes c SET frt_cor = x.frt_cor
+             FROM unnest($2::text[], $3::text[], $4::text[], $5::text[]) AS x(eqp, frt, faz_cod, frt_cor)
+            WHERE c.dt = $1 AND c.eqp = x.eqp AND c.frt = x.frt AND c.faz_cod = x.faz_cod`,
+          [
+            data,
+            correcoes.map((c) => c.eqp),
+            correcoes.map((c) => c.frt),
+            correcoes.map((c) => c.faz_cod),
+            correcoes.map((c) => c.frt_cor),
+          ]
+        );
+      }
     }
     await client.query("COMMIT");
   } catch (err) {
@@ -675,7 +695,10 @@ export async function listConferencias(): Promise<ConferenciaLinha[]> {
     faz_cod: string;
     faz_nm: string;
     ton: number;
-  }>("SELECT dt AS data, eqp, eqp_nm, frt AS frente, faz_cod, faz_nm, ton FROM conf_pes ORDER BY dt, eqp, frt, faz_cod");
+    frt_cor: string | null;
+  }>(
+    "SELECT dt AS data, eqp, eqp_nm, frt AS frente, faz_cod, faz_nm, ton, frt_cor FROM conf_pes ORDER BY dt, eqp, frt, faz_cod"
+  );
   return rows.map((r) => ({
     data: r.data,
     eqp: r.eqp,
@@ -684,7 +707,26 @@ export async function listConferencias(): Promise<ConferenciaLinha[]> {
     fazendaCodigo: r.faz_cod,
     fazendaNome: r.faz_nm,
     toneladas: r.ton,
+    frenteCorrecao: r.frt_cor,
   }));
+}
+
+/** Grava (ou limpa, com `frenteCorreta` nulo) a frente correta de uma linha da
+ * conferência — a lista que o usuário leva para corrigir no sistema de origem. */
+export async function salvarCorrecaoConferencia(
+  data: string,
+  eqp: string,
+  frente: string,
+  fazendaCodigo: string,
+  frenteCorreta: string | null
+): Promise<boolean> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rowCount } = await pool.query(
+    "UPDATE conf_pes SET frt_cor = $1 WHERE dt = $2 AND eqp = $3 AND frt = $4 AND faz_cod = $5",
+    [frenteCorreta, data, eqp, frente, fazendaCodigo]
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 /** Versão enxuta das ordens (sem talhões/entradas) para cruzar com a

@@ -54,7 +54,7 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-async function carregarImagemInfo(url: string): Promise<{ dataUrl: string; largura: number; altura: number } | null> {
+export async function carregarImagemInfo(url: string): Promise<{ dataUrl: string; largura: number; altura: number } | null> {
   try {
     const resp = await fetch(url);
     if (!resp.ok) return null;
