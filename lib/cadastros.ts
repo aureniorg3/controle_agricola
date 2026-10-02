@@ -1,0 +1,20 @@
+/** Cadastros de apoio (Configurações > Cadastros), na ordem do menu. "usuarios"
+ * tem tela própria; os demais ainda são páginas em construção. */
+export const CADASTROS: { slug: string; label: string }[] = [
+  { slug: "etapa", label: "Etapa" },
+  { slug: "frente", label: "Frente" },
+  { slug: "tipo-colheita", label: "Tipo Colheita" },
+  { slug: "tipo-corte", label: "Tipo de Corte" },
+  { slug: "variedades", label: "Variedades" },
+  { slug: "regiao", label: "Região" },
+  { slug: "bloco", label: "Bloco" },
+  { slug: "tipo-plantio", label: "Tipo Plantio" },
+  { slug: "tipo-propriedade", label: "Tipo Propriedade" },
+  { slug: "tipo", label: "Tipo" },
+  { slug: "estagio", label: "Estágio" },
+  { slug: "espacamento", label: "Espaçamento" },
+  { slug: "operacoes", label: "Operações" },
+  { slug: "safras", label: "Safras" },
+  { slug: "sistema-aplicacao", label: "Sistema de Aplicação" },
+  { slug: "usuarios", label: "Usuários" },
+];

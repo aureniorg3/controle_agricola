@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CADASTROS } from "@/lib/cadastros";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -177,7 +178,13 @@ const SECTIONS: Section[] = [
   },
   {
     title: "Configurações",
-    items: [{ label: "Cadastros", href: "/configuracoes/cadastros", icon: IconSettings }],
+    items: [
+      {
+        label: "Cadastros",
+        icon: IconSettings,
+        children: CADASTROS.map((c) => ({ label: c.label, href: `/configuracoes/cadastros/${c.slug}` })),
+      },
+    ],
   },
 ];
 
