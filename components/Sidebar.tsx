@@ -12,9 +12,11 @@ interface UsuarioLogado {
 
 interface Item {
   label: string;
-  href: string;
+  /** grupos podem ter href (a própria tela do grupo) e/ou filhos. */
+  href?: string;
   badge?: number;
-  icon: () => ReactNode;
+  icon?: () => ReactNode;
+  children?: Item[];
 }
 interface Section {
   title: string;
@@ -122,6 +124,13 @@ function IconSearch() {
     </svg>
   );
 }
+function IconChevronDown() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 function IconChevronRight() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -136,8 +145,22 @@ const SECTIONS: Section[] = [
   {
     title: "Operação Agrícola",
     items: [
-      { label: "Ordens de Corte", href: "/acompanhamentos/ordens-de-corte", icon: IconChart },
-      { label: "Colheita", href: "/acompanhamentos/colheita", icon: IconLeaf },
+      {
+        label: "Acompanhamentos",
+        icon: IconChart,
+        children: [
+          {
+            label: "Colheita",
+            href: "/acompanhamentos/colheita",
+            icon: IconLeaf,
+            children: [
+              { label: "Ordens de Corte", href: "/acompanhamentos/ordens-de-corte" },
+              { label: "Metas", href: "/acompanhamentos/colheita/metas" },
+              { label: "Histórico de Safras", href: "/acompanhamentos/colheita/historico-safras" },
+            ],
+          },
+        ],
+      },
       { label: "Insumos", href: "/acompanhamentos/insumos", icon: IconFlask },
       { label: "Ordem de Serviço Agr.", href: "/acompanhamentos/os-agricola", icon: IconWrench },
       { label: "Colheita Terceiro", href: "/acompanhamentos/colheita-terceiro", icon: IconUsers },
@@ -157,6 +180,25 @@ const SECTIONS: Section[] = [
     items: [{ label: "Cadastros", href: "/configuracoes/cadastros", icon: IconSettings }],
   },
 ];
+
+function hrefAtivo(pathname: string | null, href?: string, exato = false): boolean {
+  if (!href || !pathname) return false;
+  return pathname === href || (!exato && pathname.startsWith(href + "/"));
+}
+
+function contemAtivo(item: Item, pathname: string | null): boolean {
+  return hrefAtivo(pathname, item.href, !!item.children) || !!item.children?.some((c) => contemAtivo(c, pathname));
+}
+
+function primeiroHref(item: Item): string | undefined {
+  return item.href ?? item.children?.map(primeiroHref).find(Boolean);
+}
+
+function filtrarItem(item: Item, termo: string): Item | null {
+  if (item.label.toLowerCase().includes(termo)) return item;
+  const filhos = item.children?.map((c) => filtrarItem(c, termo)).filter((c): c is Item => !!c);
+  return filhos && filhos.length > 0 ? { ...item, children: filhos } : null;
+}
 
 function iniciais(nome: string): string {
   const partes = nome.trim().split(/\s+/).filter(Boolean);
@@ -195,10 +237,13 @@ export default function Sidebar({
   const secoesFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     if (!termo) return SECTIONS;
-    return SECTIONS.map((s) => ({ ...s, items: s.items.filter((i) => i.label.toLowerCase().includes(termo)) })).filter(
-      (s) => s.items.length > 0
-    );
+    return SECTIONS.map((s) => ({
+      ...s,
+      items: s.items.map((i) => filtrarItem(i, termo)).filter((i): i is Item => !!i),
+    })).filter((s) => s.items.length > 0);
   }, [busca]);
+
+  const [abertos, setAbertos] = useState<Record<string, boolean>>({});
 
   async function handleLogout() {
     setSaindo(true);
@@ -208,6 +253,93 @@ export default function Sidebar({
       router.push("/login");
       router.refresh();
     }
+  }
+
+  function renderItem(item: Item, depth: number, caminho: string): ReactNode {
+    const chave = `${caminho}/${item.label}`;
+    const Icon = item.icon;
+    const temFilhos = !!item.children?.length;
+    const buscando = busca.trim() !== "";
+    const aberto = temFilhos && (buscando || (abertos[chave] ?? contemAtivo(item, pathname)));
+    const ativo = hrefAtivo(pathname, item.href, temFilhos);
+
+    if (collapsed) {
+      if (depth > 0) return null;
+      const destino = primeiroHref(item);
+      if (!destino || !Icon) return null;
+      const ativoCol = contemAtivo(item, pathname);
+      return (
+        <Link
+          key={chave}
+          href={destino}
+          title={item.label}
+          onClick={onNavigate}
+          className={`relative flex items-center justify-center rounded-md py-2 transition-colors ${
+            ativoCol ? "bg-white text-brand-600 shadow-card" : "text-slate-400 hover:bg-white/8 hover:text-white"
+          }`}
+        >
+          <Icon />
+        </Link>
+      );
+    }
+
+    const classes = `relative flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-2 pr-2.5 text-[13px] font-medium transition-colors ${
+      ativo ? "bg-white text-navy-900 shadow-card" : "text-slate-300 hover:bg-white/8 hover:text-white"
+    }`;
+    const conteudo = (
+      <>
+        {ativo && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-600" />}
+        {Icon && (
+          <span className={`flex-shrink-0 ${ativo ? "text-brand-600" : "text-slate-400"}`}>
+            <Icon />
+          </span>
+        )}
+        <span className="truncate">{item.label}</span>
+        {item.badge ? (
+          <span className="ml-auto rounded-full bg-alert-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            {item.badge}
+          </span>
+        ) : null}
+      </>
+    );
+    const recuo = { paddingLeft: Icon ? 12 : 10 };
+
+    return (
+      <div key={chave}>
+        <div className="flex items-center gap-0.5">
+          {item.href ? (
+            <Link href={item.href} onClick={onNavigate} className={classes} style={recuo}>
+              {conteudo}
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAbertos((o) => ({ ...o, [chave]: !aberto }))}
+              className={`${classes} text-left`}
+              style={recuo}
+            >
+              {conteudo}
+            </button>
+          )}
+          {temFilhos && (
+            <button
+              type="button"
+              onClick={() => setAbertos((o) => ({ ...o, [chave]: !aberto }))}
+              aria-label={aberto ? `Recolher ${item.label}` : `Expandir ${item.label}`}
+              aria-expanded={aberto}
+              className="flex h-8 w-6 flex-shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-white/8 hover:text-white"
+            >
+              {aberto ? <IconChevronDown /> : <IconChevronRight />}
+            </button>
+          )}
+        </div>
+        {aberto && (
+          <div className="ml-[18px] mt-0.5 flex flex-col gap-0.5 border-l border-white/10 pl-1.5">
+            {item.children!.map((c) => renderItem(c, depth + 1, chave))}
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -265,10 +397,10 @@ export default function Sidebar({
 
       <nav className="flex-1 overflow-y-auto px-2 pb-4">
         {(() => {
-          const inicioAtivo = pathname === ITEM_INICIO.href || pathname === "/";
+          const inicioAtivo = pathname === "/painel" || pathname === "/";
           return (
             <Link
-              href={ITEM_INICIO.href}
+              href="/painel"
               title={collapsed ? ITEM_INICIO.label : undefined}
               onClick={onNavigate}
               className={`mb-2 mt-1 flex items-center gap-2.5 rounded-lg border py-2 pl-3 pr-2.5 text-[13px] font-semibold transition-colors ${
@@ -292,36 +424,7 @@ export default function Sidebar({
               </div>
             )}
             <div className="flex flex-col gap-0.5">
-              {section.items.map((item) => {
-                const active = pathname === item.href || pathname?.startsWith(item.href + "/");
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    title={collapsed ? item.label : undefined}
-                    onClick={onNavigate}
-                    className={`relative flex items-center gap-2.5 rounded-md py-2 pl-3 pr-2.5 text-[13px] font-medium transition-colors ${
-                      active
-                        ? "bg-white text-navy-900 shadow-card"
-                        : "text-slate-300 hover:bg-white/8 hover:text-white"
-                    }`}
-                  >
-                    {active && !collapsed && (
-                      <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-600" />
-                    )}
-                    <span className={`flex-shrink-0 ${active ? "text-brand-600" : "text-slate-400"}`}>
-                      <Icon />
-                    </span>
-                    {!collapsed && <span className="truncate">{item.label}</span>}
-                    {!collapsed && item.badge ? (
-                      <span className="ml-auto rounded-full bg-alert-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                        {item.badge}
-                      </span>
-                    ) : null}
-                  </Link>
-                );
-              })}
+              {section.items.map((item) => renderItem(item, 0, section.title))}
             </div>
           </div>
         ))}
