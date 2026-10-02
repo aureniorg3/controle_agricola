@@ -138,6 +138,7 @@ export default function OrdensCorteClient({
   initialOrdensVisiveis,
   metas,
   historicoTch,
+  producao,
   perfil,
   nomeUsuario,
 }: {
@@ -145,17 +146,39 @@ export default function OrdensCorteClient({
   initialOrdensVisiveis: string[];
   metas: MetaFrente[];
   historicoTch: HistoricoTchOrdem;
+  /** período de produção da safra vigente (Cadastros > Safras); limita as entradas de cana */
+  producao: { inicio: string; fim: string; rotulo: string } | null;
   perfil: PerfilUsuario;
   nomeUsuario: string;
 }) {
   const podeGravar = podeEditar(perfil);
-  const [ordens, setOrdens] = useState<OrdemCorte[]>(initialOrdens);
+  const [ordensBrutas, setOrdens] = useState<OrdemCorte[]>(initialOrdens);
+  // só contam as pesagens dentro do período de produção da safra vigente
+  const ordens = useMemo(
+    () =>
+      producao
+        ? ordensBrutas.map((o) => ({
+            ...o,
+            entradas: o.entradas.filter((e) => e.data >= producao.inicio && e.data <= producao.fim),
+          }))
+        : ordensBrutas,
+    [ordensBrutas, producao]
+  );
   const [ordensVisiveis, setOrdensVisiveis] = useState<Set<string>>(() => new Set(initialOrdensVisiveis));
   const [inserirNumero, setInserirNumero] = useState("");
   const [inserirErro, setInserirErro] = useState<string | null>(null);
   const [inserindo, setInserindo] = useState(false);
   const [period, setPeriod] = useState<Periodo>("dia");
-  const [referencia, setReferencia] = useState<string>(() => ultimaDataComMovimento(initialOrdens));
+  const [referencia, setReferencia] = useState<string>(() =>
+    ultimaDataComMovimento(
+      producao
+        ? initialOrdens.map((o) => ({
+            ...o,
+            entradas: o.entradas.filter((e) => e.data >= producao.inicio && e.data <= producao.fim),
+          }))
+        : initialOrdens
+    )
+  );
   const [frenteFiltro, setFrenteFiltro] = useState<string>("todas");
   const [statusFiltro, setStatusFiltro] = useState<"todas" | StatusOrdem>("todas");
   const [busca, setBusca] = useState("");
@@ -178,7 +201,16 @@ export default function OrdensCorteClient({
     const data = await res.json();
     setOrdens(data.ordens);
     setOrdensVisiveis(new Set<string>(data.ordensVisiveis ?? []));
-    setReferencia(ultimaDataComMovimento(data.ordens));
+    setReferencia(
+      ultimaDataComMovimento(
+        producao
+          ? (data.ordens as OrdemCorte[]).map((o) => ({
+              ...o,
+              entradas: o.entradas.filter((e) => e.data >= producao.inicio && e.data <= producao.fim),
+            }))
+          : data.ordens
+      )
+    );
     setUltimaSincronizacao(new Date().toISOString());
   }
 
@@ -267,8 +299,8 @@ export default function OrdensCorteClient({
   }, [ordensFiltradas]);
 
   const resumoFrentes = useMemo(
-    () => resumoPorFrente(ordensFiltradas, ordensFiltradasTodas, referencia, metas),
-    [ordensFiltradas, ordensFiltradasTodas, referencia, metas]
+    () => resumoPorFrente(ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao?.inicio),
+    [ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao]
   );
 
   const resumoTotais = useMemo(
@@ -518,6 +550,14 @@ export default function OrdensCorteClient({
         <div className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[12.5px] font-medium text-ink">
           Safra <span className="font-bold text-brand-700">{safraLabel}</span>
           <span className="text-muted">· Capinópolis-MG</span>
+          {producao && (
+            <span
+              className="text-muted"
+              title={`Safra ${producao.rotulo}: só contam pesagens de ${fmtDateBR(producao.inicio)} a ${fmtDateBR(producao.fim)} (Cadastros > Safras)`}
+            >
+              · produção desde {fmtDateBR(producao.inicio)}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 rounded-full border border-good-500/30 bg-good-50 px-3 py-1.5 text-[12px] font-semibold text-good-600">
           <span className="h-1.5 w-1.5 rounded-full bg-good-500" />

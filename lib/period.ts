@@ -290,7 +290,8 @@ export function resumoPorFrente(
   ordensSelecionadas: OrdemCorte[],
   ordensTodas: OrdemCorte[],
   referencia: string,
-  metas: MetaFrente[] = []
+  metas: MetaFrente[] = [],
+  safraInicio?: string
 ): FrenteResumo[] {
   // Semana/Quinzena/Mês Atual/Safra são recortes "até a data selecionada":
   // o fim de cada um é sempre a própria referência, nunca o fim natural do
@@ -304,7 +305,8 @@ export function resumoPorFrente(
   const quinzena = { inicio: quinzenaRange(referencia).inicio, fim: referencia };
   const mesAtual = { inicio: startOfMonth(referencia), fim: referencia };
   const mesAnterior = mesAnteriorRange(referencia);
-  const safra = { inicio: "0000-01-01", fim: referencia };
+  // a safra conta a partir do início da produção cadastrada (Cadastros > Safras)
+  const safra = { inicio: safraInicio ?? "0000-01-01", fim: referencia };
 
   const map = new Map<string, FrenteResumo>();
   function getOrInit(frente: string): FrenteResumo {

@@ -19,7 +19,8 @@
 --   Tabelas: usr=usuários, ord=ordens, tlh=talhões, ent_dia=entradas diárias,
 --            ord_vis=ordens visíveis, met_frt=metas por frente, conf_pes=conferência
 --            de pesagem (frt_cor=frente correta lançada), eqp_frt=equipamento x frente,
---            saf_tlh=histórico de safras (por talhão), app_met=metadados
+--            saf_tlh=histórico de safras (por talhão), saf_cad=cadastro de safras,
+--            app_met=metadados
 --   Colunas: nm=nome, snm=sobrenome, eml=e-mail, usr=usuário, sen_hsh=senha (hash),
 --            prf=perfil, atv=ativo, prc_trc_sen=precisa trocar senha, cri_em=criado em,
 --            atu_em=atualizado em, num=número, frt=frente, faz_cod/faz_nm=fazenda
@@ -170,6 +171,21 @@ create table if not exists saf_tlh (
   pct numeric not null default 0,
   ce text not null default '',
   primary key (saf, faz_cod, tlh, seq)
+);
+
+-- Cadastro de safras: tipo (AGR = agrícola, IND = industrial), período do ano e
+-- período de produção. O período de produção delimita as pesagens/entradas de
+-- cana usadas nos comparativos (contam a partir da data de início).
+create table if not exists saf_cad (
+  id text primary key,
+  tp text not null check (tp in ('AGR', 'IND')),
+  ano integer not null,
+  ano_ini date not null,
+  ano_fim date not null,
+  prd_ini date not null,
+  prd_fim date not null,
+  cri_em timestamptz not null default now(),
+  unique (tp, ano)
 );
 
 -- Metadados gerais (data/hora da última importação e da última atualização

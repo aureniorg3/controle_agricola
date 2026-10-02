@@ -12,6 +12,7 @@ import {
   HistoricoTchOrdem,
   OrdemCorte,
   SafraAgregado,
+  SafraCadastro,
   SafraTalhao,
   SafraVariedadeCorte,
   TalhaoOrdem,
@@ -317,6 +318,17 @@ function prepararBanco(pool: Pool): Promise<void> {
          )`
       );
       await pool.query("CREATE INDEX IF NOT EXISTS idx_saf_tlh_faz ON saf_tlh(faz_cod, tlh)");
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS saf_cad (
+           id text PRIMARY KEY,
+           tp text NOT NULL CHECK (tp IN ('AGR', 'IND')),
+           ano integer NOT NULL,
+           ano_ini date NOT NULL, ano_fim date NOT NULL,
+           prd_ini date NOT NULL, prd_fim date NOT NULL,
+           cri_em timestamptz NOT NULL DEFAULT now(),
+           UNIQUE (tp, ano)
+         )`
+      );
       if (count === 0) {
         const admin = buildAdminPadrao();
         await pool.query(
@@ -828,6 +840,78 @@ export async function excluirEquiptoFrente(id: string): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
   await pool.query("DELETE FROM eqp_frt WHERE id = $1", [id]);
+}
+
+// ---------------------------------------------------------------------------
+// Cadastro de safras
+// ---------------------------------------------------------------------------
+
+export interface DadosSafraCadastro {
+  tipo: "AGR" | "IND";
+  ano: number;
+  anoInicio: string;
+  anoFim: string;
+  producaoInicio: string;
+  producaoFim: string;
+}
+
+export async function listSafrasCadastro(): Promise<SafraCadastro[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{
+    id: string;
+    tp: "AGR" | "IND";
+    ano: number;
+    ano_ini: string;
+    ano_fim: string;
+    prd_ini: string;
+    prd_fim: string;
+  }>("SELECT id, tp, ano, ano_ini, ano_fim, prd_ini, prd_fim FROM saf_cad ORDER BY ano DESC, tp");
+  return rows.map((r) => ({
+    id: r.id,
+    tipo: r.tp,
+    ano: r.ano,
+    anoInicio: r.ano_ini,
+    anoFim: r.ano_fim,
+    producaoInicio: r.prd_ini,
+    producaoFim: r.prd_fim,
+  }));
+}
+
+/** Uma safra por (tipo, ano): cadastrar de novo substitui as datas. */
+export async function salvarSafraCadastro(d: DadosSafraCadastro): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  await pool.query(
+    `INSERT INTO saf_cad (id, tp, ano, ano_ini, ano_fim, prd_ini, prd_fim) VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (tp, ano) DO UPDATE SET
+       ano_ini = EXCLUDED.ano_ini, ano_fim = EXCLUDED.ano_fim, prd_ini = EXCLUDED.prd_ini, prd_fim = EXCLUDED.prd_fim`,
+    [randomUUID(), d.tipo, d.ano, d.anoInicio, d.anoFim, d.producaoInicio, d.producaoFim]
+  );
+}
+
+export async function atualizarSafraCadastro(id: string, d: DadosSafraCadastro): Promise<true | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows: existe } = await pool.query("SELECT 1 FROM saf_cad WHERE id = $1", [id]);
+  if (existe.length === 0) return { erro: "Safra não encontrada." };
+  const { rows: conflito } = await pool.query("SELECT 1 FROM saf_cad WHERE tp = $1 AND ano = $2 AND id <> $3", [
+    d.tipo,
+    d.ano,
+    id,
+  ]);
+  if (conflito.length > 0) return { erro: `Já existe a safra ${d.tipo} ${d.ano}. Edite aquela ou escolha outro ano/tipo.` };
+  await pool.query(
+    "UPDATE saf_cad SET tp = $1, ano = $2, ano_ini = $3, ano_fim = $4, prd_ini = $5, prd_fim = $6 WHERE id = $7",
+    [d.tipo, d.ano, d.anoInicio, d.anoFim, d.producaoInicio, d.producaoFim, id]
+  );
+  return true;
+}
+
+export async function excluirSafraCadastro(id: string): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  await pool.query("DELETE FROM saf_cad WHERE id = $1", [id]);
 }
 
 // ---------------------------------------------------------------------------

@@ -141,6 +141,19 @@ export interface OrdemConferencia {
   fazendas: { codigo: string; nome: string }[];
 }
 
+/** Safra cadastrada: tipo (agrícola ou industrial), período do ano e período de produção. */
+export type TipoSafra = "AGR" | "IND";
+
+export interface SafraCadastro {
+  id: string;
+  tipo: TipoSafra;
+  ano: number;
+  anoInicio: string;
+  anoFim: string;
+  producaoInicio: string;
+  producaoFim: string;
+}
+
 /** Uma linha (talhão) do relatório "Rendimentos e Estimativas de Talhões" de uma safra. */
 export interface SafraTalhao {
   safra: number;
