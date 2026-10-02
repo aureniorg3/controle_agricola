@@ -4,6 +4,7 @@ import { Fragment, FormEvent, useEffect, useMemo, useState, type ReactNode } fro
 import { HistoricoTchOrdem, MetaFrente, OrdemCorte, PerfilUsuario, Periodo, StatusOrdem, TalhaoOrdem } from "@/lib/types";
 import {
   addDays,
+  calcAcumSafraT,
   calcAreaColhidaHa,
   calcAreaTotalHa,
   calcOrdemMetrics,
@@ -19,7 +20,6 @@ import {
   resumoPorFrente,
   startOfMonth,
   startOfWeekMonday,
-  mesmoDiaMesAnterior,
 } from "@/lib/period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, todayISO } from "@/lib/format";
 import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
@@ -39,36 +39,9 @@ function ultimaDataComMovimento(ordens: OrdemCorte[]): string {
   return max || todayISO();
 }
 
-/** Janela "anterior" de mesma duração que o período corrente, pra comparar
- * produção/TCH par a par (ex.: essa semana até hoje vs. a mesma faixa de
- * dias da semana passada). Safra é acumulado desde o início — não tem um
- * "anterior" equivalente, por isso retorna null (os KPIs omitem a variação
- * nesse caso). */
-function periodoAnteriorRange(period: Periodo, referencia: string): { inicio: string; fim: string } | null {
-  if (period === "dia") {
-    const anterior = addDays(referencia, -1);
-    return { inicio: anterior, fim: anterior };
-  }
-  if (period === "semana") {
-    return { inicio: addDays(startOfWeekMonday(referencia), -7), fim: addDays(referencia, -7) };
-  }
-  if (period === "mes") {
-    const fimAnterior = mesmoDiaMesAnterior(referencia);
-    return { inicio: startOfMonth(fimAnterior), fim: fimAnterior };
-  }
-  return null;
-}
-
-function somaEntradasNoIntervalo(ordem: OrdemCorte, range: { inicio: string; fim: string }): number {
-  return ordem.entradas.filter((e) => e.data >= range.inicio && e.data <= range.fim).reduce((s, e) => s + e.toneladas, 0);
-}
-
-/** Variação percentual atual vs. anterior — null quando não há como comparar
- * (safra, ou período anterior sem nenhum registro). */
-function calcVariacaoPct(atual: number, anterior: number): number | null {
-  if (anterior <= 0) return null;
-  return Math.round(((atual - anterior) / anterior) * 1000) / 10;
-}
+/** Acima desta diferença (em %) entre o TCH realizado (ton entregue ÷ área
+ * medida) e o estimado, Gravação e Administrador recebem um aviso. */
+const LIMITE_DIVERGENCIA_TCH_PCT = 20;
 
 /** Meta do período + % atingido, embaixo do valor realizado. */
 function MetaLinha({ real, meta }: { real: number; meta: number }) {
@@ -91,12 +64,14 @@ function TchComparativo({
   safraAtual,
   safrasAnteriores,
   historico,
+  divergenciaPct,
 }: {
   areaOrdemHa: number;
   tchGeralAtual: number;
   safraAtual: number;
   safrasAnteriores: number[];
   historico?: HistoricoTchOrdem["porOrdem"][string];
+  divergenciaPct?: number;
 }) {
   if (safrasAnteriores.length === 0 && !historico) return null;
   const real = (safra: number) => historico?.find((h) => h.safra === safra)?.tchReal ?? null;
@@ -123,6 +98,14 @@ function TchComparativo({
           <span className="font-semibold text-ink">TCH Estimado {safraAtual}</span>
           <span className="font-bold tabular text-ink">{est !== null ? fmtTch(est) : "—"}</span>
         </div>
+        {divergenciaPct !== undefined && (
+          <div className={`${linha} bg-amber-50 text-amber-700`}>
+            <span className="font-semibold">⚠ TCH real (ton ÷ área medida) vs. estimado</span>
+            <span className="font-bold tabular">
+              {divergenciaPct >= 0 ? "▲" : "▼"} {Math.abs(divergenciaPct).toFixed(0)}%
+            </span>
+          </div>
+        )}
         <div className={`${linha} bg-amber-50`}>
           <span className="font-semibold text-ink">TCH Geral Realizado {safraAtual}</span>
           <span className="flex items-center gap-2">
@@ -436,32 +419,81 @@ export default function OrdensCorteClient({
     };
   }, [ordensFiltradas, period, referencia]);
 
-  // KPIs do novo painel do topo: área colhida acumulada e TCH médio do
-  // período (toneladas do período ÷ área total das ordens — mesma
-  // convenção do "TCH geral realizado" de cada card, só que por período em
-  // vez de acumulado de safra), com variação % contra a janela anterior de
-  // mesma duração.
-  const kpisPeriodo = useMemo(() => {
-    const rangeAnterior = periodoAnteriorRange(period, referencia);
-    let areaColhidaTotalHa = 0;
-    let entradaAnteriorT = 0;
+  // TCH estimado de uma ordem (safra atual, do histórico importado).
+  const tchEstimadoDe = (numero: string): number | null =>
+    historicoTch.porOrdem[numero]?.find((h) => h.safra === historicoTch.safraAtual)?.tchEst ?? null;
+
+  // KPIs do topo — sempre sobre as ordens selecionadas (nos cards).
+  const kpisTopo = useMemo(() => {
+    const diaAnterior = addDays(referencia, -1);
+    let abertas = 0;
+    let encerradas = 0;
+    let areaAbertaHa = 0;
+    let areaColhidaHa = 0;
+    let prodDiaAnteriorT = 0;
+    let prodDiaAtualAte6hT = 0;
+    let estPonderado = 0;
+    let estArea = 0;
+    let realT = 0;
+    let realArea = 0;
     for (const o of ordensFiltradas) {
-      areaColhidaTotalHa += calcAreaColhidaHa(o);
-      if (rangeAnterior) entradaAnteriorT += somaEntradasNoIntervalo(o, rangeAnterior);
+      const area = calcAreaTotalHa(o);
+      const colhida = calcAreaColhidaHa(o);
+      if (o.status === "Aberta") {
+        abertas += 1;
+        areaAbertaHa += area;
+        const est = tchEstimadoDe(o.numero);
+        if (est !== null && area > 0) {
+          estPonderado += est * area;
+          estArea += area;
+        }
+      } else {
+        encerradas += 1;
+      }
+      areaColhidaHa += colhida;
+      for (const e of o.entradas) {
+        if (e.data === diaAnterior) prodDiaAnteriorT += e.toneladas;
+        if (e.data === referencia) prodDiaAtualAte6hT += e.toneladasAte6h;
+      }
+      if (colhida > 0) {
+        realT += calcAcumSafraT(o);
+        realArea += colhida;
+      }
     }
-    areaColhidaTotalHa = Math.round(areaColhidaTotalHa * 100) / 100;
-    entradaAnteriorT = Math.round(entradaAnteriorT * 100) / 100;
-
-    const tchAtual = totalGeral.areaTotalHa > 0 ? totalGeral.entradaPeriodoT / totalGeral.areaTotalHa : 0;
-    const tchAnterior = totalGeral.areaTotalHa > 0 ? entradaAnteriorT / totalGeral.areaTotalHa : 0;
-
+    const tchEstimado = estArea > 0 ? estPonderado / estArea : null;
+    const tchRealizado = realArea > 0 ? realT / realArea : null;
     return {
-      areaColhidaTotalHa,
-      tchAtual: Math.round(tchAtual * 100) / 100,
-      variacaoProducaoPct: rangeAnterior ? calcVariacaoPct(totalGeral.entradaPeriodoT, entradaAnteriorT) : null,
-      variacaoTchPct: rangeAnterior ? calcVariacaoPct(tchAtual, tchAnterior) : null,
+      abertas,
+      encerradas,
+      areaAbertaHa,
+      areaColhidaHa,
+      prodDiaAnteriorT,
+      prodDiaAtualAte6hT,
+      tchEstimado,
+      tchRealizado,
+      divergenciaPct:
+        tchEstimado !== null && tchRealizado !== null && tchEstimado > 0
+          ? (tchRealizado / tchEstimado - 1) * 100
+          : null,
     };
-  }, [ordensFiltradas, period, referencia, totalGeral.entradaPeriodoT, totalGeral.areaTotalHa]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordensFiltradas, referencia, historicoTch]);
+
+  // Ordens cujo TCH realizado (ton acumulada ÷ área medida) foge do estimado.
+  const divergencias = useMemo(() => {
+    const lista: { numero: string; real: number; est: number; pct: number }[] = [];
+    for (const o of ordensFiltradas) {
+      const colhida = calcAreaColhidaHa(o);
+      const est = tchEstimadoDe(o.numero);
+      if (colhida <= 0 || est === null || est <= 0) continue;
+      const real = calcAcumSafraT(o) / colhida;
+      const pct = (real / est - 1) * 100;
+      if (Math.abs(pct) > LIMITE_DIVERGENCIA_TCH_PCT) lista.push({ numero: o.numero, real, est, pct });
+    }
+    return lista.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordensFiltradas, historicoTch]);
+  const divergenciaPorOrdem = useMemo(() => new Map(divergencias.map((d) => [d.numero, d.pct])), [divergencias]);
 
   function toggleColapso(frente: string) {
     setColapsadas((prev) => {
@@ -632,27 +664,85 @@ export default function OrdensCorteClient({
         </div>
 
         {/* KPIs */}
-        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <KpiCard tone="green" icon={<IconClipboard />} label="Ordens abertas" value={kpisTopo.abertas.toString()} sub="Ordens selecionadas" />
+          <KpiCard tone="amber" icon={<IconCheckCircle />} label="Ordens encerradas" value={kpisTopo.encerradas.toString()} sub="Ordens selecionadas" />
+          <KpiCard
+            tone="blue"
+            icon={<IconTrator />}
+            label="Área aberta"
+            value={`${fmtHa(kpisTopo.areaAbertaHa)} ha`}
+            sub="Pelas ordens abertas selecionadas"
+          />
+          <KpiCard
+            tone="blue"
+            icon={<IconTrator />}
+            label="Área colhida"
+            value={`${fmtHa(kpisTopo.areaColhidaHa)} ha`}
+            sub="Pela medição apontada"
+          />
           <KpiCard
             tone="blue"
             icon={<IconFolha />}
-            label={`Produção · ${PERIODOS.find((p) => p.key === period)?.label}`}
-            value={`${fmtT(totalGeral.entradaPeriodoT)} t`}
-            trendPct={kpisPeriodo.variacaoProducaoPct}
-            sub={periodoTexto(period, referencia, safraLabel)}
+            label="Produção dia anterior"
+            value={`${fmtT(kpisTopo.prodDiaAnteriorT)} t`}
+            sub={`Entrada de ${fmtDateBR(addDays(referencia, -1))}`}
           />
-          <KpiCard tone="green" icon={<IconClipboard />} label="Ordens abertas" value={totalGeral.abertas.toString()} sub={`${totalGeral.abertas + totalGeral.encerradas > 0 ? Math.round((totalGeral.abertas / (totalGeral.abertas + totalGeral.encerradas)) * 100) : 0}% do total`} />
-          <KpiCard tone="amber" icon={<IconCheckCircle />} label="Ordens encerradas" value={totalGeral.encerradas.toString()} sub={`${totalGeral.abertas + totalGeral.encerradas > 0 ? Math.round((totalGeral.encerradas / (totalGeral.abertas + totalGeral.encerradas)) * 100) : 0}% do total`} />
-          <KpiCard tone="blue" icon={<IconTrator />} label="Área colhida" value={`${fmtHa(kpisPeriodo.areaColhidaTotalHa)} ha`} sub="Soma das ordens do filtro" />
+          <KpiCard
+            tone="blue"
+            icon={<IconFolha />}
+            label="Produção dia atual até 06:00"
+            value={`${fmtT(kpisTopo.prodDiaAtualAte6hT)} t`}
+            sub={`Entrada de ${fmtDateBR(referencia)} até 06h`}
+          />
+          <KpiCard
+            tone="amber"
+            icon={<IconChart />}
+            label="TCH estimado"
+            value={kpisTopo.tchEstimado !== null ? fmtTch(kpisTopo.tchEstimado) : "—"}
+            sub={
+              kpisTopo.tchEstimado !== null
+                ? "Pelas ordens abertas selecionadas"
+                : "Importe a safra atual em Histórico de Safras"
+            }
+          />
           <KpiCard
             tone="red"
             icon={<IconChart />}
-            label="TCH médio"
-            value={fmtTch(kpisPeriodo.tchAtual)}
-            trendPct={kpisPeriodo.variacaoTchPct}
-            sub={periodoTexto(period, referencia, safraLabel)}
+            label="TCH médio realizado"
+            value={kpisTopo.tchRealizado !== null ? fmtTch(kpisTopo.tchRealizado) : "—"}
+            sub="Ton entregue ÷ área medida lançada"
+            aviso={
+              podeGravar &&
+              kpisTopo.divergenciaPct !== null &&
+              Math.abs(kpisTopo.divergenciaPct) > LIMITE_DIVERGENCIA_TCH_PCT
+                ? `${kpisTopo.divergenciaPct >= 0 ? "▲" : "▼"} ${Math.abs(kpisTopo.divergenciaPct).toFixed(0)}% vs. estimado`
+                : undefined
+            }
           />
         </div>
+
+        {podeGravar && divergencias.length > 0 && (
+          <div className="mb-4 rounded-xl2 border border-amber-500/40 bg-amber-50 px-4 py-3 text-[12.5px] text-amber-700">
+            <p className="font-bold">
+              Atenção: {divergencias.length} ordem(ns) com TCH realizado (ton entregue ÷ área medida) mais de{" "}
+              {LIMITE_DIVERGENCIA_TCH_PCT}% diferente do estimado. Confira a área medida lançada ou a entrada de cana.
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {divergencias.map((d) => (
+                <span
+                  key={d.numero}
+                  className="rounded-full border border-amber-500/30 bg-card px-2.5 py-0.5 text-[11.5px] text-ink"
+                >
+                  <b>Ordem {d.numero}</b> · real {fmtTch(d.real)} · est. {fmtTch(d.est)} ·{" "}
+                  <b className={d.pct >= 0 ? "text-good-600" : "text-alert-600"}>
+                    {d.pct >= 0 ? "▲" : "▼"} {Math.abs(d.pct).toFixed(0)}%
+                  </b>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {period !== "safra" && totalGeral.entradaPeriodoT === 0 && totalGeral.total > 0 && (
           <p className="-mt-2 mb-4 text-[12px] text-muted">
@@ -818,6 +908,7 @@ export default function OrdensCorteClient({
                       historico={historicoTch.porOrdem[ordem.numero]}
                       safraAtual={historicoTch.safraAtual}
                       safrasAnteriores={historicoTch.safrasAnteriores}
+                      divergenciaPct={podeGravar ? divergenciaPorOrdem.get(ordem.numero) : undefined}
                       onRemover={podeGravar ? () => removerOrdem(ordem.numero) : undefined}
                       onLancarAreaColhida={podeGravar ? () => setAreaColhidaAlvo(ordem) : undefined}
                     />
@@ -943,30 +1034,25 @@ function KpiCard({
   sub,
   icon,
   tone,
-  trendPct,
+  aviso,
 }: {
   label: string;
   value: string;
   sub?: string;
   icon: ReactNode;
   tone: keyof typeof KPI_TONS;
-  trendPct?: number | null;
+  aviso?: string;
 }) {
   return (
     <div className={`rounded-xl2 border p-4 shadow-card ${KPI_TONS[tone]}`}>
       <div className="mb-1.5 opacity-80">{icon}</div>
       <div className="text-[11.5px] font-semibold opacity-80">{label}</div>
       <div className="mt-0.5 text-[24px] font-bold tabular leading-none">{value}</div>
-      {trendPct !== undefined && trendPct !== null ? (
-        <div
-          className={`mt-1.5 flex items-center gap-1 text-[11px] font-bold ${
-            trendPct >= 0 ? "text-good-600" : "text-alert-600"
-          }`}
-        >
-          {trendPct >= 0 ? "▲" : "▼"} {Math.abs(trendPct).toFixed(0)}% em relação ao anterior
+      {sub && <div className="mt-1.5 text-[11px] opacity-70">{sub}</div>}
+      {aviso && (
+        <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+          ⚠ {aviso}
         </div>
-      ) : (
-        sub && <div className="mt-1.5 text-[11px] opacity-70">{sub}</div>
       )}
     </div>
   );
@@ -1090,6 +1176,7 @@ function OrdemCard({
   historico,
   safraAtual,
   safrasAnteriores,
+  divergenciaPct,
   onRemover,
   onLancarAreaColhida,
 }: {
@@ -1099,6 +1186,7 @@ function OrdemCard({
   historico?: HistoricoTchOrdem["porOrdem"][string];
   safraAtual: number;
   safrasAnteriores: number[];
+  divergenciaPct?: number;
   onRemover?: () => void;
   onLancarAreaColhida?: () => void;
 }) {
@@ -1218,6 +1306,7 @@ function OrdemCard({
               safraAtual={safraAtual}
               safrasAnteriores={safrasAnteriores}
               historico={historico}
+              divergenciaPct={divergenciaPct}
             />
           </div>
 
