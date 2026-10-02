@@ -4,9 +4,9 @@ import { parseConferenciaPesagem } from "@/lib/import-conferencia";
 import { podeEditar } from "@/lib/permissoes";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
-const MAX_ARQUIVOS = 5;
+const MAX_ARQUIVOS = 10;
 const DATA_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 interface ResultadoArquivo {
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (resultados.length === 0) {
-    return NextResponse.json({ error: "Anexe pelo menos um arquivo (até 5)." }, { status: 400 });
+    return NextResponse.json({ error: "Anexe pelo menos um arquivo (até 10)." }, { status: 400 });
   }
   return NextResponse.json({ resultados });
 }

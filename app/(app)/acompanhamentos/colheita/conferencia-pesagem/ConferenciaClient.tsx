@@ -410,7 +410,7 @@ interface ResultadoArquivo {
   erro?: string;
 }
 
-const MAX_SLOTS = 5;
+const MAX_SLOTS = 10;
 
 function ImportarModal({ onFechar }: { onFechar: () => void }) {
   const router = useRouter();
