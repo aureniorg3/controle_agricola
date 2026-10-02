@@ -664,7 +664,7 @@ export default function OrdensCorteClient({
         </div>
 
         {/* KPIs */}
-        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-flow-col lg:grid-cols-4 lg:grid-rows-2">
           <KpiCard tone="green" icon={<IconClipboard />} label="Ordens abertas" value={kpisTopo.abertas.toString()} sub="Ordens selecionadas" />
           <KpiCard tone="amber" icon={<IconCheckCircle />} label="Ordens encerradas" value={kpisTopo.encerradas.toString()} sub="Ordens selecionadas" />
           <KpiCard
