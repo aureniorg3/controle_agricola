@@ -291,7 +291,8 @@ export function resumoPorFrente(
   ordensTodas: OrdemCorte[],
   referencia: string,
   metas: MetaFrente[] = [],
-  safraInicio?: string
+  safraInicio?: string,
+  primeiraEntradaPorFrente?: Record<string, string>
 ): FrenteResumo[] {
   // Semana/Quinzena/Mês Atual/Safra são recortes "até a data selecionada":
   // o fim de cada um é sempre a própria referência, nunca o fim natural do
@@ -308,21 +309,34 @@ export function resumoPorFrente(
   // a safra conta a partir do início da produção cadastrada (Cadastros > Safras)
   const safra = { inicio: safraInicio ?? "0000-01-01", fim: referencia };
 
+  // A meta de uma frente só conta a partir do dia da primeira entrada de cana
+  // dela (e é reajustada pelas vigências das metas cadastradas); antes disso,
+  // ou se a frente ainda não teve entrada, a meta é zero.
+  function metasDaFrente(frente: string): MetasPorPeriodo {
+    const primeira = primeiraEntradaPorFrente ? primeiraEntradaPorFrente[frente] : "0000-01-01";
+    const desde = (r: { inicio: string; fim: string }) =>
+      primeira === undefined ? { inicio: "9999-12-31", fim: "0000-01-01" } : { inicio: r.inicio > primeira ? r.inicio : primeira, fim: r.fim };
+    return {
+      safra: round2(metaNoIntervalo(metas, frente, desde(safra))),
+      mesAnterior: round2(metaNoIntervalo(metas, frente, desde(mesAnterior))),
+      mesAtual: round2(metaNoIntervalo(metas, frente, desde(mesAtual))),
+      quinzena: round2(metaNoIntervalo(metas, frente, desde(quinzena))),
+      semana: round2(metaNoIntervalo(metas, frente, desde(semana))),
+      diaAnterior: round2(metaNoIntervalo(metas, frente, desde(diaAnterior))),
+      diaAtual:
+        primeira !== undefined && referencia >= primeira
+          ? round2((metaDoDia(metas, frente, referencia) * 6) / 24)
+          : 0,
+    };
+  }
+
   const map = new Map<string, FrenteResumo>();
   function getOrInit(frente: string): FrenteResumo {
     let atual = map.get(frente);
     if (!atual) {
       atual = {
         frente,
-        meta: {
-          safra: round2(metaNoIntervalo(metas, frente, safra)),
-          mesAnterior: round2(metaNoIntervalo(metas, frente, mesAnterior)),
-          mesAtual: round2(metaNoIntervalo(metas, frente, mesAtual)),
-          quinzena: round2(metaNoIntervalo(metas, frente, quinzena)),
-          semana: round2(metaNoIntervalo(metas, frente, semana)),
-          diaAnterior: round2(metaNoIntervalo(metas, frente, diaAnterior)),
-          diaAtual: round2((metaDoDia(metas, frente, referencia) * 6) / 24),
-        },
+        meta: metasDaFrente(frente),
         ordensSelecionadas: 0,
         areaSelecionadaHa: 0,
         areaAcumuladaHa: 0,

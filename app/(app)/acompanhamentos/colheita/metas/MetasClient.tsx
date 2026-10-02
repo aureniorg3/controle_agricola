@@ -177,7 +177,7 @@ export default function MetasClient({
             <p className="mt-3 text-[12px] leading-relaxed text-muted">
               A meta é diária (toneladas por dia) e vale da data informada em diante, até uma nova meta da mesma frente.
               Os dias anteriores continuam com a meta antiga (e, antes da primeira meta, ficam sem meta). Cadastrar de
-              novo na mesma data substitui o valor; use "Editar" na lista para corrigir uma meta já lançada. Semana, mês e safra somam a meta de cada dia.
+              novo na mesma data substitui o valor; use "Editar" na lista para corrigir uma meta já lançada. Semana, mês e safra somam a meta de cada dia, contando só a partir da primeira entrada de cana da frente em Ordens de Corte.
             </p>
           </form>
         )}

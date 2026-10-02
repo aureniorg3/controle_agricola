@@ -298,9 +298,21 @@ export default function OrdensCorteClient({
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [ordensFiltradas]);
 
+  // Data da primeira entrada de cana de cada frente (todas as ordens da safra,
+  // independente de filtros) — a meta da frente só começa a contar nesse dia.
+  const primeiraEntradaPorFrente = useMemo(() => {
+    const mapa: Record<string, string> = {};
+    for (const o of ordens) {
+      for (const e of o.entradas) {
+        if (e.toneladas > 0 && (mapa[o.frente] === undefined || e.data < mapa[o.frente])) mapa[o.frente] = e.data;
+      }
+    }
+    return mapa;
+  }, [ordens]);
+
   const resumoFrentes = useMemo(
-    () => resumoPorFrente(ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao?.inicio),
-    [ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao]
+    () => resumoPorFrente(ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao?.inicio, primeiraEntradaPorFrente),
+    [ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao, primeiraEntradaPorFrente]
   );
 
   const resumoTotais = useMemo(
