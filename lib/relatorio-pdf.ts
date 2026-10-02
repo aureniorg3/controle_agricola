@@ -43,7 +43,7 @@ export interface DadosRelatorioCompleto {
   period: Periodo;
   periodLabel: string;
   resumoFrentes: FrenteResumo[];
-  resumoTotais: Omit<FrenteResumo, "frente">;
+  resumoTotais: Omit<FrenteResumo, "frente" | "meta">;
   porFrente: [string, OrdemCorte[]][];
   resumoDetalhadoPorFrente: ResumoDetalhadoFrente[];
   resumoDetalhadoTotalGeral: { areaColhidaHa: number; producaoTotalT: number; tchRealParcial: number };
@@ -340,7 +340,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     `Dia Atual\n${dm(dados.referencia)} até 06h`,
   ];
 
-  const linhaResumo = (r: FrenteResumo | (Omit<FrenteResumo, "frente"> & { frente?: string })) => [
+  const linhaResumo = (r: FrenteResumo | (Omit<FrenteResumo, "frente" | "meta"> & { frente?: string })) => [
     r.frente ?? "Total geral",
     String(r.ordensSelecionadas),
     fmtHa(r.areaSelecionadaHa),

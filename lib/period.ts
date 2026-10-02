@@ -1,4 +1,4 @@
-import { EntradaDiaria, OrdemCorte, Periodo, TalhaoOrdem } from "./types";
+import { MetaFrente, EntradaDiaria, OrdemCorte, Periodo, TalhaoOrdem } from "./types";
 
 export function toDateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -180,7 +180,57 @@ export function calcOrdemMetrics(ordem: OrdemCorte, period: Periodo, referencia:
   };
 }
 
+function diasInclusivo(inicio: string, fim: string): number {
+  const a = Date.parse(inicio + "T00:00:00Z");
+  const b = Date.parse(fim + "T00:00:00Z");
+  return b < a ? 0 : Math.round((b - a) / 86400000) + 1;
+}
+
+/** Meta (t/dia) em vigor num dia: a última cadastrada com vigência <= dia. */
+export function metaDoDia(metas: MetaFrente[], frente: string, dia: string): number {
+  let atual: MetaFrente | undefined;
+  for (const m of metas) {
+    if (m.frente === frente && m.vigencia <= dia && (!atual || m.vigencia > atual.vigencia)) atual = m;
+  }
+  return atual ? atual.metaDiaT : 0;
+}
+
+/**
+ * Soma da meta diária da frente nos dias do intervalo — cada trecho de dias
+ * usa a meta vigente nele (uma meta nova só vale da sua data em diante; os
+ * dias anteriores continuam com a anterior, e antes da primeira não há meta).
+ */
+export function metaNoIntervalo(
+  metas: MetaFrente[],
+  frente: string,
+  range: { inicio: string; fim: string }
+): number {
+  const lista = metas.filter((m) => m.frente === frente).sort((a, b) => a.vigencia.localeCompare(b.vigencia));
+  let total = 0;
+  for (let i = 0; i < lista.length; i++) {
+    const trechoInicio = lista[i].vigencia;
+    const trechoFim = i + 1 < lista.length ? addDays(lista[i + 1].vigencia, -1) : "9999-12-31";
+    const ini = trechoInicio > range.inicio ? trechoInicio : range.inicio;
+    const fim = trechoFim < range.fim ? trechoFim : range.fim;
+    total += diasInclusivo(ini, fim) * lista[i].metaDiaT;
+  }
+  return total;
+}
+
+export interface MetasPorPeriodo {
+  safra: number;
+  mesAnterior: number;
+  mesAtual: number;
+  quinzena: number;
+  semana: number;
+  diaAnterior: number;
+  /** "Dia Atual" é só a madrugada (até 06h): meta proporcional, 6/24 do dia. */
+  diaAtual: number;
+}
+
 export interface FrenteResumo {
+  /** meta acumulada em cada recorte (t) — 0 quando a frente não tem meta. */
+  meta: MetasPorPeriodo;
   frente: string;
   /** contagem e área só das ordens selecionadas/mostradas nos cards. */
   ordensSelecionadas: number;
@@ -224,7 +274,8 @@ function somaNoIntervalo(entradas: EntradaDiaria[], range: { inicio: string; fim
 export function resumoPorFrente(
   ordensSelecionadas: OrdemCorte[],
   ordensTodas: OrdemCorte[],
-  referencia: string
+  referencia: string,
+  metas: MetaFrente[] = []
 ): FrenteResumo[] {
   // Semana/Quinzena/Mês Atual/Safra são recortes "até a data selecionada":
   // o fim de cada um é sempre a própria referência, nunca o fim natural do
@@ -246,6 +297,15 @@ export function resumoPorFrente(
     if (!atual) {
       atual = {
         frente,
+        meta: {
+          safra: round2(metaNoIntervalo(metas, frente, safra)),
+          mesAnterior: round2(metaNoIntervalo(metas, frente, mesAnterior)),
+          mesAtual: round2(metaNoIntervalo(metas, frente, mesAtual)),
+          quinzena: round2(metaNoIntervalo(metas, frente, quinzena)),
+          semana: round2(metaNoIntervalo(metas, frente, semana)),
+          diaAnterior: round2(metaNoIntervalo(metas, frente, diaAnterior)),
+          diaAtual: round2((metaDoDia(metas, frente, referencia) * 6) / 24),
+        },
         ordensSelecionadas: 0,
         areaSelecionadaHa: 0,
         areaAcumuladaHa: 0,

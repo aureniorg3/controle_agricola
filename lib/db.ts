@@ -1,7 +1,8 @@
 import { Pool, types } from "pg";
+import { randomUUID } from "crypto";
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
-import { Database, EntradaDiaria, OrdemCorte, TalhaoOrdem, Usuario } from "./types";
+import { Database, EntradaDiaria, MetaFrente, OrdemCorte, TalhaoOrdem, Usuario } from "./types";
 import { gerarSenhaProvisoria, hashSenha, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
 
 // `numeric` volta como string por padrão no driver `pg` (pra não perder
@@ -119,6 +120,18 @@ function prepararBanco(pool: Pool): Promise<void> {
             `Supabase antes de usar o sistema. Erro original: ${err instanceof Error ? err.message : String(err)}`
         );
       }
+      // tabela criada depois do schema inicial — idempotente, então bancos
+      // já existentes ganham ela sozinhos, sem rodar SQL à mão.
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS metas_frente (
+           id text PRIMARY KEY,
+           frente text NOT NULL,
+           meta_dia_t numeric NOT NULL CHECK (meta_dia_t >= 0),
+           vigencia date NOT NULL,
+           criado_em timestamptz NOT NULL DEFAULT now(),
+           UNIQUE (frente, vigencia)
+         )`
+      );
       if (count === 0) {
         const admin = buildAdminPadrao();
         await pool.query(
@@ -405,6 +418,33 @@ export async function removerOrdemVisivel(numero: string): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
   await pool.query("DELETE FROM ordens_visiveis WHERE ordem_numero = $1", [numero]);
+}
+
+export async function listMetas(): Promise<MetaFrente[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ id: string; frente: string; meta_dia_t: number; vigencia: string }>(
+    "SELECT id, frente, meta_dia_t, vigencia FROM metas_frente ORDER BY frente, vigencia"
+  );
+  return rows.map((r) => ({ id: r.id, frente: r.frente, metaDiaT: r.meta_dia_t, vigencia: r.vigencia }));
+}
+
+/** Uma meta por (frente, vigência): cadastrar de novo na mesma data
+ * substitui o valor. */
+export async function salvarMeta(frente: string, metaDiaT: number, vigencia: string): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  await pool.query(
+    `INSERT INTO metas_frente (id, frente, meta_dia_t, vigencia) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (frente, vigencia) DO UPDATE SET meta_dia_t = EXCLUDED.meta_dia_t`,
+    [randomUUID(), frente, metaDiaT, vigencia]
+  );
+}
+
+export async function excluirMeta(id: string): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  await pool.query("DELETE FROM metas_frente WHERE id = $1", [id]);
 }
 
 export type LancamentoAreaColhida =

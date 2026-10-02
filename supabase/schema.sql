@@ -96,6 +96,18 @@ create table if not exists app_meta (
 );
 insert into app_meta (id) values (true) on conflict (id) do nothing;
 
+-- Metas diárias por frente (t/dia). Cada meta vale a partir da data de
+-- vigência até a próxima cadastrada pra mesma frente; dias anteriores à
+-- primeira meta ficam sem meta.
+create table if not exists metas_frente (
+  id text primary key,
+  frente text not null,
+  meta_dia_t numeric not null check (meta_dia_t >= 0),
+  vigencia date not null,
+  criado_em timestamptz not null default now(),
+  unique (frente, vigencia)
+);
+
 -- Índices para os filtros/relatórios mais comuns da tela de Ordens de Corte
 create index if not exists idx_ordens_frente on ordens(frente);
 create index if not exists idx_ordens_status on ordens(status);

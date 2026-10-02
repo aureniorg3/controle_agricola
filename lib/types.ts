@@ -97,4 +97,14 @@ export interface Database {
   ultimaAtualizacao: string;
 }
 
+/** Meta diária de uma frente (t/dia), válida a partir da data de vigência
+ * até a próxima meta cadastrada pra mesma frente. */
+export interface MetaFrente {
+  id: string;
+  frente: string;
+  metaDiaT: number;
+  /** YYYY-MM-DD — primeiro dia em que esta meta vale. */
+  vigencia: string;
+}
+
 export type Periodo = "dia" | "semana" | "mes" | "safra";

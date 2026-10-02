@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, FormEvent, useMemo, useState, type ReactNode } from "react";
-import { OrdemCorte, PerfilUsuario, Periodo, StatusOrdem, TalhaoOrdem } from "@/lib/types";
+import { MetaFrente, OrdemCorte, PerfilUsuario, Periodo, StatusOrdem, TalhaoOrdem } from "@/lib/types";
 import {
   addDays,
   calcAreaColhidaHa,
@@ -72,6 +72,18 @@ function calcVariacaoPct(atual: number, anterior: number): number | null {
   return Math.round(((atual - anterior) / anterior) * 1000) / 10;
 }
 
+/** Meta do período + % atingido, embaixo do valor realizado. */
+function MetaLinha({ real, meta }: { real: number; meta: number }) {
+  if (!(meta > 0)) return null;
+  const pct = (real / meta) * 100;
+  const cor = pct >= 100 ? "text-good-600" : pct >= 80 ? "text-amber-600" : "text-alert-600";
+  return (
+    <div className="mt-0.5 text-[10.5px] font-medium leading-tight text-muted">
+      Meta {fmtT(meta)} · <span className={`font-bold ${cor}`}>{pct.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%</span>
+    </div>
+  );
+}
+
 function periodoTexto(period: Periodo, referencia: string, safraLabel: string): string {
   if (period === "dia") return `Dia ${fmtDateBR(referencia)}`;
   if (period === "semana")
@@ -86,11 +98,13 @@ function periodoTexto(period: Periodo, referencia: string, safraLabel: string): 
 export default function OrdensCorteClient({
   initialOrdens,
   initialOrdensVisiveis,
+  metas,
   perfil,
   nomeUsuario,
 }: {
   initialOrdens: OrdemCorte[];
   initialOrdensVisiveis: string[];
+  metas: MetaFrente[];
   perfil: PerfilUsuario;
   nomeUsuario: string;
 }) {
@@ -209,8 +223,8 @@ export default function OrdensCorteClient({
   }, [ordensFiltradas]);
 
   const resumoFrentes = useMemo(
-    () => resumoPorFrente(ordensFiltradas, ordensFiltradasTodas, referencia),
-    [ordensFiltradas, ordensFiltradasTodas, referencia]
+    () => resumoPorFrente(ordensFiltradas, ordensFiltradasTodas, referencia, metas),
+    [ordensFiltradas, ordensFiltradasTodas, referencia, metas]
   );
 
   const resumoTotais = useMemo(
@@ -243,6 +257,24 @@ export default function OrdensCorteClient({
       ),
     [resumoFrentes]
   );
+
+  const metaTotais = useMemo(
+    () =>
+      resumoFrentes.reduce(
+        (acc, r) => ({
+          safra: acc.safra + r.meta.safra,
+          mesAnterior: acc.mesAnterior + r.meta.mesAnterior,
+          mesAtual: acc.mesAtual + r.meta.mesAtual,
+          quinzena: acc.quinzena + r.meta.quinzena,
+          semana: acc.semana + r.meta.semana,
+          diaAnterior: acc.diaAnterior + r.meta.diaAnterior,
+          diaAtual: acc.diaAtual + r.meta.diaAtual,
+        }),
+        { safra: 0, mesAnterior: 0, mesAtual: 0, quinzena: 0, semana: 0, diaAnterior: 0, diaAtual: 0 }
+      ),
+    [resumoFrentes]
+  );
+  const temMetas = metaTotais.safra > 0 || metaTotais.diaAtual > 0 || metaTotais.mesAtual > 0;
 
   // Diferente do resumo por frente (que é de todas as ordens do filtro), o
   // resumo detalhado no final do relatório segue só as ordens marcadas e
@@ -580,6 +612,8 @@ export default function OrdensCorteClient({
               "Ordens" e "Área Selecionada" são das {totalGeral.total} ordem(ns) marcadas e mostradas nos cards
               abaixo; as demais colunas são de todas as ordens importadas (
               {ordensFiltradasTodas.length} no filtro atual).
+              {temMetas &&
+                " Abaixo de cada produção: meta da frente no período e % atingido (Dia Atual compara com 6/24 da meta diária, por ser só a madrugada até 06h)."}
             </p>
             <table className="w-full text-[12.5px]">
               <thead>
@@ -631,14 +665,14 @@ export default function OrdensCorteClient({
                     <td className="px-3 py-1.5 text-right tabular text-muted">{r.ordensSelecionadas}</td>
                     <td className="px-3 py-1.5 text-right tabular text-ink">{fmtHa(r.areaSelecionadaHa)}</td>
                     <td className="px-3 py-1.5 text-right tabular text-ink">{fmtHa(r.areaAcumuladaHa)}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.safraT)}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.mesAnteriorT)}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.mesAtualT)}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.quinzenaT)}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.semanaT)}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.diaAnteriorT)}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.safraT)}<MetaLinha real={r.safraT} meta={r.meta.safra} /></td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.mesAnteriorT)}<MetaLinha real={r.mesAnteriorT} meta={r.meta.mesAnterior} /></td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.mesAtualT)}<MetaLinha real={r.mesAtualT} meta={r.meta.mesAtual} /></td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.quinzenaT)}<MetaLinha real={r.quinzenaT} meta={r.meta.quinzena} /></td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.semanaT)}<MetaLinha real={r.semanaT} meta={r.meta.semana} /></td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{fmtT(r.diaAnteriorT)}<MetaLinha real={r.diaAnteriorT} meta={r.meta.diaAnterior} /></td>
                     <td className="px-4 py-1.5 text-right tabular font-semibold text-brand-700">
-                      {fmtT(r.diaAtualT)}
+                      {fmtT(r.diaAtualT)}<MetaLinha real={r.diaAtualT} meta={r.meta.diaAtual} />
                     </td>
                   </tr>
                 ))}
@@ -647,13 +681,13 @@ export default function OrdensCorteClient({
                   <td className="px-3 py-1.5 text-right tabular">{resumoTotais.ordensSelecionadas}</td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtHa(resumoTotais.areaSelecionadaHa)}</td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtHa(resumoTotais.areaAcumuladaHa)}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.safraT)}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.mesAnteriorT)}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.mesAtualT)}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.quinzenaT)}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.semanaT)}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.diaAnteriorT)}</td>
-                  <td className="px-4 py-1.5 text-right tabular text-brand-700">{fmtT(resumoTotais.diaAtualT)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.safraT)}<MetaLinha real={resumoTotais.safraT} meta={metaTotais.safra} /></td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.mesAnteriorT)}<MetaLinha real={resumoTotais.mesAnteriorT} meta={metaTotais.mesAnterior} /></td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.mesAtualT)}<MetaLinha real={resumoTotais.mesAtualT} meta={metaTotais.mesAtual} /></td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.quinzenaT)}<MetaLinha real={resumoTotais.quinzenaT} meta={metaTotais.quinzena} /></td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.semanaT)}<MetaLinha real={resumoTotais.semanaT} meta={metaTotais.semana} /></td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.diaAnteriorT)}<MetaLinha real={resumoTotais.diaAnteriorT} meta={metaTotais.diaAnterior} /></td>
+                  <td className="px-4 py-1.5 text-right tabular text-brand-700">{fmtT(resumoTotais.diaAtualT)}<MetaLinha real={resumoTotais.diaAtualT} meta={metaTotais.diaAtual} /></td>
                 </tr>
               </tbody>
             </table>
