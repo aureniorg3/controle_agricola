@@ -623,12 +623,11 @@ export default function OrdensCorteClient({
                   <th className="px-4 py-2 font-semibold">Frente</th>
                   <th className="px-3 py-2 text-right font-semibold">Ordens</th>
                   <th className="px-3 py-2 text-right font-semibold">
-                    Área Selecionada
-                    <div className="font-normal normal-case text-muted/70">ha</div>
+                    Área Selecionada (ha)
                   </th>
                   <th className="px-3 py-2 text-right font-semibold">
-                    Área Acumulada
-                    <div className="font-normal normal-case text-muted/70">ha · todas as ordens</div>
+                    Área Acumulada (ha)
+                    <div className="font-normal normal-case text-muted/70">todas as ordens</div>
                   </th>
                   <th className="px-3 py-2 text-right font-semibold">
                     Safra
@@ -786,9 +785,9 @@ export default function OrdensCorteClient({
                   <th className="px-3 py-2 font-semibold">Ordem</th>
                   <th className="px-3 py-2 font-semibold">Fazenda</th>
                   <th className="px-3 py-2 font-semibold">Fundo Agrícola</th>
-                  <th className="px-3 py-2 text-right font-semibold">Área(ha) Colhida</th>
-                  <th className="px-3 py-2 text-right font-semibold">Prod.(t) Total Real. Até Hoje</th>
-                  <th className="px-4 py-2 text-right font-semibold">TCH(t/ha) Real. Parcial</th>
+                  <th className="px-3 py-2 text-right font-semibold">Área Colhida (ha)</th>
+                  <th className="px-3 py-2 text-right font-semibold">Produção Acumulada (t)</th>
+                  <th className="px-4 py-2 text-right font-semibold">TCH Parcial (t/ha)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1094,10 +1093,10 @@ function OrdemCard({
               <thead className="bg-card">
                 <tr className="text-left text-muted">
                   <th className="py-1 font-semibold">Talhão</th>
-                  <th className="py-1 text-right font-semibold">Área</th>
-                  <th className="py-1 text-right font-semibold">Dia Anterior</th>
-                  <th className="py-1 text-right font-semibold">Dia Atual</th>
-                  <th className="py-1 text-right font-semibold">Acum(t)</th>
+                  <th className="py-1 text-right font-semibold">Área (ha)</th>
+                  <th className="py-1 text-right font-semibold">Dia Anterior (t)</th>
+                  <th className="py-1 text-right font-semibold">Dia Atual (t)</th>
+                  <th className="py-1 text-right font-semibold">Acumulado (t)</th>
                 </tr>
               </thead>
               <tbody>

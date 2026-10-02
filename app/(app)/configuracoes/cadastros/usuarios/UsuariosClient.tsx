@@ -110,7 +110,7 @@ export default function UsuariosClient({
                 <th className="px-3 py-2 font-semibold">E-mail</th>
                 <th className="px-3 py-2 font-semibold">Nível</th>
                 <th className="px-3 py-2 font-semibold">Status</th>
-                <th className="px-3 py-2 font-semibold">Criado em</th>
+                <th className="px-3 py-2 font-semibold">Data de Cadastro</th>
                 <th className="px-3 py-2 font-semibold">Ações</th>
               </tr>
             </thead>

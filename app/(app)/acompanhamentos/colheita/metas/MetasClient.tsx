@@ -133,7 +133,7 @@ export default function MetasClient({
                   className={INPUT}
                 />
               </Campo>
-              <Campo label="Vale a partir de">
+              <Campo label="Data (vigência)">
                 <input type="date" value={vigencia} onChange={(e) => setVigencia(e.target.value)} className={INPUT} />
               </Campo>
               <button
@@ -183,10 +183,10 @@ export default function MetasClient({
                 <thead>
                   <tr className="border-b border-line bg-surface text-left text-muted">
                     <th className="px-4 py-2 font-semibold">Frente</th>
-                    <th className="px-3 py-2 font-semibold">A partir de</th>
+                    <th className="px-3 py-2 font-semibold">Data</th>
                     <th className="px-3 py-2 text-right font-semibold">Meta (t/dia)</th>
-                    <th className="px-3 py-2 font-semibold">Situação</th>
-                    <th className="w-10 px-2 py-2" />
+                    <th className="px-3 py-2 font-semibold">Status</th>
+                    <th className="w-10 px-2 py-2 font-semibold">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
