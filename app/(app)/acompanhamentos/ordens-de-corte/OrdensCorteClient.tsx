@@ -428,7 +428,8 @@ export default function OrdensCorteClient({
     const diaAnterior = addDays(referencia, -1);
     let abertas = 0;
     let encerradas = 0;
-    let areaAbertaHa = 0;
+    let areaSelecionadaHa = 0;
+    let areaEncerradaHa = 0;
     let areaColhidaHa = 0;
     let prodDiaAnteriorT = 0;
     let prodDiaAtualAte6hT = 0;
@@ -439,9 +440,9 @@ export default function OrdensCorteClient({
     for (const o of ordensFiltradas) {
       const area = calcAreaTotalHa(o);
       const colhida = calcAreaColhidaHa(o);
+      areaSelecionadaHa += area;
       if (o.status === "Aberta") {
         abertas += 1;
-        areaAbertaHa += area;
         const est = tchEstimadoDe(o.numero);
         if (est !== null && area > 0) {
           estPonderado += est * area;
@@ -449,6 +450,7 @@ export default function OrdensCorteClient({
         }
       } else {
         encerradas += 1;
+        areaEncerradaHa += area;
       }
       areaColhidaHa += colhida;
       for (const e of o.entradas) {
@@ -465,7 +467,8 @@ export default function OrdensCorteClient({
     return {
       abertas,
       encerradas,
-      areaAbertaHa,
+      areaSelecionadaHa,
+      areaEncerradaHa,
       areaColhidaHa,
       prodDiaAnteriorT,
       prodDiaAtualAte6hT,
@@ -671,8 +674,8 @@ export default function OrdensCorteClient({
             tone="blue"
             icon={<IconTrator />}
             label="Área aberta"
-            value={`${fmtHa(kpisTopo.areaAbertaHa)} ha`}
-            sub="Pelas ordens abertas selecionadas"
+            value={`${fmtHa(kpisTopo.areaSelecionadaHa)} ha`}
+            sub={`Ordens selecionadas · encerradas: ${fmtHa(kpisTopo.areaEncerradaHa)} ha`}
           />
           <KpiCard
             tone="blue"
