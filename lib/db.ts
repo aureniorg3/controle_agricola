@@ -13,6 +13,7 @@ import {
   OrdemCorte,
   SafraAgregado,
   SafraTalhao,
+  SafraVariedadeCorte,
   TalhaoOrdem,
   Usuario,
 } from "./types";
@@ -945,6 +946,35 @@ export async function agregarSafras(dimensao: DimensaoSafra | "safra"): Promise<
     producaoEstT: r.prod_est,
     tchReal: r.area_col > 0 ? r.prod / r.area_col : null,
     tchEst: r.area_tot > 0 && r.prod_est > 0 ? r.prod_est / r.area_tot : null,
+  }));
+}
+
+/** Variedade x corte por safra (para ver como cada variedade rende em cada estágio). */
+export async function agregarVariedadeCorte(): Promise<SafraVariedadeCorte[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{
+    saf: number;
+    var_nm: string;
+    cor: number;
+    area_tot: number;
+    area_col: number;
+    prod: number;
+  }>(
+    `SELECT saf, var_nm, cor,
+            SUM(area_tot) AS area_tot,
+            COALESCE(SUM(area_col) FILTER (WHERE prod_atu > 0), 0) AS area_col,
+            COALESCE(SUM(prod_atu) FILTER (WHERE prod_atu > 0), 0) AS prod
+       FROM saf_tlh GROUP BY saf, var_nm, cor ORDER BY saf, var_nm, cor`
+  );
+  return rows.map((r) => ({
+    safra: r.saf,
+    variedade: r.var_nm,
+    corte: r.cor,
+    areaTot: r.area_tot,
+    areaColhida: r.area_col,
+    producaoT: r.prod,
+    tchReal: r.area_col > 0 ? r.prod / r.area_col : null,
   }));
 }
 

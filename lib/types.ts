@@ -193,6 +193,17 @@ export interface SafraAgregado {
   tchEst: number | null;
 }
 
+/** Agregado de uma variedade num corte (estágio) dentro de uma safra. */
+export interface SafraVariedadeCorte {
+  safra: number;
+  variedade: string;
+  corte: number;
+  areaTot: number;
+  areaColhida: number;
+  producaoT: number;
+  tchReal: number | null;
+}
+
 /** TCH por ordem de corte e safra (cruzando fazenda + talhão da ordem com o histórico). */
 export interface HistoricoTchOrdem {
   safraAtual: number;
