@@ -919,6 +919,8 @@ export async function agregarSafras(dimensao: DimensaoSafra | "safra"): Promise<
   const pool = getPool();
   await prepararBanco(pool);
   const expr = EXPR_DIMENSAO[dimensao];
+  // GROUP BY com literal ('Total') é erro no Postgres — a safra inteira agrupa só por `saf`
+  const agrupar = dimensao === "safra" ? "saf" : `saf, ${expr}`;
   const { rows } = await pool.query<{
     saf: number;
     chave: string;
@@ -932,7 +934,7 @@ export async function agregarSafras(dimensao: DimensaoSafra | "safra"): Promise<
             COALESCE(SUM(area_col) FILTER (WHERE prod_atu > 0), 0) AS area_col,
             COALESCE(SUM(prod_atu) FILTER (WHERE prod_atu > 0), 0) AS prod,
             SUM(prod_est) AS prod_est
-       FROM saf_tlh GROUP BY saf, ${expr} ORDER BY saf, chave`
+       FROM saf_tlh GROUP BY ${agrupar} ORDER BY saf, chave`
   );
   return rows.map((r) => ({
     safra: r.saf,
