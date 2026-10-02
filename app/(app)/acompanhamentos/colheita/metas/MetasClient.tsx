@@ -27,6 +27,7 @@ export default function MetasClient({
   const [vigencia, setVigencia] = useState(todayISO());
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [filtroFrente, setFiltroFrente] = useState("todas");
 
   const todasFrentes = useMemo(
     () => Array.from(new Set([...frentes, ...metasIniciais.map((m) => m.frente)])).sort((a, b) => a.localeCompare(b)),
@@ -72,12 +73,27 @@ export default function MetasClient({
     else window.alert("Não foi possível excluir a meta.");
   }
 
-  const porFrente = todasFrentes
-    .map((f) => ({
-      frente: f,
-      metas: metasIniciais.filter((m) => m.frente === f).sort((a, b) => b.vigencia.localeCompare(a.vigencia)),
-    }))
-    .filter((g) => g.metas.length > 0);
+  const frentesComMeta = useMemo(
+    () => Array.from(new Set(metasIniciais.map((m) => m.frente))).sort((a, b) => a.localeCompare(b)),
+    [metasIniciais]
+  );
+
+  const linhas = useMemo(
+    () =>
+      metasIniciais
+        .filter((m) => filtroFrente === "todas" || m.frente === filtroFrente)
+        .sort((a, b) => a.frente.localeCompare(b.frente) || b.vigencia.localeCompare(a.vigencia)),
+    [metasIniciais, filtroFrente]
+  );
+
+  function situacao(m: MetaFrente): "vigente" | "futura" | "anterior" {
+    if (m.vigencia > hoje) return "futura";
+    const vigenteHoje = metaDoDia(metasIniciais, m.frente, hoje);
+    const maisRecente = metasIniciais
+      .filter((x) => x.frente === m.frente && x.vigencia <= hoje)
+      .reduce((a, b) => (b.vigencia > a.vigencia ? b : a), m);
+    return maisRecente.id === m.id && vigenteHoje === m.metaDiaT ? "vigente" : "anterior";
+  }
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -137,40 +153,63 @@ export default function MetasClient({
           </form>
         )}
 
-        {porFrente.length === 0 ? (
+        {metasIniciais.length === 0 ? (
           <div className="rounded-xl2 border border-dashed border-line bg-card px-6 py-14 text-center text-muted">
             Nenhuma meta cadastrada ainda.
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {porFrente.map((g) => (
-              <div key={g.frente} className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-                <div className="flex items-center justify-between bg-navy-900 px-4 py-2 text-white">
-                  <span className="text-[13px] font-bold">{g.frente}</span>
-                  <span className="text-[11.5px] text-slate-300">
-                    Hoje: <b className="text-white">{fmtT(metaDoDia(metasIniciais, g.frente, hoje))} t/dia</b>
-                  </span>
-                </div>
-                <table className="w-full text-[12.5px]">
-                  <thead>
-                    <tr className="border-b border-line bg-surface text-left text-muted">
-                      <th className="px-4 py-1.5 font-semibold">A partir de</th>
-                      <th className="px-3 py-1.5 text-right font-semibold">Meta (t/dia)</th>
-                      <th className="w-10 px-2 py-1.5" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {g.metas.map((m) => (
+          <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
+            <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
+              <h2 className="text-[14px] font-bold text-ink">Metas cadastradas</h2>
+              <select
+                value={filtroFrente}
+                onChange={(e) => setFiltroFrente(e.target.value)}
+                className="rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
+                aria-label="Filtrar por frente"
+              >
+                <option value="todas">Todas as frentes</option>
+                {frentesComMeta.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+              <span className="ml-auto text-[12px] text-muted">
+                {linhas.length} meta{linhas.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-line bg-surface text-left text-muted">
+                    <th className="px-4 py-2 font-semibold">Frente</th>
+                    <th className="px-3 py-2 font-semibold">A partir de</th>
+                    <th className="px-3 py-2 text-right font-semibold">Meta (t/dia)</th>
+                    <th className="px-3 py-2 font-semibold">Situação</th>
+                    <th className="w-10 px-2 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {linhas.map((m) => {
+                    const sit = situacao(m);
+                    return (
                       <tr key={m.id} className="border-b border-line last:border-0">
-                        <td className="px-4 py-1.5 text-ink">
-                          {fmtDateBR(m.vigencia)}
-                          {m.vigencia > hoje && (
-                            <span className="ml-2 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-600">
-                              futura
+                        <td className="px-4 py-1.5 font-semibold text-ink">{m.frente}</td>
+                        <td className="px-3 py-1.5 text-ink">{fmtDateBR(m.vigencia)}</td>
+                        <td className="px-3 py-1.5 text-right font-semibold tabular text-ink">{fmtT(m.metaDiaT)}</td>
+                        <td className="px-3 py-1.5">
+                          {sit === "vigente" && (
+                            <span className="rounded-full bg-good-50 px-2 py-0.5 text-[10.5px] font-bold text-good-600">
+                              Vigente
                             </span>
                           )}
+                          {sit === "futura" && (
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10.5px] font-bold text-amber-600">
+                              Futura
+                            </span>
+                          )}
+                          {sit === "anterior" && <span className="text-[11px] text-muted">Substituída</span>}
                         </td>
-                        <td className="px-3 py-1.5 text-right font-semibold tabular text-ink">{fmtT(m.metaDiaT)}</td>
                         <td className="px-2 py-1.5 text-right">
                           {podeGravar && (
                             <button
@@ -184,11 +223,11 @@ export default function MetasClient({
                           )}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
