@@ -79,42 +79,42 @@ function TchComparativo({
   const anterior = safrasAnteriores.length > 0 ? real(safrasAnteriores[0]) : null;
   const variacao = anterior && anterior > 0 && tchGeralAtual > 0 ? ((tchGeralAtual - anterior) / anterior) * 100 : null;
 
-  const amarelo = { backgroundColor: "rgb(255, 255, 209)" };
+  const amarelo = { backgroundColor: "rgb(255, 255, 232)" };
   const linha = "flex items-center justify-between px-3 py-1";
   return (
     <div className="mt-auto pt-3">
       <div className="overflow-hidden rounded-lg border border-line text-[11.5px]">
         <div className={`${linha} bg-good-50`}>
-          <span className="font-semibold text-ink">Área Liberada (Ordem)</span>
-          <span className="font-bold tabular text-ink">{fmtHa(areaOrdemHa)}</span>
+          <span className="text-ink">Área Liberada (Ordem)</span>
+          <span className="tabular text-ink">{fmtHa(areaOrdemHa)}</span>
         </div>
         {safrasAnteriores.map((safra) => (
           <div key={safra} className={linha} style={amarelo}>
-            <span className="font-semibold text-ink">TCH Realizado Safra {safra}</span>
-            <span className="font-bold tabular text-ink">{real(safra) !== null ? fmtTch(real(safra)!) : "—"}</span>
+            <span className="text-ink">TCH Realizado Safra {safra}</span>
+            <span className="tabular text-ink">{real(safra) !== null ? fmtTch(real(safra)!) : ""}</span>
           </div>
         ))}
         <div className={linha} style={amarelo}>
-          <span className="font-semibold text-ink">TCH Estimado {safraAtual}</span>
-          <span className="font-bold tabular text-ink">{est !== null ? fmtTch(est) : "—"}</span>
+          <span className="text-ink">TCH Estimado {safraAtual}</span>
+          <span className="tabular text-ink">{est !== null ? fmtTch(est) : ""}</span>
         </div>
         {divergenciaPct !== undefined && (
           <div className={`${linha} bg-amber-50 text-amber-700`}>
-            <span className="font-semibold">⚠ TCH real (ton ÷ área medida) vs. estimado</span>
-            <span className="font-bold tabular">
+            <span>⚠ TCH real (ton ÷ área medida) vs. estimado</span>
+            <span className="tabular">
               {divergenciaPct >= 0 ? "▲" : "▼"} {Math.abs(divergenciaPct).toFixed(0)}%
             </span>
           </div>
         )}
         <div className={`${linha} bg-amber-50`}>
-          <span className="font-semibold text-ink">TCH Geral Realizado {safraAtual}</span>
+          <span className="text-ink">TCH Geral Realizado {safraAtual}</span>
           <span className="flex items-center gap-2">
             {variacao !== null && (
-              <span className={`text-[10.5px] font-bold ${variacao >= 0 ? "text-good-600" : "text-alert-600"}`}>
+              <span className={`text-[10.5px] ${variacao >= 0 ? "text-good-600" : "text-alert-600"}`}>
                 {variacao >= 0 ? "▲" : "▼"} {Math.abs(variacao).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%
               </span>
             )}
-            <span className="font-bold tabular text-ink">{fmtTch(tchGeralAtual)}</span>
+            <span className="tabular text-ink">{fmtTch(tchGeralAtual)}</span>
           </span>
         </div>
       </div>
