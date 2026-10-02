@@ -566,6 +566,28 @@ export async function salvarMeta(frente: string, metaDiaT: number, vigencia: str
   );
 }
 
+/** Edita uma meta já lançada (frente, valor e/ou data). Recusa se a nova
+ * combinação frente+data já existir em outra meta. */
+export async function atualizarMeta(
+  id: string,
+  frente: string,
+  metaDiaT: number,
+  vigencia: string
+): Promise<true | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows: existe } = await pool.query("SELECT 1 FROM met_frt WHERE id = $1", [id]);
+  if (existe.length === 0) return { erro: "Meta não encontrada." };
+  const { rows: conflito } = await pool.query("SELECT 1 FROM met_frt WHERE frt = $1 AND vig = $2 AND id <> $3", [
+    frente,
+    vigencia,
+    id,
+  ]);
+  if (conflito.length > 0) return { erro: "Já existe uma meta dessa frente nessa data. Edite aquela ou escolha outra data." };
+  await pool.query("UPDATE met_frt SET frt = $1, met_dia_t = $2, vig = $3 WHERE id = $4", [frente, metaDiaT, vigencia, id]);
+  return true;
+}
+
 export async function excluirMeta(id: string): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);

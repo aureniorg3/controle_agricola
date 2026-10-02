@@ -28,6 +28,7 @@ export default function MetasClient({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [filtroFrente, setFiltroFrente] = useState("todas");
+  const [editandoId, setEditandoId] = useState<string | null>(null);
 
   const todasFrentes = useMemo(
     () => Array.from(new Set([...frentes, ...metasIniciais.map((m) => m.frente)])).sort((a, b) => a.localeCompare(b)),
@@ -46,19 +47,36 @@ export default function MetasClient({
     setSalvando(true);
     try {
       const res = await fetch("/api/metas", {
-        method: "POST",
+        method: editandoId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ frente, metaDiaT: valor, vigencia }),
+        body: JSON.stringify({ id: editandoId ?? undefined, frente, metaDiaT: valor, vigencia }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Não foi possível salvar a meta.");
       setMeta("");
+      setEditandoId(null);
       router.refresh();
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível salvar a meta.");
     } finally {
       setSalvando(false);
     }
+  }
+
+  function editar(m: MetaFrente) {
+    setErro(null);
+    setEditandoId(m.id);
+    setFrente(m.frente);
+    setMeta(String(m.metaDiaT).replace(".", ","));
+    setVigencia(m.vigencia);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setMeta("");
+    setVigencia(todayISO());
+    setErro(null);
   }
 
   async function excluir(m: MetaFrente) {
@@ -112,7 +130,7 @@ export default function MetasClient({
       <div className="flex-1 overflow-y-auto px-6 py-5">
         {podeGravar && (
           <form onSubmit={salvar} className="mb-5 rounded-xl2 border border-line bg-card p-4 shadow-card">
-            <h2 className="mb-3 text-[14px] font-bold text-ink">Cadastrar meta</h2>
+            <h2 className="mb-3 text-[14px] font-bold text-ink">{editandoId ? "Editar meta" : "Cadastrar meta"}</h2>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-end">
               <Campo label="Frente">
                 <select value={frente} onChange={(e) => setFrente(e.target.value)} className={INPUT}>
@@ -136,19 +154,30 @@ export default function MetasClient({
               <Campo label="Data (vigência)">
                 <input type="date" value={vigencia} onChange={(e) => setVigencia(e.target.value)} className={INPUT} />
               </Campo>
-              <button
-                type="submit"
-                disabled={salvando || !frente}
-                className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
-              >
-                {salvando ? "Salvando…" : "Cadastrar"}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={salvando || !frente}
+                  className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
+                >
+                  {salvando ? "Salvando…" : editandoId ? "Salvar alteração" : "Cadastrar"}
+                </button>
+                {editandoId && (
+                  <button
+                    type="button"
+                    onClick={cancelarEdicao}
+                    className="rounded-lg border border-line bg-card px-4 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
             </div>
             {erro && <p className="mt-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
             <p className="mt-3 text-[12px] leading-relaxed text-muted">
               A meta é diária (toneladas por dia) e vale da data informada em diante, até uma nova meta da mesma frente.
               Os dias anteriores continuam com a meta antiga (e, antes da primeira meta, ficam sem meta). Cadastrar de
-              novo na mesma data substitui o valor. Semana, mês e safra somam a meta de cada dia.
+              novo na mesma data substitui o valor; use "Editar" na lista para corrigir uma meta já lançada. Semana, mês e safra somam a meta de cada dia.
             </p>
           </form>
         )}
@@ -186,7 +215,7 @@ export default function MetasClient({
                     <th className="px-3 py-2 font-semibold">Data</th>
                     <th className="px-3 py-2 text-right font-semibold">Meta (t/dia)</th>
                     <th className="px-3 py-2 font-semibold">Status</th>
-                    <th className="w-10 px-2 py-2 font-semibold">Ações</th>
+                    <th className="w-24 px-2 py-2 text-right font-semibold">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -211,6 +240,16 @@ export default function MetasClient({
                           {sit === "anterior" && <span className="text-[11px] text-muted">Substituída</span>}
                         </td>
                         <td className="px-2 py-1.5 text-right">
+                          {podeGravar && (
+                            <button
+                              type="button"
+                              onClick={() => editar(m)}
+                              aria-label="Editar meta"
+                              className="mr-1 rounded px-1.5 py-0.5 text-[12px] font-semibold text-brand-700 hover:bg-brand-50"
+                            >
+                              Editar
+                            </button>
+                          )}
                           {podeGravar && (
                             <button
                               type="button"
