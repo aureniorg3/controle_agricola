@@ -1,3 +1,5 @@
+import { IconUsina } from "./icons";
+
 export default function PlaceholderPage({
   categoria,
   titulo,
@@ -18,14 +20,7 @@ export default function PlaceholderPage({
       <div className="flex flex-1 items-center justify-center px-6">
         <div className="max-w-md rounded-xl2 border border-dashed border-line bg-card px-8 py-12 text-center shadow-card">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-700">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 3l9 4.5v9L12 21l-9-4.5v-9L12 3z"
-                stroke="currentColor"
-                strokeWidth="1.6"
-              />
-              <path d="M12 12v6M12 12L4.5 8M12 12l7.5-4" stroke="currentColor" strokeWidth="1.6" />
-            </svg>
+            <IconUsina size={22} />
           </div>
           <h1 className="text-[16px] font-bold text-ink">{titulo}</h1>
           <p className="mt-2 text-[13px] leading-relaxed text-muted">{descricao}</p>

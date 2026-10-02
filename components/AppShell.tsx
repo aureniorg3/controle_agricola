@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { IconMenu } from "./icons";
 import Sidebar from "./Sidebar";
 
 interface UsuarioLogado {
@@ -43,9 +44,7 @@ export default function AppShell({ usuario, children }: { usuario?: UsuarioLogad
             className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-ink hover:bg-surface"
             aria-label="Abrir menu"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
+            <IconMenu size={20} />
           </button>
           <img src="/logo-crv-azul.png" alt="CRV Industrial" className="h-6 w-auto" />
         </div>

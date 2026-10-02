@@ -24,6 +24,20 @@ import {
 import { fmtDateBR, fmtHa, fmtT, fmtTch, todayISO } from "@/lib/format";
 import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
 import { Campo, ModalShell } from "@/components/ui";
+import {
+  IconCaminhaoCana,
+  IconColhedora,
+  IconFechar,
+  IconImportar,
+  IconImprimir,
+  IconMeta,
+  IconOrdemCorte,
+  IconOrdemEncerrada,
+  IconRelogio,
+  IconSetaDireita,
+  IconTalhao,
+  IconTch,
+} from "@/components/icons";
 import { podeEditar } from "@/lib/permissoes";
 
 const PERIODOS: { key: Periodo; label: string }[] = [
@@ -586,15 +600,7 @@ export default function OrdensCorteClient({
           disabled={gerandoPdf || resumoFrentes.length === 0}
           className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M6 9V4h12v5M6 18h12v-6H6v6ZM6 14H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-2"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <IconImprimir size={15} />
           {gerandoPdf ? "Gerando…" : "Imprimir / PDF"}
         </button>
         {podeGravar && (
@@ -603,15 +609,7 @@ export default function OrdensCorteClient({
             onClick={() => setImportarAberto(true)}
             className="flex items-center gap-1.5 rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 15V4M12 4l-4 4M12 4l4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <IconImportar size={15} />
             Importar planilhas
           </button>
         )}
@@ -720,39 +718,39 @@ export default function OrdensCorteClient({
 
         {/* KPIs */}
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-flow-col lg:grid-cols-4 lg:grid-rows-2">
-          <KpiCard tone="green" icon={<IconClipboard />} label="Ordens abertas" value={kpisTopo.abertas.toString()} sub="Ordens selecionadas" />
-          <KpiCard tone="amber" icon={<IconCheckCircle />} label="Ordens encerradas" value={kpisTopo.encerradas.toString()} sub="Ordens selecionadas" />
+          <KpiCard tone="green" icon={<IconOrdemCorte size={22} />} label="Ordens abertas" value={kpisTopo.abertas.toString()} sub="Ordens selecionadas" />
+          <KpiCard tone="amber" icon={<IconOrdemEncerrada size={22} />} label="Ordens encerradas" value={kpisTopo.encerradas.toString()} sub="Ordens selecionadas" />
           <KpiCard
             tone="blue"
-            icon={<IconTrator />}
+            icon={<IconTalhao size={22} />}
             label="Área aberta"
             value={`${fmtHa(kpisTopo.areaSelecionadaHa)} ha`}
             sub={`Ordens selecionadas · encerradas: ${fmtHa(kpisTopo.areaEncerradaHa)} ha`}
           />
           <KpiCard
             tone="blue"
-            icon={<IconTrator />}
+            icon={<IconColhedora size={22} />}
             label="Área colhida"
             value={`${fmtHa(kpisTopo.areaColhidaHa)} ha`}
             sub="Pela medição apontada"
           />
           <KpiCard
             tone="blue"
-            icon={<IconFolha />}
+            icon={<IconCaminhaoCana size={22} />}
             label="Produção dia anterior"
             value={`${fmtT(kpisTopo.prodDiaAnteriorT)} t`}
             sub={`Entrada de ${fmtDateBR(addDays(referencia, -1))}`}
           />
           <KpiCard
             tone="blue"
-            icon={<IconFolha />}
+            icon={<IconRelogio size={22} />}
             label="Produção dia atual até 06:00"
             value={`${fmtT(kpisTopo.prodDiaAtualAte6hT)} t`}
             sub={`Entrada de ${fmtDateBR(referencia)} até 06h`}
           />
           <KpiCard
             tone="amber"
-            icon={<IconChart />}
+            icon={<IconMeta size={22} />}
             label="TCH estimado"
             value={kpisTopo.tchEstimado !== null ? fmtTch(kpisTopo.tchEstimado) : "—"}
             sub={
@@ -763,7 +761,7 @@ export default function OrdensCorteClient({
           />
           <KpiCard
             tone="red"
-            icon={<IconChart />}
+            icon={<IconTch size={22} />}
             label="TCH médio realizado"
             value={kpisTopo.tchRealizado !== null ? fmtTch(kpisTopo.tchRealizado) : "—"}
             sub="Ton entregue ÷ área medida lançada"
@@ -937,15 +935,7 @@ export default function OrdensCorteClient({
                 onClick={() => toggleColapso(frente)}
                 className="mb-2.5 flex w-full items-center gap-2.5 rounded-lg bg-navy-900 px-4 py-2 text-left text-white"
               >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  className={`flex-shrink-0 transition-transform ${aberto ? "rotate-90" : ""}`}
-                >
-                  <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <IconSetaDireita size={13} className={`flex-shrink-0 transition-transform ${aberto ? "rotate-90" : ""}`} />
                 <span className="text-[13.5px] font-bold tracking-wide">{frente}</span>
                 <span className="text-[12px] font-medium text-brand-200">{lista.length} ordem(ns)</span>
                 <span className="ml-auto text-[12.5px] font-semibold text-white/90">
@@ -1113,53 +1103,6 @@ function KpiCard({
   );
 }
 
-function IconFolha() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <path d="M5 19c8 0 14-6 14-14-8 0-14 6-14 14Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M5 19c0-5 3-9 7-11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconClipboard() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <rect x="5" y="4" width="14" height="17" rx="2" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M8 10h8M8 14h8M8 18h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconCheckCircle() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M8 12.5l2.5 2.5L16 9.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconTrator() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <path d="M3 7h11v9H3V7Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M14 10h4l3 3v3h-7v-6Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <circle cx="7" cy="18" r="1.6" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="17" cy="18" r="1.6" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function IconChart() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 /** Selo de produtividade por faixa de TCH — faixas provisórias (precisam ser
  * validadas com a operação); fácil de ajustar depois num só lugar. */
 function TchBadge({ tch }: { tch: number }) {
@@ -1288,9 +1231,7 @@ function OrdemCard({
                 title="Remover da tela"
                 className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-muted hover:bg-alert-50 hover:text-alert-600"
               >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-                </svg>
+                <IconFechar size={11} />
               </button>
             )}
           </div>

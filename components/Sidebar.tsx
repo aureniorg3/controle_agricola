@@ -2,6 +2,30 @@
 
 import Link from "next/link";
 import { CADASTROS } from "@/lib/cadastros";
+import {
+  IconAcompanhamentos,
+  IconAlerta,
+  IconAtividades,
+  IconBalanca,
+  IconBusca,
+  IconCaminhaoCana,
+  IconCana,
+  IconColhedora,
+  IconConfig,
+  IconEquipe,
+  IconHistorico,
+  IconInsumo,
+  IconMapa,
+  IconMeta,
+  IconOrdemCorte,
+  IconOrdemServico,
+  IconPainel,
+  IconSair,
+  IconSetaBaixo,
+  IconSetaDireita,
+  IconSetaEsquerda,
+  type IconProps,
+} from "@/components/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -16,7 +40,7 @@ interface Item {
   /** grupos podem ter href (a própria tela do grupo) e/ou filhos. */
   href?: string;
   badge?: number;
-  icon?: () => ReactNode;
+  icon?: (p: IconProps) => ReactNode;
   children?: Item[];
 }
 interface Section {
@@ -24,123 +48,7 @@ interface Section {
   items: Item[];
 }
 
-function IconHome() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M4 11.5 12 4l8 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M6 10v9a1 1 0 0 0 1 1h3v-5h4v5h3a1 1 0 0 0 1-1v-9" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function IconChart() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function IconLeaf() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M5 19c8 0 14-6 14-14-8 0-14 6-14 14Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M5 19c0-5 3-9 7-11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IconFlask() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M9 3h6M10 3v6l-5.5 9a1.5 1.5 0 0 0 1.3 2.3h12.4a1.5 1.5 0 0 0 1.3-2.3L14 9V3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M7 15h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IconWrench() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 1 5.4-5.4L15 12l-3-3 2.7-2.7Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-function IconUsers() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <circle cx="9" cy="8" r="3" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <circle cx="17" cy="9" r="2.4" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M15.5 14.2c2.6.4 4.5 2.6 4.5 5.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IconAlertTriangle() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M12 4 2.5 20h19L12 4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M12 10v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <circle cx="12" cy="17" r="0.9" fill="currentColor" />
-    </svg>
-  );
-}
-function IconClipboard() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect x="5" y="4" width="14" height="17" rx="2" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M8 10h8M8 14h8M8 18h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IconMap() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="m9 4-5 2v14l5-2 6 2 5-2V4l-5 2-6-2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M9 4v14M15 6v14" stroke="currentColor" strokeWidth="1.8" />
-    </svg>
-  );
-}
-function IconSettings() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M19.4 13.5a7.7 7.7 0 0 0 0-3l1.8-1.4-2-3.4-2.1.7a7.6 7.6 0 0 0-2.6-1.5L14.1 2.5h-4l-.4 2.4a7.6 7.6 0 0 0-2.6 1.5l-2.1-.7-2 3.4L4.6 10.5a7.7 7.7 0 0 0 0 3L2.8 15l2 3.4 2.1-.7c.76.66 1.64 1.17 2.6 1.5l.4 2.4h4l.4-2.4a7.6 7.6 0 0 0 2.6-1.5l2.1.7 2-3.4-1.8-1.5Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-function IconSearch() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-      <path d="m21 21-4.3-4.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IconChevronDown() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-      <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function IconChevronRight() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-      <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-const ITEM_INICIO: Item = { label: "Início / Dashboard", href: "/painel", icon: IconHome };
+const ITEM_INICIO: Item = { label: "Início / Dashboard", href: "/painel", icon: IconPainel };
 
 const SECTIONS: Section[] = [
   {
@@ -148,34 +56,34 @@ const SECTIONS: Section[] = [
     items: [
       {
         label: "Acompanhamentos",
-        icon: IconChart,
+        icon: IconAcompanhamentos,
         children: [
           {
             label: "Colheita",
             href: "/acompanhamentos/colheita",
-            icon: IconLeaf,
+            icon: IconCana,
             children: [
-              { label: "Ordens de Corte", href: "/acompanhamentos/ordens-de-corte" },
-              { label: "Metas", href: "/acompanhamentos/colheita/metas" },
-              { label: "Histórico de Safras", href: "/acompanhamentos/colheita/historico-safras" },
-              { label: "Conferência de Pesagem", href: "/acompanhamentos/colheita/conferencia-pesagem" },
-              { label: "Equipto Frente", href: "/acompanhamentos/colheita/equipto-frente" },
+              { label: "Ordens de Corte", href: "/acompanhamentos/ordens-de-corte", icon: IconOrdemCorte },
+              { label: "Metas", href: "/acompanhamentos/colheita/metas", icon: IconMeta },
+              { label: "Histórico de Safras", href: "/acompanhamentos/colheita/historico-safras", icon: IconHistorico },
+              { label: "Conferência de Pesagem", href: "/acompanhamentos/colheita/conferencia-pesagem", icon: IconBalanca },
+              { label: "Equipto Frente", href: "/acompanhamentos/colheita/equipto-frente", icon: IconColhedora },
             ],
           },
         ],
       },
-      { label: "Insumos", href: "/acompanhamentos/insumos", icon: IconFlask },
-      { label: "Ordem de Serviço Agr.", href: "/acompanhamentos/os-agricola", icon: IconWrench },
-      { label: "Colheita Terceiro", href: "/acompanhamentos/colheita-terceiro", icon: IconUsers },
-      { label: "Painel de ocorrências", href: "/contencioso", icon: IconAlertTriangle },
+      { label: "Insumos", href: "/acompanhamentos/insumos", icon: IconInsumo },
+      { label: "Ordem de Serviço Agr.", href: "/acompanhamentos/os-agricola", icon: IconOrdemServico },
+      { label: "Colheita Terceiro", href: "/acompanhamentos/colheita-terceiro", icon: IconCaminhaoCana },
+      { label: "Painel de ocorrências", href: "/contencioso", icon: IconAlerta },
     ],
   },
   {
     title: "Planejamento Agrícola",
     items: [
-      { label: "Cadastro de Atividades", href: "/planejamento/cadastro-atividades", icon: IconClipboard },
-      { label: "Fazendas e Talhões", href: "/agricultura/fazendas", icon: IconMap },
-      { label: "Frentes e Equipes", href: "/agricultura/frentes", icon: IconUsers },
+      { label: "Cadastro de Atividades", href: "/planejamento/cadastro-atividades", icon: IconAtividades },
+      { label: "Fazendas e Talhões", href: "/agricultura/fazendas", icon: IconMapa },
+      { label: "Frentes e Equipes", href: "/agricultura/frentes", icon: IconEquipe },
     ],
   },
   {
@@ -183,7 +91,7 @@ const SECTIONS: Section[] = [
     items: [
       {
         label: "Cadastros",
-        icon: IconSettings,
+        icon: IconConfig,
         children: CADASTROS.map((c) => ({ label: c.label, href: `/configuracoes/cadastros/${c.slug}` })),
       },
     ],
@@ -300,7 +208,7 @@ export default function Sidebar({
         {ativo && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-600" />}
         {Icon && (
           <span className={`flex-shrink-0 ${ativo ? "text-brand-600" : "text-slate-400"}`}>
-            <Icon />
+            <Icon size={depth >= 2 ? 15 : 18} />
           </span>
         )}
         <span className="truncate">{item.label}</span>
@@ -338,7 +246,7 @@ export default function Sidebar({
               aria-expanded={aberto}
               className="flex h-8 w-6 flex-shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-white/8 hover:text-white"
             >
-              {aberto ? <IconChevronDown /> : <IconChevronRight />}
+              {aberto ? <IconSetaBaixo size={14} /> : <IconSetaDireita size={14} />}
             </button>
           )}
         </div>
@@ -372,22 +280,14 @@ export default function Sidebar({
             }`}
             aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path
-                d={collapsed ? "M9 6l6 6-6 6" : "M15 6l-6 6 6 6"}
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            {collapsed ? <IconSetaDireita size={14} /> : <IconSetaEsquerda size={14} />}
           </button>
         </div>
 
         {!collapsed && (
           <label className="relative mt-3 block">
             <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500">
-              <IconSearch />
+              <IconBusca size={15} />
             </span>
             <input
               ref={buscaRef}
@@ -419,7 +319,7 @@ export default function Sidebar({
               } ${collapsed ? "justify-center" : ""}`}
             >
               <span className={`flex-shrink-0 ${inicioAtivo ? "text-brand-600" : "text-white"}`}>
-                <IconHome />
+                <IconPainel />
               </span>
               {!collapsed && <span className="truncate">{ITEM_INICIO.label}</span>}
             </Link>
@@ -461,7 +361,7 @@ export default function Sidebar({
                 </div>
               </div>
               <span className="flex-shrink-0 text-slate-500">
-                <IconChevronRight />
+                <IconSetaDireita size={14} />
               </span>
             </>
           )}
@@ -476,15 +376,7 @@ export default function Sidebar({
               collapsed ? "justify-center" : ""
             }`}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="flex-shrink-0">
-              <path
-                d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <IconSair size={15} className="flex-shrink-0" />
             {!collapsed && <span>{saindo ? "Saindo…" : "Sair do sistema"}</span>}
           </button>
         )}

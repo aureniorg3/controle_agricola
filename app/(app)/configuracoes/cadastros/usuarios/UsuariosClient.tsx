@@ -1,5 +1,6 @@
 "use client";
 
+import { IconMais } from "@/components/icons";
 import { useState } from "react";
 import { PerfilUsuario, UsuarioPublico } from "@/lib/types";
 import { PERFIL_DESCRICAO, PERFIL_LABEL } from "@/lib/permissoes";
@@ -80,9 +81,7 @@ export default function UsuariosClient({
           onClick={() => setNovoAberto(true)}
           className="flex items-center gap-1.5 rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-          </svg>
+          <IconMais size={15} />
           Novo usuário
         </button>
       </header>

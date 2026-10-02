@@ -1,5 +1,6 @@
 "use client";
 
+import { IconOlho, IconOlhoOculto } from "./icons";
 import { useState, type InputHTMLAttributes, type ReactNode } from "react";
 
 export function Campo({ label, children }: { label: string; children: ReactNode }) {
@@ -57,27 +58,7 @@ export function InputSenha({
         aria-label={visivel ? "Ocultar senha" : "Mostrar senha"}
         className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted hover:text-ink"
       >
-        {visivel ? (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.5 5.2A10.4 10.4 0 0112 5c5 0 9 4 10 7-.4 1.2-1.3 2.6-2.6 3.9M6.6 6.6C4.4 8 2.9 9.9 2 12c1 3 5 7 10 7 1.3 0 2.5-.3 3.6-.7"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ) : (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
-            <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
-          </svg>
-        )}
+        {visivel ? <IconOlhoOculto size={16} /> : <IconOlho size={16} />}
       </button>
     </div>
   );
