@@ -141,4 +141,64 @@ export interface OrdemConferencia {
   fazendas: { codigo: string; nome: string }[];
 }
 
+/** Uma linha (talhão) do relatório "Rendimentos e Estimativas de Talhões" de uma safra. */
+export interface SafraTalhao {
+  safra: number;
+  /** ordem da linha dentro do mesmo fazenda+talhão (um talhão pode repetir com áreas parciais) */
+  seq: number;
+  fazendaCodigo: string;
+  fazendaNome: string;
+  proprietarioCodigo: string;
+  proprietarioNome: string;
+  municipio: string;
+  uf: string;
+  talhao: string;
+  km: number;
+  variedadeCodigo: string;
+  variedadeNome: string;
+  dtColheitaAnt: string | null;
+  dtColheita: string | null;
+  dtPlantio: string | null;
+  corte: number;
+  areaTot: number;
+  areaPlant: number;
+  areaColh: number;
+  mtLinear: number;
+  espac: number;
+  prodAnt: number;
+  tchAnt: number;
+  prodEst: number;
+  /** TCH estimado (coluna Q do relatório — o cabeçalho "Kg/Ha" do arquivo é t/ha) */
+  tchEst: number;
+  prodAtual: number;
+  /** TCH realizado (coluna S do relatório) */
+  tchReal: number;
+  resultado: number;
+  pct: number;
+  ce: string;
+}
+
+/** Agregado de uma safra (ou de uma safra dentro de um grupo: fazenda, município…). */
+export interface SafraAgregado {
+  safra: number;
+  chave: string;
+  areaTot: number;
+  /** área só das linhas já colhidas (com produção) — base do TCH realizado */
+  areaColhida: number;
+  producaoT: number;
+  producaoEstT: number;
+  /** produção real / área colhida */
+  tchReal: number | null;
+  /** produção estimada / área total */
+  tchEst: number | null;
+}
+
+/** TCH por ordem de corte e safra (cruzando fazenda + talhão da ordem com o histórico). */
+export interface HistoricoTchOrdem {
+  safraAtual: number;
+  /** as duas safras anteriores mais recentes importadas (mais nova primeiro) */
+  safrasAnteriores: number[];
+  porOrdem: Record<string, { safra: number; tchReal: number | null; tchEst: number | null }[]>;
+}
+
 export type Periodo = "dia" | "semana" | "mes" | "safra";

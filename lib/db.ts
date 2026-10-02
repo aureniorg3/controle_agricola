@@ -9,7 +9,10 @@ import {
   EquiptoFrente,
   MetaFrente,
   OrdemConferencia,
+  HistoricoTchOrdem,
   OrdemCorte,
+  SafraAgregado,
+  SafraTalhao,
   TalhaoOrdem,
   Usuario,
 } from "./types";
@@ -293,6 +296,26 @@ function prepararBanco(pool: Pool): Promise<void> {
            UNIQUE (eqp, vig)
          )`
       );
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS saf_tlh (
+           saf integer NOT NULL, seq integer NOT NULL,
+           faz_cod text NOT NULL, faz_nm text NOT NULL DEFAULT '',
+           prp_cod text NOT NULL DEFAULT '', prp_nm text NOT NULL DEFAULT '',
+           mun text NOT NULL DEFAULT '', uf text NOT NULL DEFAULT '',
+           tlh text NOT NULL, km numeric NOT NULL DEFAULT 0,
+           var_cod text NOT NULL DEFAULT '', var_nm text NOT NULL DEFAULT '',
+           dt_col_ant date, dt_col date, dt_plt date,
+           cor integer NOT NULL DEFAULT 0,
+           area_tot numeric NOT NULL DEFAULT 0, area_plt numeric NOT NULL DEFAULT 0, area_col numeric NOT NULL DEFAULT 0,
+           mt_lin numeric NOT NULL DEFAULT 0, esp numeric NOT NULL DEFAULT 0,
+           prod_ant numeric NOT NULL DEFAULT 0, tch_ant numeric NOT NULL DEFAULT 0,
+           prod_est numeric NOT NULL DEFAULT 0, tch_est numeric NOT NULL DEFAULT 0,
+           prod_atu numeric NOT NULL DEFAULT 0, tch_real numeric NOT NULL DEFAULT 0,
+           res numeric NOT NULL DEFAULT 0, pct numeric NOT NULL DEFAULT 0, ce text NOT NULL DEFAULT '',
+           PRIMARY KEY (saf, faz_cod, tlh, seq)
+         )`
+      );
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_saf_tlh_faz ON saf_tlh(faz_cod, tlh)");
       if (count === 0) {
         const admin = buildAdminPadrao();
         await pool.query(
@@ -804,6 +827,224 @@ export async function excluirEquiptoFrente(id: string): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
   await pool.query("DELETE FROM eqp_frt WHERE id = $1", [id]);
+}
+
+// ---------------------------------------------------------------------------
+// Histórico de safras
+// ---------------------------------------------------------------------------
+
+/** Substitui TODAS as linhas de uma safra pelas do arquivo importado. */
+export async function substituirSafra(safra: number, linhas: SafraTalhao[]): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM saf_tlh WHERE saf = $1", [safra]);
+    const registros = linhas.map((l) => ({
+      saf: safra,
+      seq: l.seq,
+      faz_cod: l.fazendaCodigo,
+      faz_nm: l.fazendaNome,
+      prp_cod: l.proprietarioCodigo,
+      prp_nm: l.proprietarioNome,
+      mun: l.municipio,
+      uf: l.uf,
+      tlh: l.talhao,
+      km: l.km,
+      var_cod: l.variedadeCodigo,
+      var_nm: l.variedadeNome,
+      dt_col_ant: l.dtColheitaAnt,
+      dt_col: l.dtColheita,
+      dt_plt: l.dtPlantio,
+      cor: Math.round(l.corte),
+      area_tot: l.areaTot,
+      area_plt: l.areaPlant,
+      area_col: l.areaColh,
+      mt_lin: l.mtLinear,
+      esp: l.espac,
+      prod_ant: l.prodAnt,
+      tch_ant: l.tchAnt,
+      prod_est: l.prodEst,
+      tch_est: l.tchEst,
+      prod_atu: l.prodAtual,
+      tch_real: l.tchReal,
+      res: l.resultado,
+      pct: l.pct,
+      ce: l.ce,
+    }));
+    // em lotes, para não estourar o tamanho de um único parâmetro
+    for (let i = 0; i < registros.length; i += 1000) {
+      await client.query(
+        `INSERT INTO saf_tlh
+           SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(
+             saf integer, seq integer, faz_cod text, faz_nm text, prp_cod text, prp_nm text, mun text, uf text,
+             tlh text, km numeric, var_cod text, var_nm text, dt_col_ant date, dt_col date, dt_plt date,
+             cor integer, area_tot numeric, area_plt numeric, area_col numeric, mt_lin numeric, esp numeric,
+             prod_ant numeric, tch_ant numeric, prod_est numeric, tch_est numeric, prod_atu numeric,
+             tch_real numeric, res numeric, pct numeric, ce text)`,
+        [JSON.stringify(registros.slice(i, i + 1000))]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function excluirSafra(safra: number): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  await pool.query("DELETE FROM saf_tlh WHERE saf = $1", [safra]);
+}
+
+export type DimensaoSafra = "fazenda" | "proprietario" | "municipio" | "variedade" | "corte";
+
+const EXPR_DIMENSAO: Record<DimensaoSafra | "safra", string> = {
+  safra: "'Total'",
+  fazenda: "faz_cod || ' - ' || faz_nm",
+  proprietario: "prp_nm",
+  municipio: "mun",
+  variedade: "var_nm",
+  corte: "cor::text",
+};
+
+/** Agregados por safra (e opcionalmente por fazenda, proprietário, município,
+ * variedade ou corte). TCH real = produção ÷ área, só das linhas já colhidas
+ * (com produção); TCH estimado = produção estimada ÷ área total. */
+export async function agregarSafras(dimensao: DimensaoSafra | "safra"): Promise<SafraAgregado[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const expr = EXPR_DIMENSAO[dimensao];
+  const { rows } = await pool.query<{
+    saf: number;
+    chave: string;
+    area_tot: number;
+    area_col: number;
+    prod: number;
+    prod_est: number;
+  }>(
+    `SELECT saf, ${expr} AS chave,
+            SUM(area_tot) AS area_tot,
+            COALESCE(SUM(area_col) FILTER (WHERE prod_atu > 0), 0) AS area_col,
+            COALESCE(SUM(prod_atu) FILTER (WHERE prod_atu > 0), 0) AS prod,
+            SUM(prod_est) AS prod_est
+       FROM saf_tlh GROUP BY saf, ${expr} ORDER BY saf, chave`
+  );
+  return rows.map((r) => ({
+    safra: r.saf,
+    chave: r.chave,
+    areaTot: r.area_tot,
+    areaColhida: r.area_col,
+    producaoT: r.prod,
+    producaoEstT: r.prod_est,
+    tchReal: r.area_col > 0 ? r.prod / r.area_col : null,
+    tchEst: r.area_tot > 0 && r.prod_est > 0 ? r.prod_est / r.area_tot : null,
+  }));
+}
+
+/** Base consolidada: uma linha por safra + fazenda, com proprietário e município. */
+export interface BaseSafraFazenda {
+  safra: number;
+  fazendaCodigo: string;
+  fazendaNome: string;
+  proprietario: string;
+  municipio: string;
+  uf: string;
+  talhoes: number;
+  areaTot: number;
+  areaColhida: number;
+  producaoT: number;
+  tchReal: number | null;
+  tchEst: number | null;
+}
+
+export async function baseSafraFazenda(): Promise<BaseSafraFazenda[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{
+    saf: number;
+    faz_cod: string;
+    faz_nm: string;
+    prp: string;
+    mun: string;
+    uf: string;
+    talhoes: number;
+    area_tot: number;
+    area_col: number;
+    prod: number;
+    prod_est: number;
+  }>(
+    `SELECT saf, faz_cod, MAX(faz_nm) AS faz_nm, MAX(prp_nm) AS prp, MAX(mun) AS mun, MAX(uf) AS uf,
+            COUNT(DISTINCT tlh)::int AS talhoes,
+            SUM(area_tot) AS area_tot,
+            COALESCE(SUM(area_col) FILTER (WHERE prod_atu > 0), 0) AS area_col,
+            COALESCE(SUM(prod_atu) FILTER (WHERE prod_atu > 0), 0) AS prod,
+            SUM(prod_est) AS prod_est
+       FROM saf_tlh GROUP BY saf, faz_cod ORDER BY saf DESC, faz_cod`
+  );
+  return rows.map((r) => ({
+    safra: r.saf,
+    fazendaCodigo: r.faz_cod,
+    fazendaNome: r.faz_nm,
+    proprietario: r.prp,
+    municipio: r.mun,
+    uf: r.uf,
+    talhoes: r.talhoes,
+    areaTot: r.area_tot,
+    areaColhida: r.area_col,
+    producaoT: r.prod,
+    tchReal: r.area_col > 0 ? r.prod / r.area_col : null,
+    tchEst: r.area_tot > 0 && r.prod_est > 0 ? r.prod_est / r.area_tot : null,
+  }));
+}
+
+/**
+ * Para o card de cada ordem de corte: TCH realizado das duas safras anteriores
+ * mais recentes e TCH estimado da safra atual, cruzando os talhões da ordem
+ * (fazenda + talhão) com o histórico importado.
+ */
+export async function historicoTchPorOrdem(safraAtual: number): Promise<HistoricoTchOrdem> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows: ant } = await pool.query<{ saf: number }>(
+    "SELECT DISTINCT saf FROM saf_tlh WHERE saf < $1 ORDER BY saf DESC LIMIT 2",
+    [safraAtual]
+  );
+  const safrasAnteriores = ant.map((r) => r.saf);
+  const safras = [safraAtual, ...safrasAnteriores];
+  // TCH de cada talhão na safra (todas as linhas parciais do talhão juntas) e,
+  // por ordem, a média ponderada pela ÁREA DO TALHÃO NA ORDEM — o mesmo talhão
+  // pode estar em duas ordens com áreas diferentes.
+  const { rows } = await pool.query<{
+    ord_num: string;
+    saf: number;
+    tch_real: number | null;
+    tch_est: number | null;
+  }>(
+    `WITH t_saf AS (
+       SELECT saf, faz_cod, tlh,
+              SUM(prod_atu) FILTER (WHERE prod_atu > 0)
+                / NULLIF(SUM(area_col) FILTER (WHERE prod_atu > 0), 0) AS tch_real,
+              SUM(prod_est) FILTER (WHERE prod_est > 0)
+                / NULLIF(SUM(area_tot) FILTER (WHERE prod_est > 0), 0) AS tch_est
+         FROM saf_tlh WHERE saf = ANY($1::int[]) GROUP BY saf, faz_cod, tlh
+     )
+     SELECT t.ord_num, s.saf,
+            SUM(s.tch_real * t.area_ha) / NULLIF(SUM(t.area_ha) FILTER (WHERE s.tch_real IS NOT NULL), 0) AS tch_real,
+            SUM(s.tch_est * t.area_ha) / NULLIF(SUM(t.area_ha) FILTER (WHERE s.tch_est IS NOT NULL), 0) AS tch_est
+       FROM tlh t JOIN t_saf s ON s.faz_cod = t.faz_cod AND s.tlh = t.tlh
+      GROUP BY t.ord_num, s.saf`,
+    [safras]
+  );
+  const porOrdem: HistoricoTchOrdem["porOrdem"] = {};
+  for (const r of rows) {
+    (porOrdem[r.ord_num] ??= []).push({ safra: r.saf, tchReal: r.tch_real, tchEst: r.tch_est });
+  }
+  return { safraAtual, safrasAnteriores, porOrdem };
 }
 
 export type LancamentoAreaColhida =

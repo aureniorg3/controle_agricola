@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
-import { MetaFrente, OrdemCorte, PerfilUsuario, Periodo, StatusOrdem, TalhaoOrdem } from "@/lib/types";
+import { HistoricoTchOrdem, MetaFrente, OrdemCorte, PerfilUsuario, Periodo, StatusOrdem, TalhaoOrdem } from "@/lib/types";
 import {
   addDays,
   calcAreaColhidaHa,
@@ -82,6 +82,63 @@ function MetaLinha({ real, meta }: { real: number; meta: number }) {
   );
 }
 
+/** Rodapé do card: TCH realizado das duas safras anteriores e TCH estimado da
+ * safra atual (do histórico importado, cruzando fazenda + talhão da ordem),
+ * comparados com o TCH geral realizado agora. */
+function TchComparativo({
+  areaOrdemHa,
+  tchGeralAtual,
+  safraAtual,
+  safrasAnteriores,
+  historico,
+}: {
+  areaOrdemHa: number;
+  tchGeralAtual: number;
+  safraAtual: number;
+  safrasAnteriores: number[];
+  historico?: HistoricoTchOrdem["porOrdem"][string];
+}) {
+  if (safrasAnteriores.length === 0 && !historico) return null;
+  const real = (safra: number) => historico?.find((h) => h.safra === safra)?.tchReal ?? null;
+  const est = historico?.find((h) => h.safra === safraAtual)?.tchEst ?? null;
+  const anterior = safrasAnteriores.length > 0 ? real(safrasAnteriores[0]) : null;
+  const variacao = anterior && anterior > 0 && tchGeralAtual > 0 ? ((tchGeralAtual - anterior) / anterior) * 100 : null;
+
+  const amarelo = { backgroundColor: "rgb(255, 255, 209)" };
+  const linha = "flex items-center justify-between px-3 py-1";
+  return (
+    <div className="mt-auto pt-3">
+      <div className="overflow-hidden rounded-lg border border-line text-[11.5px]">
+        <div className={`${linha} bg-good-50`}>
+          <span className="font-semibold text-ink">Área Liberada (Ordem)</span>
+          <span className="font-bold tabular text-ink">{fmtHa(areaOrdemHa)}</span>
+        </div>
+        {safrasAnteriores.map((safra) => (
+          <div key={safra} className={linha} style={amarelo}>
+            <span className="font-semibold text-ink">TCH Realizado Safra {safra}</span>
+            <span className="font-bold tabular text-ink">{real(safra) !== null ? fmtTch(real(safra)!) : "—"}</span>
+          </div>
+        ))}
+        <div className={linha} style={amarelo}>
+          <span className="font-semibold text-ink">TCH Estimado {safraAtual}</span>
+          <span className="font-bold tabular text-ink">{est !== null ? fmtTch(est) : "—"}</span>
+        </div>
+        <div className={`${linha} bg-amber-50`}>
+          <span className="font-semibold text-ink">TCH Geral Realizado {safraAtual}</span>
+          <span className="flex items-center gap-2">
+            {variacao !== null && (
+              <span className={`text-[10.5px] font-bold ${variacao >= 0 ? "text-good-600" : "text-alert-600"}`}>
+                {variacao >= 0 ? "▲" : "▼"} {Math.abs(variacao).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%
+              </span>
+            )}
+            <span className="font-bold tabular text-ink">{fmtTch(tchGeralAtual)}</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function periodoTexto(period: Periodo, referencia: string, safraLabel: string): string {
   if (period === "dia") return `Dia ${fmtDateBR(referencia)}`;
   if (period === "semana")
@@ -97,12 +154,14 @@ export default function OrdensCorteClient({
   initialOrdens,
   initialOrdensVisiveis,
   metas,
+  historicoTch,
   perfil,
   nomeUsuario,
 }: {
   initialOrdens: OrdemCorte[];
   initialOrdensVisiveis: string[];
   metas: MetaFrente[];
+  historicoTch: HistoricoTchOrdem;
   perfil: PerfilUsuario;
   nomeUsuario: string;
 }) {
@@ -756,6 +815,9 @@ export default function OrdensCorteClient({
                       ordem={ordem}
                       period={period}
                       referencia={referencia}
+                      historico={historicoTch.porOrdem[ordem.numero]}
+                      safraAtual={historicoTch.safraAtual}
+                      safrasAnteriores={historicoTch.safrasAnteriores}
                       onRemover={podeGravar ? () => removerOrdem(ordem.numero) : undefined}
                       onLancarAreaColhida={podeGravar ? () => setAreaColhidaAlvo(ordem) : undefined}
                     />
@@ -1025,12 +1087,18 @@ function OrdemCard({
   ordem,
   period,
   referencia,
+  historico,
+  safraAtual,
+  safrasAnteriores,
   onRemover,
   onLancarAreaColhida,
 }: {
   ordem: OrdemCorte;
   period: Periodo;
   referencia: string;
+  historico?: HistoricoTchOrdem["porOrdem"][string];
+  safraAtual: number;
+  safrasAnteriores: number[];
   onRemover?: () => void;
   onLancarAreaColhida?: () => void;
 }) {
@@ -1087,7 +1155,7 @@ function OrdemCard({
 
         <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[1.3fr_1fr]">
           {/* Talhões */}
-          <div className="min-w-0">
+          <div className="flex min-w-0 flex-col">
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Talhões</div>
             <table className="w-full text-[12px]">
               <thead className="bg-card">
@@ -1144,6 +1212,13 @@ function OrdemCard({
                 )}
               </tbody>
             </table>
+            <TchComparativo
+              areaOrdemHa={m.areaTotalHa}
+              tchGeralAtual={m.tchGeralRealizado}
+              safraAtual={safraAtual}
+              safrasAnteriores={safrasAnteriores}
+              historico={historico}
+            />
           </div>
 
           {/* Painel de resumo */}

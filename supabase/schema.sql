@@ -19,7 +19,7 @@
 --   Tabelas: usr=usuários, ord=ordens, tlh=talhões, ent_dia=entradas diárias,
 --            ord_vis=ordens visíveis, met_frt=metas por frente, conf_pes=conferência
 --            de pesagem (frt_cor=frente correta lançada), eqp_frt=equipamento x frente,
---            app_met=metadados
+--            saf_tlh=histórico de safras (por talhão), app_met=metadados
 --   Colunas: nm=nome, snm=sobrenome, eml=e-mail, usr=usuário, sen_hsh=senha (hash),
 --            prf=perfil, atv=ativo, prc_trc_sen=precisa trocar senha, cri_em=criado em,
 --            atu_em=atualizado em, num=número, frt=frente, faz_cod/faz_nm=fazenda
@@ -135,6 +135,43 @@ create table if not exists eqp_frt (
   unique (eqp, vig)
 );
 
+-- Histórico de safras: relatório "Rendimentos e Estimativas de Talhões" de cada
+-- safra, uma linha por talhão (um talhão pode repetir com áreas parciais).
+-- Reimportar uma safra substitui todas as linhas dela.
+create table if not exists saf_tlh (
+  saf integer not null,
+  seq integer not null,
+  faz_cod text not null,
+  faz_nm text not null default '',
+  prp_cod text not null default '',
+  prp_nm text not null default '',
+  mun text not null default '',
+  uf text not null default '',
+  tlh text not null,
+  km numeric not null default 0,
+  var_cod text not null default '',
+  var_nm text not null default '',
+  dt_col_ant date,
+  dt_col date,
+  dt_plt date,
+  cor integer not null default 0,
+  area_tot numeric not null default 0,
+  area_plt numeric not null default 0,
+  area_col numeric not null default 0,
+  mt_lin numeric not null default 0,
+  esp numeric not null default 0,
+  prod_ant numeric not null default 0,
+  tch_ant numeric not null default 0,
+  prod_est numeric not null default 0,
+  tch_est numeric not null default 0,
+  prod_atu numeric not null default 0,
+  tch_real numeric not null default 0,
+  res numeric not null default 0,
+  pct numeric not null default 0,
+  ce text not null default '',
+  primary key (saf, faz_cod, tlh, seq)
+);
+
 -- Metadados gerais (data/hora da última importação e da última atualização
 -- da base) — tabela de uma linha só, sempre com id = true.
 create table if not exists app_met (
@@ -152,3 +189,4 @@ create index if not exists idx_ent_dia_dt on ent_dia(dt);
 create index if not exists idx_ent_dia_ord on ent_dia(ord_num);
 create index if not exists idx_tlh_ord on tlh(ord_num);
 create index if not exists idx_conf_pes_dt on conf_pes(dt);
+create index if not exists idx_saf_tlh_faz on saf_tlh(faz_cod, tlh);

@@ -1,11 +1,21 @@
-import PlaceholderPage from "@/components/PlaceholderPage";
+import { agregarSafras } from "@/lib/db";
+import ColheitaPainelClient from "./ColheitaPainelClient";
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export default async function ColheitaPage() {
+  const [safras, fazenda, proprietario, municipio, variedade, corte] = await Promise.all([
+    agregarSafras("safra"),
+    agregarSafras("fazenda"),
+    agregarSafras("proprietario"),
+    agregarSafras("municipio"),
+    agregarSafras("variedade"),
+    agregarSafras("corte"),
+  ]);
   return (
-    <PlaceholderPage
-      categoria="Acompanhamentos"
-      titulo="Colheita"
-      descricao="Visão consolidada da colheita própria — área colhida, toneladas, TCH e ATR por fazenda e talhão."
+    <ColheitaPainelClient
+      safras={safras}
+      dimensoes={{ fazenda, proprietario, municipio, variedade, corte }}
     />
   );
 }

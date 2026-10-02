@@ -1,11 +1,9 @@
-import PlaceholderPage from "@/components/PlaceholderPage";
+import { agregarSafras, baseSafraFazenda, usuarioAtual } from "@/lib/db";
+import HistoricoSafrasClient from "./HistoricoSafrasClient";
 
-export default function Page() {
-  return (
-    <PlaceholderPage
-      categoria="Acompanhamentos · Colheita"
-      titulo="Histórico de Safras"
-      descricao="Comparativo da colheita com as safras anteriores."
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function HistoricoSafrasPage() {
+  const [resumo, base, usuario] = await Promise.all([agregarSafras("safra"), baseSafraFazenda(), usuarioAtual()]);
+  return <HistoricoSafrasClient resumo={resumo} base={base} perfil={usuario?.perfil ?? "leitura"} />;
 }
