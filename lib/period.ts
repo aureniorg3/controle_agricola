@@ -1,21 +1,27 @@
 import { MetaFrente, EntradaDiaria, OrdemCorte, Periodo, TalhaoOrdem } from "./types";
 
+// Todas as contas de data trabalham em UTC sobre strings "YYYY-MM-DD" — assim o
+// resultado não muda com o fuso do navegador/servidor (antes, Date local +
+// toISOString podia "voltar" ou "avançar" um dia).
+function parseDia(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
 export function toDateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
 export function startOfWeekMonday(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00`);
-  const day = d.getDay(); // 0=domingo
+  const d = parseDia(dateStr);
+  const day = d.getUTCDay(); // 0=domingo
   const diff = (day === 0 ? -6 : 1) - day;
-  d.setDate(d.getDate() + diff);
+  d.setUTCDate(d.getUTCDate() + diff);
   return toDateOnly(d);
 }
 
 export function endOfWeekMonday(dateStr: string): string {
-  const start = new Date(`${startOfWeekMonday(dateStr)}T00:00:00`);
-  start.setDate(start.getDate() + 6);
-  return toDateOnly(start);
+  return addDays(startOfWeekMonday(dateStr), 6);
 }
 
 export function startOfMonth(dateStr: string): string {
@@ -24,14 +30,24 @@ export function startOfMonth(dateStr: string): string {
 
 export function endOfMonth(dateStr: string): string {
   const [y, m] = dateStr.split("-").map(Number);
-  const last = new Date(y, m, 0).getDate();
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   return `${dateStr.slice(0, 7)}-${String(last).padStart(2, "0")}`;
 }
 
 export function addDays(dateStr: string, delta: number): string {
-  const d = new Date(`${dateStr}T00:00:00`);
-  d.setDate(d.getDate() + delta);
+  const d = parseDia(dateStr);
+  d.setUTCDate(d.getUTCDate() + delta);
   return toDateOnly(d);
+}
+
+/** Mesmo dia do mês anterior; se o mês anterior for mais curto (ex.: 31/03 ->
+ * fevereiro), cai no último dia dele em vez de "estourar" pro mês seguinte. */
+export function mesmoDiaMesAnterior(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const primeiro = new Date(Date.UTC(y, m - 2, 1));
+  const ultimoDia = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+  const dia = Math.min(d, ultimoDia);
+  return toDateOnly(new Date(Date.UTC(primeiro.getUTCFullYear(), primeiro.getUTCMonth(), dia)));
 }
 
 /** Quinzena civil da data: dia 1–15 ou 16–fim do mês. */
@@ -43,8 +59,7 @@ export function quinzenaRange(dateStr: string): { inicio: string; fim: string } 
 
 /** Mês civil anterior ao da data (ex.: referência em setembro -> agosto inteiro). */
 export function mesAnteriorRange(dateStr: string): { inicio: string; fim: string } {
-  const [y, m] = dateStr.split("-").map(Number);
-  const anterior = toDateOnly(new Date(y, m - 2, 1)); // m é 1-indexado; m-2 = mês anterior em Date (0-indexado)
+  const anterior = mesmoDiaMesAnterior(startOfMonth(dateStr));
   return { inicio: startOfMonth(anterior), fim: endOfMonth(anterior) };
 }
 

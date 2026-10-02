@@ -581,14 +581,16 @@ export async function getUsuarioPorIdentificador(identificador: string): Promise
 export async function usuarioAtual(): Promise<Usuario | undefined> {
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   const uid = verificarTokenSessao(token);
-  return uid ? getUsuarioPorId(uid) : undefined;
+  const usuario = uid ? await getUsuarioPorId(uid) : undefined;
+  return usuario?.ativo ? usuario : undefined;
 }
 
 /** Mesma coisa, para Route Handlers — lê o cookie direto do `NextRequest`. */
 export async function usuarioDaRequisicao(req: NextRequest): Promise<Usuario | undefined> {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
   const uid = verificarTokenSessao(token);
-  return uid ? getUsuarioPorId(uid) : undefined;
+  const usuario = uid ? await getUsuarioPorId(uid) : undefined;
+  return usuario?.ativo ? usuario : undefined;
 }
 
 async function contarAdminsAtivos(pool: Pool, ignorarId?: string): Promise<number> {

@@ -102,22 +102,22 @@ export default function UsuariosClient({
         )}
 
         <div className="overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
-          <table className="w-full min-w-[720px] text-[13px]">
+          <table className="w-full min-w-[720px] text-[12.5px]">
             <thead>
               <tr className="border-b border-line bg-surface text-left text-muted">
-                <th className="px-4 py-2.5 font-semibold">Nome</th>
-                <th className="px-4 py-2.5 font-semibold">Usuário</th>
-                <th className="px-4 py-2.5 font-semibold">E-mail</th>
-                <th className="px-4 py-2.5 font-semibold">Nível</th>
-                <th className="px-4 py-2.5 font-semibold">Status</th>
-                <th className="px-4 py-2.5 font-semibold">Criado em</th>
-                <th className="px-4 py-2.5 font-semibold">Ações</th>
+                <th className="px-4 py-2 font-semibold">Nome</th>
+                <th className="px-3 py-2 font-semibold">Usuário</th>
+                <th className="px-3 py-2 font-semibold">E-mail</th>
+                <th className="px-3 py-2 font-semibold">Nível</th>
+                <th className="px-3 py-2 font-semibold">Status</th>
+                <th className="px-3 py-2 font-semibold">Criado em</th>
+                <th className="px-3 py-2 font-semibold">Ações</th>
               </tr>
             </thead>
             <tbody>
               {usuarios.map((u) => (
-                <tr key={u.id} className="border-t border-line/70">
-                  <td className="px-4 py-2.5 font-medium text-ink">
+                <tr key={u.id} className="border-b border-line last:border-0">
+                  <td className="px-4 py-1.5 font-medium text-ink">
                     {u.nome} {u.sobrenome}
                     {u.id === usuarioLogadoId && (
                       <span className="ml-1.5 text-[11px] font-normal text-muted">(você)</span>
@@ -131,12 +131,12 @@ export default function UsuariosClient({
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-muted">{u.usuario}</td>
-                  <td className="px-4 py-2.5 text-muted">{u.email}</td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-1.5 text-muted">{u.usuario}</td>
+                  <td className="px-3 py-1.5 text-muted">{u.email}</td>
+                  <td className="px-3 py-1.5">
                     <PerfilBadge perfil={u.perfil} />
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-1.5">
                     <span
                       className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
                         u.ativo ? "bg-good-50 text-good-600" : "bg-alert-50 text-alert-600"
@@ -145,8 +145,8 @@ export default function UsuariosClient({
                       {u.ativo ? "Ativo" : "Desativado"}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-muted">{fmtDateBR(u.criadoEm.slice(0, 10))}</td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-1.5 text-muted">{fmtDateBR(u.criadoEm.slice(0, 10))}</td>
+                  <td className="px-3 py-1.5">
                     <div className="flex gap-1.5">
                       <button
                         type="button"

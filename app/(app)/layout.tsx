@@ -9,7 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const uid = verificarTokenSessao(token);
   const usuario = uid ? await getUsuarioPorId(uid) : undefined;
 
-  if (!usuario) {
+  if (!usuario || !usuario.ativo) {
     redirect("/login");
   }
 

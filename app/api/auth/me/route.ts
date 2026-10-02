@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   const uid = verificarTokenSessao(token);
   const usuario = uid ? await getUsuarioPorId(uid) : undefined;
 
-  if (!usuario) {
+  if (!usuario || !usuario.ativo) {
     return NextResponse.json({ usuario: null });
   }
 

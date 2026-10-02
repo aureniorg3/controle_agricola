@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, FormEvent, useMemo, useState, type ReactNode } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { MetaFrente, OrdemCorte, PerfilUsuario, Periodo, StatusOrdem, TalhaoOrdem } from "@/lib/types";
 import {
   addDays,
@@ -19,7 +19,7 @@ import {
   resumoPorFrente,
   startOfMonth,
   startOfWeekMonday,
-  toDateOnly,
+  mesmoDiaMesAnterior,
 } from "@/lib/period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, todayISO } from "@/lib/format";
 import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
@@ -53,9 +53,7 @@ function periodoAnteriorRange(period: Periodo, referencia: string): { inicio: st
     return { inicio: addDays(startOfWeekMonday(referencia), -7), fim: addDays(referencia, -7) };
   }
   if (period === "mes") {
-    const d = new Date(`${referencia}T00:00:00`);
-    d.setMonth(d.getMonth() - 1);
-    const fimAnterior = toDateOnly(d);
+    const fimAnterior = mesmoDiaMesAnterior(referencia);
     return { inicio: startOfMonth(fimAnterior), fim: fimAnterior };
   }
   return null;
@@ -121,13 +119,17 @@ export default function OrdensCorteClient({
   const [busca, setBusca] = useState("");
   const [importarAberto, setImportarAberto] = useState(false);
   const [areaColhidaAlvo, setAreaColhidaAlvo] = useState<OrdemCorte | null>(null);
-  const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string>(() => new Date().toISOString());
+  const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(null);
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set());
   const [gerandoPdf, setGerandoPdf] = useState(false);
 
   function atualizarOrdemLocal(atualizada: OrdemCorte) {
     setOrdens((prev) => prev.map((o) => (o.numero === atualizada.numero ? atualizada : o)));
   }
+
+  useEffect(() => {
+    setUltimaSincronizacao(new Date().toISOString());
+  }, []);
 
   async function refetch() {
     const res = await fetch("/api/ordens-corte", { cache: "no-store" });
@@ -848,7 +850,7 @@ export default function OrdensCorteClient({
         )}
 
         <p className="mb-2 mt-6 text-center text-[11.5px] text-muted">
-          Sincronizado com o servidor {new Date(ultimaSincronizacao).toLocaleString("pt-BR")}
+          Sincronizado com o servidor {ultimaSincronizacao ? new Date(ultimaSincronizacao).toLocaleString("pt-BR") : "…"}
         </p>
       </div>
 

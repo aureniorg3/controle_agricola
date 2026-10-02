@@ -21,6 +21,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: "E-mail/usuário ou senha inválidos." }, { status: 401 });
   }
 
+  if (!usuario.ativo) {
+    return NextResponse.json({ erro: "Usuário desativado. Fale com um administrador." }, { status: 403 });
+  }
+
   const token = criarTokenSessao(usuario.id);
   const res = NextResponse.json({
     usuario: { id: usuario.id, nome: usuario.nome, email: usuario.email, perfil: usuario.perfil },
