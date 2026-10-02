@@ -107,4 +107,36 @@ export interface MetaFrente {
   vigencia: string;
 }
 
+/** Linha do "Relatório de Frentes por Especialidade" (conferência de pesagem):
+ * toneladas que um equipamento colheu numa fazenda, num dia, e a frente em
+ * que o relatório do ERP o colocou. */
+export interface ConferenciaLinha {
+  data: string;
+  eqp: string;
+  eqpNome: string;
+  frente: string;
+  fazendaCodigo: string;
+  fazendaNome: string;
+  toneladas: number;
+}
+
+/** Em qual frente um equipamento está a partir de uma data (vale até o
+ * próximo lançamento do mesmo equipamento). */
+export interface EquiptoFrente {
+  id: string;
+  eqp: string;
+  frente: string;
+  /** YYYY-MM-DD */
+  vigencia: string;
+}
+
+/** O mínimo de uma ordem de corte para a conferência de pesagem. */
+export interface OrdemConferencia {
+  numero: string;
+  frente: string;
+  status: "Aberta" | "Encerrada";
+  ultimaEntrada: string | null;
+  fazendas: { codigo: string; nome: string }[];
+}
+
 export type Periodo = "dia" | "semana" | "mes" | "safra";

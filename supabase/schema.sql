@@ -17,7 +17,8 @@
 --
 -- Legenda das abreviações
 --   Tabelas: usr=usuários, ord=ordens, tlh=talhões, ent_dia=entradas diárias,
---            ord_vis=ordens visíveis, met_frt=metas por frente, app_met=metadados
+--            ord_vis=ordens visíveis, met_frt=metas por frente, conf_pes=conferência
+--            de pesagem, eqp_frt=equipamento x frente, app_met=metadados
 --   Colunas: nm=nome, snm=sobrenome, eml=e-mail, usr=usuário, sen_hsh=senha (hash),
 --            prf=perfil, atv=ativo, prc_trc_sen=precisa trocar senha, cri_em=criado em,
 --            atu_em=atualizado em, num=número, frt=frente, faz_cod/faz_nm=fazenda
@@ -107,6 +108,30 @@ create table if not exists met_frt (
   unique (frt, vig)
 );
 
+-- Conferência de pesagem: toneladas por equipamento/frente/fazenda/dia, vindas
+-- do "Relatório de Frentes por Especialidade". Reimportar um dia substitui o dia.
+create table if not exists conf_pes (
+  dt date not null,
+  eqp text not null,
+  eqp_nm text not null default '',
+  frt text not null,
+  faz_cod text not null,
+  faz_nm text not null default '',
+  ton numeric not null default 0,
+  imp_em timestamptz not null default now(),
+  primary key (dt, eqp, frt, faz_cod)
+);
+
+-- Em qual frente cada equipamento está, a partir de uma data (vigência).
+create table if not exists eqp_frt (
+  id text primary key,
+  eqp text not null,
+  frt text not null,
+  vig date not null,
+  cri_em timestamptz not null default now(),
+  unique (eqp, vig)
+);
+
 -- Metadados gerais (data/hora da última importação e da última atualização
 -- da base) — tabela de uma linha só, sempre com id = true.
 create table if not exists app_met (
@@ -123,3 +148,4 @@ create index if not exists idx_ord_sts on ord(sts);
 create index if not exists idx_ent_dia_dt on ent_dia(dt);
 create index if not exists idx_ent_dia_ord on ent_dia(ord_num);
 create index if not exists idx_tlh_ord on tlh(ord_num);
+create index if not exists idx_conf_pes_dt on conf_pes(dt);

@@ -2,7 +2,17 @@ import { Pool, types } from "pg";
 import { randomUUID } from "crypto";
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
-import { Database, EntradaDiaria, MetaFrente, OrdemCorte, TalhaoOrdem, Usuario } from "./types";
+import {
+  ConferenciaLinha,
+  Database,
+  EntradaDiaria,
+  EquiptoFrente,
+  MetaFrente,
+  OrdemConferencia,
+  OrdemCorte,
+  TalhaoOrdem,
+  Usuario,
+} from "./types";
 import { gerarSenhaProvisoria, hashSenha, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
 
 // `numeric` volta como string por padrão no driver `pg` (pra não perder
@@ -256,6 +266,30 @@ function prepararBanco(pool: Pool): Promise<void> {
            vig date NOT NULL,
            cri_em timestamptz NOT NULL DEFAULT now(),
            UNIQUE (frt, vig)
+         )`
+      );
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS conf_pes (
+           dt date NOT NULL,
+           eqp text NOT NULL,
+           eqp_nm text NOT NULL DEFAULT '',
+           frt text NOT NULL,
+           faz_cod text NOT NULL,
+           faz_nm text NOT NULL DEFAULT '',
+           ton numeric NOT NULL DEFAULT 0,
+           imp_em timestamptz NOT NULL DEFAULT now(),
+           PRIMARY KEY (dt, eqp, frt, faz_cod)
+         )`
+      );
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_conf_pes_dt ON conf_pes(dt)");
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS eqp_frt (
+           id text PRIMARY KEY,
+           eqp text NOT NULL,
+           frt text NOT NULL,
+           vig date NOT NULL,
+           cri_em timestamptz NOT NULL DEFAULT now(),
+           UNIQUE (eqp, vig)
          )`
       );
       if (count === 0) {
@@ -592,6 +626,142 @@ export async function excluirMeta(id: string): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
   await pool.query("DELETE FROM met_frt WHERE id = $1", [id]);
+}
+
+// ---------------------------------------------------------------------------
+// Conferência de pesagem e equipamento x frente
+// ---------------------------------------------------------------------------
+
+/** Cada dia importado substitui por completo o que já havia daquele dia. */
+export async function substituirConferenciaDia(data: string, linhas: ConferenciaLinha[]): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM conf_pes WHERE dt = $1", [data]);
+    if (linhas.length > 0) {
+      await client.query(
+        `INSERT INTO conf_pes (dt, eqp, eqp_nm, frt, faz_cod, faz_nm, ton)
+         SELECT $1::date, * FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::numeric[])`,
+        [
+          data,
+          linhas.map((l) => l.eqp),
+          linhas.map((l) => l.eqpNome),
+          linhas.map((l) => l.frente),
+          linhas.map((l) => l.fazendaCodigo),
+          linhas.map((l) => l.fazendaNome),
+          linhas.map((l) => l.toneladas),
+        ]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listConferencias(): Promise<ConferenciaLinha[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{
+    data: string;
+    eqp: string;
+    eqp_nm: string;
+    frente: string;
+    faz_cod: string;
+    faz_nm: string;
+    ton: number;
+  }>("SELECT dt AS data, eqp, eqp_nm, frt AS frente, faz_cod, faz_nm, ton FROM conf_pes ORDER BY dt, eqp, frt, faz_cod");
+  return rows.map((r) => ({
+    data: r.data,
+    eqp: r.eqp,
+    eqpNome: r.eqp_nm,
+    frente: r.frente,
+    fazendaCodigo: r.faz_cod,
+    fazendaNome: r.faz_nm,
+    toneladas: r.ton,
+  }));
+}
+
+/** Versão enxuta das ordens (sem talhões/entradas) para cruzar com a
+ * conferência: frente, status, última entrada e as fazendas que a ordem cobre. */
+export async function listOrdensParaConferencia(): Promise<OrdemConferencia[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{
+    numero: string;
+    frente: string;
+    status: string;
+    ult: string | null;
+    fazs: { c: string; n: string }[];
+  }>(
+    `SELECT o.num AS numero, o.frt AS frente, o.sts AS status,
+            (SELECT max(e.dt) FROM ent_dia e WHERE e.ord_num = o.num) AS ult,
+            (SELECT COALESCE(jsonb_agg(jsonb_build_object('c', x.faz_cod, 'n', x.faz_nm)), '[]'::jsonb)
+               FROM (SELECT t.faz_cod, t.faz_nm FROM tlh t WHERE t.ord_num = o.num
+                     UNION SELECT o.faz_cod, o.faz_nm) x) AS fazs
+       FROM ord o`
+  );
+  return rows.map((r) => ({
+    numero: r.numero,
+    frente: r.frente,
+    status: r.status as OrdemConferencia["status"],
+    ultimaEntrada: r.ult,
+    fazendas: (r.fazs ?? []).map((f) => ({ codigo: f.c, nome: f.n })),
+  }));
+}
+
+export async function listEquiptoFrente(): Promise<EquiptoFrente[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ id: string; eqp: string; frente: string; vigencia: string }>(
+    "SELECT id, eqp, frt AS frente, vig AS vigencia FROM eqp_frt ORDER BY eqp, vig"
+  );
+  return rows.map((r) => ({ id: r.id, eqp: r.eqp, frente: r.frente, vigencia: r.vigencia }));
+}
+
+/** Um lançamento por (equipamento, vigência): lançar de novo na mesma data
+ * substitui a frente. */
+export async function salvarEquiptoFrente(eqp: string, frente: string, vigencia: string): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  await pool.query(
+    `INSERT INTO eqp_frt (id, eqp, frt, vig) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (eqp, vig) DO UPDATE SET frt = EXCLUDED.frt`,
+    [randomUUID(), eqp, frente, vigencia]
+  );
+}
+
+export async function atualizarEquiptoFrente(
+  id: string,
+  eqp: string,
+  frente: string,
+  vigencia: string
+): Promise<true | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows: existe } = await pool.query("SELECT 1 FROM eqp_frt WHERE id = $1", [id]);
+  if (existe.length === 0) return { erro: "Lançamento não encontrado." };
+  const { rows: conflito } = await pool.query("SELECT 1 FROM eqp_frt WHERE eqp = $1 AND vig = $2 AND id <> $3", [
+    eqp,
+    vigencia,
+    id,
+  ]);
+  if (conflito.length > 0) {
+    return { erro: "Esse equipamento já tem um lançamento nessa data. Edite aquele ou escolha outra data." };
+  }
+  await pool.query("UPDATE eqp_frt SET eqp = $1, frt = $2, vig = $3 WHERE id = $4", [eqp, frente, vigencia, id]);
+  return true;
+}
+
+export async function excluirEquiptoFrente(id: string): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  await pool.query("DELETE FROM eqp_frt WHERE id = $1", [id]);
 }
 
 export type LancamentoAreaColhida =

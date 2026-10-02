@@ -158,6 +158,8 @@ const SECTIONS: Section[] = [
               { label: "Ordens de Corte", href: "/acompanhamentos/ordens-de-corte" },
               { label: "Metas", href: "/acompanhamentos/colheita/metas" },
               { label: "Histórico de Safras", href: "/acompanhamentos/colheita/historico-safras" },
+              { label: "Conferência de Pesagem", href: "/acompanhamentos/colheita/conferencia-pesagem" },
+              { label: "Equipto Frente", href: "/acompanhamentos/colheita/equipto-frente" },
             ],
           },
         ],

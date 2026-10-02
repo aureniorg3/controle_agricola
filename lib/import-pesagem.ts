@@ -36,7 +36,7 @@ export interface ResultadoImportacaoArquivos {
 // Helpers de leitura tolerante de célula
 // ---------------------------------------------------------------------------
 
-function numeroBR(v: unknown): number {
+export function numeroBR(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   if (typeof v === "string") {
     const limpo = v.trim().replace(/\./g, "").replace(",", ".");
@@ -46,12 +46,12 @@ function numeroBR(v: unknown): number {
   return 0;
 }
 
-function texto(v: unknown): string {
+export function texto(v: unknown): string {
   if (v === undefined || v === null) return "";
   return String(v).trim();
 }
 
-function dataIso(v: unknown): string | null {
+export function dataIso(v: unknown): string | null {
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
     return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, "0")}-${String(v.getDate()).padStart(2, "0")}`;
   }
@@ -68,7 +68,7 @@ function dataIsoSerial(v: unknown): string | null {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
-function lerLinhas(buffer: ArrayBuffer): unknown[][] {
+export function lerLinhas(buffer: ArrayBuffer): unknown[][] {
   const wb = XLSX.read(buffer, { type: "array", cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" }) as unknown[][];
