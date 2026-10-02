@@ -11,11 +11,11 @@ base é sempre o retrato mais recente dos 2 arquivos.
 - **Next.js 16** (App Router, Turbopack) + **TypeScript** + **Tailwind CSS**
   — exige **Node 20.9+** (fixado em `package.json` → `engines.node`)
 - Persistência em **Postgres** (driver oficial `pg`, sem ORM) — tabelas
-  normais (`usuarios`, `ordens`, `talhoes`, `entradas_diarias`,
-  `ordens_visiveis`, `app_meta`), compartilhadas e persistentes entre
+  normais (`usr`, `ord`, `tlh`, `ent_dia`,
+  `ord_vis`, `met_frt`, `app_met` — nomes abreviados, legenda no topo do schema.sql), compartilhadas e persistentes entre
   deploys/restarts. Ver `supabase/schema.sql` (DDL completo, rode no SQL
   Editor do Supabase **antes do primeiro uso** — a aplicação não cria as
-  tabelas sozinha, só semeia o usuário admin padrão se `usuarios` estiver
+  tabelas sozinha, só semeia o usuário admin padrão se `usr` estiver
   vazia) e `lib/db.ts` (as consultas). Usamos o tier **grátis** do
   [Supabase](https://supabase.com) — ver `DATABASE_URL` na seção "Deploy no
   Render" abaixo.
@@ -35,8 +35,8 @@ base é sempre o retrato mais recente dos 2 arquivos.
 1. Abra o projeto no [painel do Supabase](https://supabase.com/dashboard) →
    **SQL Editor** → **New query**.
 2. Cole o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) inteiro e
-   clique em **Run**. Cria as tabelas (`usuarios`, `ordens`, `talhoes`,
-   `entradas_diarias`, `ordens_visiveis`, `app_meta`) e os índices — pode
+   clique em **Run**. Cria as tabelas (`usr`, `ord`, `tlh`,
+   `ent_dia`, `ord_vis`, `met_frt`, `app_met`) e os índices — pode
    rodar de novo sem problema, nenhum comando apaga dado existente.
 3. Pegue a connection string (`DATABASE_URL`) — ver instruções na seção
    "Deploy no Render" abaixo — e configure localmente (`.env.local`) e no

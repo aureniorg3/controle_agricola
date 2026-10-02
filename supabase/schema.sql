@@ -1,116 +1,125 @@
 -- =====================================================================
 -- Controle Agrícola — CRV Industrial
--- Schema inicial para Supabase (Postgres).
+-- Schema para Supabase (Postgres) — nomes ABREVIADOS de tabelas e colunas.
 --
 -- Como rodar: painel do Supabase → SQL Editor → New query → cole este
 -- arquivo inteiro → Run. Pode rodar de novo sem problema (todo comando usa
 -- "if not exists"/"on conflict" — não apaga nem duplica nada já existente).
 --
+-- Bancos criados com os nomes por extenso (usuarios, ordens, talhoes...)
+-- NÃO precisam rodar este arquivo: o próprio app renomeia tudo sozinho na
+-- primeira conexão (lib/db.ts, migrarNomesAbreviados), preservando os dados.
+--
 -- Não cria o usuário administrador padrão aqui de propósito: o hash de
 -- senha (scrypt, formato "salt:hash") é gerado pelo próprio app em
 -- lib/auth.ts — a aplicação cria esse usuário sozinha na primeira consulta
--- se a tabela `usuarios` estiver vazia, do mesmo jeito que já fazia antes.
+-- se a tabela `usr` estiver vazia.
+--
+-- Legenda das abreviações
+--   Tabelas: usr=usuários, ord=ordens, tlh=talhões, ent_dia=entradas diárias,
+--            ord_vis=ordens visíveis, met_frt=metas por frente, app_met=metadados
+--   Colunas: nm=nome, snm=sobrenome, eml=e-mail, usr=usuário, sen_hsh=senha (hash),
+--            prf=perfil, atv=ativo, prc_trc_sen=precisa trocar senha, cri_em=criado em,
+--            atu_em=atualizado em, num=número, frt=frente, faz_cod/faz_nm=fazenda
+--            código/nome, prp_cod/prp_nm=proprietário código/nome, sts=status,
+--            tip_can=tipo de cana, dt_qma=data da queima, obs=observação,
+--            saf_lbl=safra, tlh=talhão, area_col_ha=área colhida (ha),
+--            ord_num=nº da ordem, dt=data, ton=toneladas, ton_ate_6h=toneladas
+--            até 06h, vgn=viagens, met_dia_t=meta (t/dia), vig=vigência,
+--            ult_imp=última importação, ult_atu=última atualização
 -- =====================================================================
 
 -- Usuários do sistema (login, perfis de acesso)
-create table if not exists usuarios (
+create table if not exists usr (
   id text primary key,
-  nome text not null,
-  sobrenome text not null default '',
-  email text not null unique,
-  usuario text,
-  senha_hash text not null,
-  perfil text not null check (perfil in ('leitura', 'gravacao', 'admin')),
-  ativo boolean not null default true,
-  precisa_trocar_senha boolean not null default false,
-  criado_em timestamptz not null default now()
+  nm text not null,
+  snm text not null default '',
+  eml text not null unique,
+  usr text not null,
+  sen_hsh text not null,
+  prf text not null check (prf in ('leitura', 'gravacao', 'admin')),
+  atv boolean not null default true,
+  prc_trc_sen boolean not null default false,
+  cri_em timestamptz not null default now()
 );
-
--- Login por usuário, além de e-mail — coluna adicionada numa versão
--- posterior deste schema; os comandos abaixo são seguros de rodar de novo
--- em bancos que já tinham a tabela `usuarios` sem essa coluna (preenche com
--- a parte antes do "@" do e-mail pra quem já existe, só na primeira vez).
-alter table usuarios add column if not exists usuario text;
-update usuarios set usuario = split_part(email, '@', 1) where usuario is null;
-alter table usuarios alter column usuario set not null;
-create unique index if not exists idx_usuarios_usuario_lower on usuarios (lower(usuario));
+create unique index if not exists idx_usr_usr_lower on usr (lower(usr));
 
 -- Ordens de corte — 100% derivadas da importação das planilhas do CHBWEB
 -- (nunca cadastradas nem editadas manualmente, exceto área colhida)
-create table if not exists ordens (
-  numero text primary key,
-  frente text not null,
-  fazenda_codigo text not null,
-  fazenda_nome text not null,
-  proprietario_codigo text,
-  proprietario_nome text,
-  status text not null check (status in ('Aberta', 'Encerrada')),
-  tipo_cana text,
-  data_queima date,
-  observacao text,
-  safra_label text not null,
-  atualizado_em timestamptz not null default now()
+create table if not exists ord (
+  num text primary key,
+  frt text not null,
+  faz_cod text not null,
+  faz_nm text not null,
+  prp_cod text,
+  prp_nm text,
+  sts text not null check (sts in ('Aberta', 'Encerrada')),
+  tip_can text,
+  dt_qma date,
+  obs text,
+  saf_lbl text not null,
+  atu_em timestamptz not null default now()
 );
 
 -- Talhões de cada ordem — uma ordem pode abranger mais de uma fazenda, por
--- isso a chave é o par (fazenda_codigo, talhao) dentro da ordem, não só o
--- número do talhão.
-create table if not exists talhoes (
-  ordem_numero text not null references ordens(numero) on delete cascade,
-  fazenda_codigo text not null,
-  fazenda_nome text not null,
-  talhao text not null,
+-- isso a chave é o par (faz_cod, tlh) dentro da ordem, não só o número do
+-- talhão.
+create table if not exists tlh (
+  ord_num text not null references ord(num) on delete cascade,
+  faz_cod text not null,
+  faz_nm text not null,
+  tlh text not null,
   area_ha numeric not null default 0,
   -- área colhida lançada manualmente (medição de campo, parcial)
-  area_colhida_ha numeric not null default 0,
-  primary key (ordem_numero, fazenda_codigo, talhao)
+  area_col_ha numeric not null default 0,
+  primary key (ord_num, faz_cod, tlh)
 );
 
 -- Entradas diárias de cana por talhão — já agregadas das viagens de pesagem
--- na importação (uma linha por ordem+data+fazenda+talhao).
-create table if not exists entradas_diarias (
-  ordem_numero text not null references ordens(numero) on delete cascade,
-  data date not null,
-  fazenda_codigo text not null,
-  talhao text not null,
-  toneladas numeric not null default 0,
-  -- parte de `toneladas` pesada entre 00:00 e 06:00 (coluna "Dia Atual")
-  toneladas_ate_6h numeric not null default 0,
-  viagens integer not null default 0,
-  primary key (ordem_numero, data, fazenda_codigo, talhao)
+-- na importação (uma linha por ordem+data+fazenda+talhão).
+create table if not exists ent_dia (
+  ord_num text not null references ord(num) on delete cascade,
+  dt date not null,
+  faz_cod text not null,
+  tlh text not null,
+  ton numeric not null default 0,
+  -- parte de `ton` pesada entre 00:00 e 06:00 (coluna "Dia Atual")
+  ton_ate_6h numeric not null default 0,
+  vgn integer not null default 0,
+  primary key (ord_num, dt, faz_cod, tlh)
 );
 
 -- Ordens marcadas manualmente para aparecer na tela — seleção GLOBAL,
 -- visível a todo mundo que acessa o sistema (não é por usuário).
-create table if not exists ordens_visiveis (
-  ordem_numero text primary key references ordens(numero) on delete cascade
+create table if not exists ord_vis (
+  ord_num text primary key references ord(num) on delete cascade
 );
-
--- Metadados gerais (data/hora da última importação e da última atualização
--- da base) — tabela de uma linha só, sempre com id = true.
-create table if not exists app_meta (
-  id boolean primary key default true,
-  ultima_importacao timestamptz,
-  ultima_atualizacao timestamptz not null default now(),
-  constraint app_meta_singleton check (id)
-);
-insert into app_meta (id) values (true) on conflict (id) do nothing;
 
 -- Metas diárias por frente (t/dia). Cada meta vale a partir da data de
 -- vigência até a próxima cadastrada pra mesma frente; dias anteriores à
 -- primeira meta ficam sem meta.
-create table if not exists metas_frente (
+create table if not exists met_frt (
   id text primary key,
-  frente text not null,
-  meta_dia_t numeric not null check (meta_dia_t >= 0),
-  vigencia date not null,
-  criado_em timestamptz not null default now(),
-  unique (frente, vigencia)
+  frt text not null,
+  met_dia_t numeric not null check (met_dia_t >= 0),
+  vig date not null,
+  cri_em timestamptz not null default now(),
+  unique (frt, vig)
 );
 
+-- Metadados gerais (data/hora da última importação e da última atualização
+-- da base) — tabela de uma linha só, sempre com id = true.
+create table if not exists app_met (
+  id boolean primary key default true,
+  ult_imp timestamptz,
+  ult_atu timestamptz not null default now(),
+  constraint app_met_singleton check (id)
+);
+insert into app_met (id) values (true) on conflict (id) do nothing;
+
 -- Índices para os filtros/relatórios mais comuns da tela de Ordens de Corte
-create index if not exists idx_ordens_frente on ordens(frente);
-create index if not exists idx_ordens_status on ordens(status);
-create index if not exists idx_entradas_data on entradas_diarias(data);
-create index if not exists idx_entradas_ordem on entradas_diarias(ordem_numero);
-create index if not exists idx_talhoes_ordem on talhoes(ordem_numero);
+create index if not exists idx_ord_frt on ord(frt);
+create index if not exists idx_ord_sts on ord(sts);
+create index if not exists idx_ent_dia_dt on ent_dia(dt);
+create index if not exists idx_ent_dia_ord on ent_dia(ord_num);
+create index if not exists idx_tlh_ord on tlh(ord_num);

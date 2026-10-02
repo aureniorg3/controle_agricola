@@ -106,13 +106,139 @@ function buildAdminPadrao(): Usuario {
  * padrão na primeiríssima execução (tabela `usuarios` vazia). Roda uma vez
  * só por processo — chamadas seguintes reaproveitam a mesma promise.
  */
+// Nomes do banco são abreviados (ver supabase/schema.sql). As listas de
+// colunas abaixo devolvem cada coluna já com o nome por extenso que o resto
+// do código usa (`SELECT nm AS nome`), então só este arquivo conhece as
+// abreviações.
+const COLS_ORD =
+  "num AS numero, frt AS frente, faz_cod AS fazenda_codigo, faz_nm AS fazenda_nome, prp_cod AS proprietario_codigo, " +
+  "prp_nm AS proprietario_nome, sts AS status, tip_can AS tipo_cana, dt_qma AS data_queima, obs AS observacao, " +
+  "saf_lbl AS safra_label, atu_em AS atualizado_em";
+const COLS_TLH =
+  "ord_num AS ordem_numero, faz_cod AS fazenda_codigo, faz_nm AS fazenda_nome, tlh AS talhao, area_ha, " +
+  "area_col_ha AS area_colhida_ha";
+const COLS_ENT =
+  "ord_num AS ordem_numero, dt AS data, faz_cod AS fazenda_codigo, tlh AS talhao, ton AS toneladas, " +
+  "ton_ate_6h AS toneladas_ate_6h, vgn AS viagens";
+const COLS_USR =
+  "id, nm AS nome, snm AS sobrenome, eml AS email, usr AS usuario, sen_hsh AS senha_hash, prf AS perfil, " +
+  "atv AS ativo, prc_trc_sen AS precisa_trocar_senha, cri_em AS criado_em";
+
+/** Renomes de tabelas/colunas da versão por extenso para a abreviada. */
+const RENOMEACOES: { antiga: string; nova: string; colunas: Record<string, string> }[] = [
+  {
+    antiga: "usuarios",
+    nova: "usr",
+    colunas: {
+      nome: "nm",
+      sobrenome: "snm",
+      email: "eml",
+      usuario: "usr",
+      senha_hash: "sen_hsh",
+      perfil: "prf",
+      ativo: "atv",
+      precisa_trocar_senha: "prc_trc_sen",
+      criado_em: "cri_em",
+    },
+  },
+  {
+    antiga: "ordens",
+    nova: "ord",
+    colunas: {
+      numero: "num",
+      frente: "frt",
+      fazenda_codigo: "faz_cod",
+      fazenda_nome: "faz_nm",
+      proprietario_codigo: "prp_cod",
+      proprietario_nome: "prp_nm",
+      status: "sts",
+      tipo_cana: "tip_can",
+      data_queima: "dt_qma",
+      observacao: "obs",
+      safra_label: "saf_lbl",
+      atualizado_em: "atu_em",
+    },
+  },
+  {
+    antiga: "talhoes",
+    nova: "tlh",
+    colunas: {
+      ordem_numero: "ord_num",
+      fazenda_codigo: "faz_cod",
+      fazenda_nome: "faz_nm",
+      talhao: "tlh",
+      area_colhida_ha: "area_col_ha",
+    },
+  },
+  {
+    antiga: "entradas_diarias",
+    nova: "ent_dia",
+    colunas: {
+      ordem_numero: "ord_num",
+      data: "dt",
+      fazenda_codigo: "faz_cod",
+      talhao: "tlh",
+      toneladas: "ton",
+      toneladas_ate_6h: "ton_ate_6h",
+      viagens: "vgn",
+    },
+  },
+  { antiga: "ordens_visiveis", nova: "ord_vis", colunas: { ordem_numero: "ord_num" } },
+  {
+    antiga: "app_meta",
+    nova: "app_met",
+    colunas: { ultima_importacao: "ult_imp", ultima_atualizacao: "ult_atu" },
+  },
+  {
+    antiga: "metas_frente",
+    nova: "met_frt",
+    colunas: { frente: "frt", meta_dia_t: "met_dia_t", vigencia: "vig", criado_em: "cri_em" },
+  },
+];
+
+/** Idempotente: só renomeia o que ainda estiver com o nome antigo — bancos
+ * criados direto com o schema abreviado não sofrem nenhuma alteração. */
+async function migrarNomesAbreviados(pool: Pool): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(727001)");
+    for (const r of RENOMEACOES) {
+      const { rows } = await client.query<{ antiga: string | null; nova: string | null }>(
+        "SELECT to_regclass($1)::text AS antiga, to_regclass($2)::text AS nova",
+        [`public.${r.antiga}`, `public.${r.nova}`]
+      );
+      if (rows[0].antiga && !rows[0].nova) {
+        await client.query(`ALTER TABLE ${r.antiga} RENAME TO ${r.nova}`);
+      }
+      const { rows: cols } = await client.query<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
+        [r.nova]
+      );
+      const existentes = new Set(cols.map((c) => c.column_name));
+      for (const [antiga, nova] of Object.entries(r.colunas)) {
+        if (existentes.has(antiga) && !existentes.has(nova)) {
+          await client.query(`ALTER TABLE ${r.nova} RENAME COLUMN ${antiga} TO ${nova}`);
+        }
+      }
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 let prepararBancoPromise: Promise<void> | undefined;
 function prepararBanco(pool: Pool): Promise<void> {
   if (!prepararBancoPromise) {
     prepararBancoPromise = (async () => {
       let count: number;
       try {
-        const { rows } = await pool.query<{ count: number }>("SELECT COUNT(*)::int AS count FROM usuarios");
+        await migrarNomesAbreviados(pool);
+        const { rows } = await pool.query<{ count: number }>("SELECT COUNT(*)::int AS count FROM usr");
         count = rows[0].count;
       } catch (err) {
         throw new Error(
@@ -123,19 +249,19 @@ function prepararBanco(pool: Pool): Promise<void> {
       // tabela criada depois do schema inicial — idempotente, então bancos
       // já existentes ganham ela sozinhos, sem rodar SQL à mão.
       await pool.query(
-        `CREATE TABLE IF NOT EXISTS metas_frente (
+        `CREATE TABLE IF NOT EXISTS met_frt (
            id text PRIMARY KEY,
-           frente text NOT NULL,
-           meta_dia_t numeric NOT NULL CHECK (meta_dia_t >= 0),
-           vigencia date NOT NULL,
-           criado_em timestamptz NOT NULL DEFAULT now(),
-           UNIQUE (frente, vigencia)
+           frt text NOT NULL,
+           met_dia_t numeric NOT NULL CHECK (met_dia_t >= 0),
+           vig date NOT NULL,
+           cri_em timestamptz NOT NULL DEFAULT now(),
+           UNIQUE (frt, vig)
          )`
       );
       if (count === 0) {
         const admin = buildAdminPadrao();
         await pool.query(
-          `INSERT INTO usuarios (id, nome, sobrenome, email, usuario, senha_hash, perfil, ativo, precisa_trocar_senha, criado_em)
+          `INSERT INTO usr (id, nm, snm, eml, usr, sen_hsh, prf, atv, prc_trc_sen, cri_em)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING`,
           [
             admin.id,
@@ -198,15 +324,15 @@ interface EntradaRow {
  * números de ordem. 3 consultas no total, independente de quantas ordens. */
 async function carregarOrdensCompletas(pool: Pool, numeros?: string[]): Promise<OrdemCorte[]> {
   const { rows: ordensRows } = await pool.query<OrdemRow>(
-    numeros ? "SELECT * FROM ordens WHERE numero = ANY($1::text[])" : "SELECT * FROM ordens",
+    numeros ? `SELECT ${COLS_ORD} FROM ord WHERE num = ANY($1::text[])` : `SELECT ${COLS_ORD} FROM ord`,
     numeros ? [numeros] : []
   );
   if (ordensRows.length === 0) return [];
 
   const todosNumeros = ordensRows.map((r) => r.numero);
   const [{ rows: talhoesRows }, { rows: entradasRows }] = await Promise.all([
-    pool.query<TalhaoRow>("SELECT * FROM talhoes WHERE ordem_numero = ANY($1::text[])", [todosNumeros]),
-    pool.query<EntradaRow>("SELECT * FROM entradas_diarias WHERE ordem_numero = ANY($1::text[])", [todosNumeros]),
+    pool.query<TalhaoRow>(`SELECT ${COLS_TLH} FROM tlh WHERE ord_num = ANY($1::text[])`, [todosNumeros]),
+    pool.query<EntradaRow>(`SELECT ${COLS_ENT} FROM ent_dia WHERE ord_num = ANY($1::text[])`, [todosNumeros]),
   ]);
 
   const talhoesPorOrdem = new Map<string, TalhaoOrdem[]>();
@@ -277,7 +403,7 @@ export async function getOrdem(id: string): Promise<OrdemCorte | undefined> {
  *
  * Ordens que saem da base (não estão mais no novo arquivo) são removidas de
  * verdade (`DELETE ... WHERE numero NOT IN`), o que também apaga sua linha
- * em `ordens_visiveis` via `ON DELETE CASCADE`. Ordens que continuam
+ * em `ord_vis` via `ON DELETE CASCADE`. Ordens que continuam
  * existindo são atualizadas em UPSERT (nunca apagadas+recriadas) — assim a
  * seleção de visibilidade sobrevive a uma reimportação, igual antes.
  */
@@ -289,28 +415,27 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
     await client.query("BEGIN");
 
     const numeros = ordens.map((o) => o.numero);
-    await client.query("DELETE FROM ordens WHERE NOT (numero = ANY($1::text[]))", [numeros]);
+    await client.query("DELETE FROM ord WHERE NOT (num = ANY($1::text[]))", [numeros]);
 
     // Talhões/entradas são sempre o retrato completo da importação —
     // limpa e reconstrói do zero pras ordens que sobraram, mais simples e
     // seguro do que tentar diffar linha a linha.
-    await client.query("DELETE FROM talhoes");
-    await client.query("DELETE FROM entradas_diarias");
+    await client.query("DELETE FROM tlh");
+    await client.query("DELETE FROM ent_dia");
 
     if (ordens.length > 0) {
       await client.query(
-        `INSERT INTO ordens
-           (numero, frente, fazenda_codigo, fazenda_nome, proprietario_codigo, proprietario_nome,
-            status, tipo_cana, data_queima, observacao, safra_label, atualizado_em)
+        `INSERT INTO ord
+           (num, frt, faz_cod, faz_nm, prp_cod, prp_nm, sts, tip_can, dt_qma, obs, saf_lbl, atu_em)
          SELECT * FROM unnest(
            $1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
            $7::text[], $8::text[], $9::date[], $10::text[], $11::text[], $12::timestamptz[]
          )
-         ON CONFLICT (numero) DO UPDATE SET
-           frente = EXCLUDED.frente, fazenda_codigo = EXCLUDED.fazenda_codigo, fazenda_nome = EXCLUDED.fazenda_nome,
-           proprietario_codigo = EXCLUDED.proprietario_codigo, proprietario_nome = EXCLUDED.proprietario_nome,
-           status = EXCLUDED.status, tipo_cana = EXCLUDED.tipo_cana, data_queima = EXCLUDED.data_queima,
-           observacao = EXCLUDED.observacao, safra_label = EXCLUDED.safra_label, atualizado_em = EXCLUDED.atualizado_em`,
+         ON CONFLICT (num) DO UPDATE SET
+           frt = EXCLUDED.frt, faz_cod = EXCLUDED.faz_cod, faz_nm = EXCLUDED.faz_nm,
+           prp_cod = EXCLUDED.prp_cod, prp_nm = EXCLUDED.prp_nm,
+           sts = EXCLUDED.sts, tip_can = EXCLUDED.tip_can, dt_qma = EXCLUDED.dt_qma,
+           obs = EXCLUDED.obs, saf_lbl = EXCLUDED.saf_lbl, atu_em = EXCLUDED.atu_em`,
         [
           numeros,
           ordens.map((o) => o.frente),
@@ -346,7 +471,7 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
     }
     if (tOrdemNumero.length > 0) {
       await client.query(
-        `INSERT INTO talhoes (ordem_numero, fazenda_codigo, fazenda_nome, talhao, area_ha, area_colhida_ha)
+        `INSERT INTO tlh (ord_num, faz_cod, faz_nm, tlh, area_ha, area_col_ha)
          SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::numeric[], $6::numeric[])`,
         [tOrdemNumero, tFazendaCodigo, tFazendaNome, tTalhao, tAreaHa, tAreaColhidaHa]
       );
@@ -372,8 +497,8 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
     }
     if (eOrdemNumero.length > 0) {
       await client.query(
-        `INSERT INTO entradas_diarias
-           (ordem_numero, data, fazenda_codigo, talhao, toneladas, toneladas_ate_6h, viagens)
+        `INSERT INTO ent_dia
+           (ord_num, dt, faz_cod, tlh, ton, ton_ate_6h, vgn)
          SELECT * FROM unnest(
            $1::text[], $2::date[], $3::text[], $4::text[], $5::numeric[], $6::numeric[], $7::int[]
          )`,
@@ -381,7 +506,7 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
       );
     }
 
-    await client.query("UPDATE app_meta SET ultima_importacao = now(), ultima_atualizacao = now() WHERE id = true");
+    await client.query("UPDATE app_met SET ult_imp = now(), ult_atu = now() WHERE id = true");
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
@@ -398,7 +523,7 @@ export async function listOrdensVisiveis(): Promise<string[]> {
   const pool = getPool();
   await prepararBanco(pool);
   const { rows } = await pool.query<{ ordem_numero: string }>(
-    "SELECT ov.ordem_numero FROM ordens_visiveis ov JOIN ordens o ON o.numero = ov.ordem_numero"
+    "SELECT ov.ord_num AS ordem_numero FROM ord_vis ov JOIN ord o ON o.num = ov.ord_num"
   );
   return rows.map((r) => r.ordem_numero);
 }
@@ -406,25 +531,25 @@ export async function listOrdensVisiveis(): Promise<string[]> {
 export async function adicionarOrdemVisivel(numero: string): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows } = await pool.query("SELECT 1 FROM ordens WHERE numero = $1", [numero]);
+  const { rows } = await pool.query("SELECT 1 FROM ord WHERE num = $1", [numero]);
   if (rows.length === 0) {
     return { erro: `Ordem ${numero} não encontrada na última importação.` };
   }
-  await pool.query("INSERT INTO ordens_visiveis (ordem_numero) VALUES ($1) ON CONFLICT (ordem_numero) DO NOTHING", [numero]);
+  await pool.query("INSERT INTO ord_vis (ord_num) VALUES ($1) ON CONFLICT (ord_num) DO NOTHING", [numero]);
   return true;
 }
 
 export async function removerOrdemVisivel(numero: string): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
-  await pool.query("DELETE FROM ordens_visiveis WHERE ordem_numero = $1", [numero]);
+  await pool.query("DELETE FROM ord_vis WHERE ord_num = $1", [numero]);
 }
 
 export async function listMetas(): Promise<MetaFrente[]> {
   const pool = getPool();
   await prepararBanco(pool);
   const { rows } = await pool.query<{ id: string; frente: string; meta_dia_t: number; vigencia: string }>(
-    "SELECT id, frente, meta_dia_t, vigencia FROM metas_frente ORDER BY frente, vigencia"
+    "SELECT id, frt AS frente, met_dia_t AS meta_dia_t, vig AS vigencia FROM met_frt ORDER BY frt, vig"
   );
   return rows.map((r) => ({ id: r.id, frente: r.frente, metaDiaT: r.meta_dia_t, vigencia: r.vigencia }));
 }
@@ -435,8 +560,8 @@ export async function salvarMeta(frente: string, metaDiaT: number, vigencia: str
   const pool = getPool();
   await prepararBanco(pool);
   await pool.query(
-    `INSERT INTO metas_frente (id, frente, meta_dia_t, vigencia) VALUES ($1,$2,$3,$4)
-     ON CONFLICT (frente, vigencia) DO UPDATE SET meta_dia_t = EXCLUDED.meta_dia_t`,
+    `INSERT INTO met_frt (id, frt, met_dia_t, vig) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (frt, vig) DO UPDATE SET met_dia_t = EXCLUDED.met_dia_t`,
     [randomUUID(), frente, metaDiaT, vigencia]
   );
 }
@@ -444,7 +569,7 @@ export async function salvarMeta(frente: string, metaDiaT: number, vigencia: str
 export async function excluirMeta(id: string): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
-  await pool.query("DELETE FROM metas_frente WHERE id = $1", [id]);
+  await pool.query("DELETE FROM met_frt WHERE id = $1", [id]);
 }
 
 export type LancamentoAreaColhida =
@@ -502,12 +627,12 @@ export async function lancarAreaColhida(
     await client.query("BEGIN");
     for (const t of ordem.talhoes) {
       await client.query(
-        "UPDATE talhoes SET area_colhida_ha = $1 WHERE ordem_numero = $2 AND fazenda_codigo = $3 AND talhao = $4",
+        "UPDATE tlh SET area_col_ha = $1 WHERE ord_num = $2 AND faz_cod = $3 AND tlh = $4",
         [t.areaColhidaHa, numero, t.fazendaCodigo, t.talhao]
       );
     }
-    await client.query("UPDATE ordens SET atualizado_em = $1 WHERE numero = $2", [ordem.atualizadoEm, numero]);
-    await client.query("UPDATE app_meta SET ultima_atualizacao = now() WHERE id = true");
+    await client.query("UPDATE ord SET atu_em = $1 WHERE num = $2", [ordem.atualizadoEm, numero]);
+    await client.query("UPDATE app_met SET ult_atu = now() WHERE id = true");
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
@@ -547,28 +672,28 @@ function mapUsuario(r: {
 export async function listUsuarios(): Promise<Usuario[]> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows } = await pool.query("SELECT * FROM usuarios ORDER BY criado_em");
+  const { rows } = await pool.query(`SELECT ${COLS_USR} FROM usr ORDER BY cri_em`);
   return rows.map(mapUsuario);
 }
 
 export async function getUsuarioPorId(id: string): Promise<Usuario | undefined> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows } = await pool.query("SELECT * FROM usuarios WHERE id = $1", [id]);
+  const { rows } = await pool.query(`SELECT ${COLS_USR} FROM usr WHERE id = $1`, [id]);
   return rows[0] ? mapUsuario(rows[0]) : undefined;
 }
 
 export async function getUsuarioPorEmail(email: string): Promise<Usuario | undefined> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows } = await pool.query("SELECT * FROM usuarios WHERE lower(email) = lower($1)", [email.trim()]);
+  const { rows } = await pool.query(`SELECT ${COLS_USR} FROM usr WHERE lower(eml) = lower($1)`, [email.trim()]);
   return rows[0] ? mapUsuario(rows[0]) : undefined;
 }
 
 export async function getUsuarioPorNomeDeUsuario(usuario: string): Promise<Usuario | undefined> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows } = await pool.query("SELECT * FROM usuarios WHERE lower(usuario) = lower($1)", [usuario.trim()]);
+  const { rows } = await pool.query(`SELECT ${COLS_USR} FROM usr WHERE lower(usr) = lower($1)`, [usuario.trim()]);
   return rows[0] ? mapUsuario(rows[0]) : undefined;
 }
 
@@ -595,7 +720,7 @@ export async function usuarioDaRequisicao(req: NextRequest): Promise<Usuario | u
 
 async function contarAdminsAtivos(pool: Pool, ignorarId?: string): Promise<number> {
   const { rows } = await pool.query<{ count: number }>(
-    "SELECT COUNT(*)::int AS count FROM usuarios WHERE perfil = 'admin' AND ativo = true AND id IS DISTINCT FROM $1",
+    "SELECT COUNT(*)::int AS count FROM usr WHERE prf = 'admin' AND atv = true AND id IS DISTINCT FROM $1",
     [ignorarId ?? null]
   );
   return rows[0].count;
@@ -640,7 +765,7 @@ export async function insertUsuario(
     criadoEm: new Date().toISOString(),
   };
   await pool.query(
-    `INSERT INTO usuarios (id, nome, sobrenome, email, usuario, senha_hash, perfil, ativo, precisa_trocar_senha, criado_em)
+    `INSERT INTO usr (id, nm, snm, eml, usr, sen_hsh, prf, atv, prc_trc_sen, cri_em)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     [
       usuario.id,
@@ -712,7 +837,7 @@ export async function updateUsuario(
   }
 
   await pool.query(
-    "UPDATE usuarios SET nome=$1, sobrenome=$2, usuario=$3, perfil=$4, ativo=$5, senha_hash=$6, precisa_trocar_senha=$7 WHERE id=$8",
+    "UPDATE usr SET nm=$1, snm=$2, usr=$3, prf=$4, atv=$5, sen_hsh=$6, prc_trc_sen=$7 WHERE id=$8",
     [
       usuario.nome,
       usuario.sobrenome,
@@ -732,7 +857,7 @@ export async function updateUsuario(
 export async function trocarSenhaPrimeiroAcesso(userId: string, novaSenha: string): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rowCount } = await pool.query("UPDATE usuarios SET senha_hash = $1, precisa_trocar_senha = false WHERE id = $2", [
+  const { rowCount } = await pool.query("UPDATE usr SET sen_hsh = $1, prc_trc_sen = false WHERE id = $2", [
     hashSenha(novaSenha),
     userId,
   ]);
@@ -749,7 +874,7 @@ export async function deleteUsuario(id: string, solicitanteId: string): Promise<
   if (usuario.perfil === "admin" && usuario.ativo && (await contarAdminsAtivos(pool, id)) === 0) {
     return { erro: "Este é o último administrador ativo — promova outro usuário antes de excluir." };
   }
-  await pool.query("DELETE FROM usuarios WHERE id = $1", [id]);
+  await pool.query("DELETE FROM usr WHERE id = $1", [id]);
   return true;
 }
 
@@ -764,7 +889,7 @@ export async function getDb(): Promise<Database> {
     listOrdensVisiveis(),
     listUsuarios(),
     pool.query<{ ultima_importacao: Date | null; ultima_atualizacao: Date }>(
-      "SELECT ultima_importacao, ultima_atualizacao FROM app_meta WHERE id = true"
+      "SELECT ult_imp AS ultima_importacao, ult_atu AS ultima_atualizacao FROM app_met WHERE id = true"
     ),
   ]);
   const meta = metaRes.rows[0];
