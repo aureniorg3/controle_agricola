@@ -180,7 +180,7 @@ function TchComparativo({
           <span className="text-ink">Área Liberada (Ordem)</span>
           <span className="tabular text-ink">{fmtHa(areaOrdemHa)}</span>
         </div>
-        {safrasAnteriores.map((safra) => (
+        {[...safrasAnteriores].reverse().map((safra) => (
           <div key={safra} className={linha} style={amarelo}>
             <span className="text-ink">TCH Realizado Safra {safra}</span>
             <span className="tabular text-ink">{real(safra) !== null ? fmtTch(real(safra)!) : ""}</span>
@@ -1192,9 +1192,9 @@ export default function OrdensCorteClient({
                   <th className="px-3 py-2 font-semibold">Ordem</th>
                   <th className="px-3 py-2 font-semibold">Fazenda</th>
                   <th className="px-3 py-2 font-semibold">Fundo Agrícola</th>
-                  <th className="px-3 py-2 text-right font-semibold">Área Colhida (ha)</th>
-                  <th className="px-3 py-2 text-right font-semibold">Produção Acumulada (t)</th>
-                  <th className="px-4 py-2 text-right font-semibold">TCH Parcial (t/ha)</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right text-[11.5px] font-semibold">Área Colhida (ha)</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right text-[11.5px] font-semibold">Produção Acumulada (t)</th>
+                  <th className="whitespace-nowrap px-4 py-2 text-right text-[11.5px] font-semibold">TCH Parcial (t/ha)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1420,7 +1420,7 @@ function OrdemCard({
   }, [ordem.talhoes]);
 
   return (
-    <div className="flex overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
+    <div className="card-ordem flex overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
       <div className={`w-1.5 flex-shrink-0 ${ordem.status === "Aberta" ? "bg-good-500" : "bg-amber-500"}`} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
@@ -1446,13 +1446,14 @@ function OrdemCard({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[1.45fr_1fr]">
+        <div className="card-ordem-corpo p-4">
           {/* Talhões */}
           <div className="flex min-w-0 flex-col">
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Talhões</div>
-            <table className="w-full text-[12px]">
+            <div className="overflow-x-auto">
+            <table className="w-full text-[11.5px]">
               <thead className="bg-card">
-                <tr className="whitespace-nowrap text-[9.5px] text-muted">
+                <tr className="whitespace-nowrap text-[9px] text-muted">
                   <th className="px-0.5 py-1 text-center font-semibold">Talhão</th>
                   <th className="px-0.5 py-1 text-right font-semibold">Área (ha)</th>
                   <th className="px-0.5 py-1 text-right font-semibold">Dia Anterior (t)</th>
@@ -1505,6 +1506,7 @@ function OrdemCard({
                 )}
               </tbody>
             </table>
+            </div>
             <TchComparativo
               areaOrdemHa={m.areaTotalHa}
               tchGeralAtual={m.tchGeralRealizado}
@@ -1731,6 +1733,7 @@ interface ResultadoImportacaoUI {
   viagensSemOrdem: number;
   avisos: string[];
   erros: string[];
+  modo?: "ambos" | "ordens" | "pesagem";
 }
 
 const emptyResultado: ResultadoImportacaoUI = {
@@ -1749,14 +1752,14 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
   const [erro, setErro] = useState<string | null>(null);
 
   async function enviar() {
-    if (!arqOrdens || !arqPesagem) return;
+    if (!arqOrdens && !arqPesagem) return;
     setEnviando(true);
     setErro(null);
     setResultado(null);
     try {
       const form = new FormData();
-      form.append("ordens", arqOrdens);
-      form.append("pesagem", arqPesagem);
+      if (arqOrdens) form.append("ordens", arqOrdens);
+      if (arqPesagem) form.append("pesagem", arqPesagem);
       const res = await fetch("/api/ordens-corte/importar", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) {
@@ -1776,13 +1779,16 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
   return (
     <ModalShell titulo="Importar planilhas de Ordens de Corte" onFechar={onFechar}>
       <p className="mb-4 text-[12.5px] leading-relaxed text-muted">
-        Envie os <b className="text-ink">2 relatórios</b> gerados pelo sistema de origem, do jeito que saem de lá
-        — sem mexer nas colunas. Cada envio <b className="text-ink">substitui</b> a base inteira (os dois relatórios
-        já trazem a safra completa até a data de geração, não é um incremento do dia).
+        Envie <b className="text-ink">um ou os dois relatórios</b> gerados pelo sistema de origem, do jeito que saem
+        de lá — sem mexer nas colunas. Em dias sem abertura de ordem ou sem entrada de cana, importe só o que
+        saiu: só <b className="text-ink">Ordem de Colheita</b> atualiza o cadastro (as entradas de cana e as áreas
+        medidas são mantidas); só <b className="text-ink">Pesagem</b> atualiza as entradas (o cadastro é mantido).
+        Cada relatório traz a safra completa até a data de geração e <b className="text-ink">substitui</b> a parte
+        que ele cobre.
       </p>
 
       <div className="space-y-3">
-        <Campo label='1. "Ordem de Colheita.xlsx" — cadastro (status, frente, fazenda, talhões)'>
+        <Campo label='1. "Ordem de Colheita.xlsx" — cadastro (status, frente, fazenda, talhões) — opcional'>
           <input
             type="file"
             accept=".xlsx,.xls"
@@ -1790,7 +1796,7 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
             className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
           />
         </Campo>
-        <Campo label='2. "Relatório de Pesagem de Cana" — viagens já com a ordem (coluna Liberação), fazenda e peso'>
+        <Campo label='2. "Relatório de Pesagem de Cana" — viagens já com a ordem (coluna Liberação), fazenda e peso — opcional'>
           <input
             type="file"
             accept=".xlsx,.xls"
@@ -1809,7 +1815,11 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
       {resultado && !erro && (
         <div className="mt-3 rounded-lg border border-good-500/30 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">
           <p className="font-semibold">
-            {resultado.totalOrdens} ordem(ns) · {resultado.totalViagens} viagem(ns) lida(s).
+            {resultado.modo === "ordens"
+              ? `${resultado.totalOrdens} ordem(ns) no cadastro · entradas de cana mantidas.`
+              : resultado.modo === "pesagem"
+                ? `${resultado.totalViagens} viagem(ns) lida(s) · cadastro de ordens mantido.`
+                : `${resultado.totalOrdens} ordem(ns) · ${resultado.totalViagens} viagem(ns) lida(s).`}
           </p>
           {resultado.viagensSemOrdem > 0 && (
             <p className="mt-1 text-good-600">{resultado.viagensSemOrdem} sem ordem cadastrada.</p>
@@ -1849,7 +1859,7 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
         </button>
         <button
           type="button"
-          disabled={!arqOrdens || !arqPesagem || enviando}
+          disabled={(!arqOrdens && !arqPesagem) || enviando}
           onClick={enviar}
           className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
         >

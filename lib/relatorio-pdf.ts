@@ -204,7 +204,7 @@ function montarCardOrdem(
   const linhasTch: { texto: string; valor: string; fundo: [number, number, number] }[] = mostrarTch
     ? [
         { texto: "Área Liberada (Ordem)", valor: fmtHa(m.areaTotalHa), fundo: [232, 245, 233] },
-        ...tch.safrasAnteriores.map((safra) => ({
+        ...[...tch.safrasAnteriores].reverse().map((safra) => ({
           texto: `TCH Realizado Safra ${safra}`,
           valor: realDe(safra) !== null ? fmtTch(realDe(safra)!) : "",
           fundo: [255, 255, 232] as [number, number, number],
@@ -238,9 +238,23 @@ function montarCardOrdem(
     doc.roundedRect(bx, by, bw, bh, 1.2, 1.2, "F");
   }
 
-  function selo(texto: string, sx: number, sy: number, fundo: [number, number, number], corTexto: [number, number, number], alinharDireita = false) {
+  function selo(
+    texto: string,
+    sx: number,
+    sy: number,
+    fundo: [number, number, number],
+    corTexto: [number, number, number],
+    alinharDireita = false,
+    larguraMax?: number
+  ) {
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(5.4);
+    let fonte = 5.4;
+    doc.setFontSize(fonte);
+    // texto longo (ex.: tipo de cana) encolhe até caber na largura disponível
+    while (larguraMax && doc.getTextWidth(texto) + 4 > larguraMax && fonte > 4) {
+      fonte -= 0.2;
+      doc.setFontSize(fonte);
+    }
     const w = doc.getTextWidth(texto) + 4;
     const px = alinharDireita ? sx - w : sx;
     doc.setFillColor(...fundo);
@@ -434,11 +448,13 @@ function montarCardOrdem(
     if (ordem.tipoCana) {
       const queimada = ordem.tipoCana.toLowerCase().includes("queimada");
       selo(
-        doc.splitTextToSize(ordem.tipoCana.toUpperCase(), larguraDir - 4)[0] as string,
+        ordem.tipoCana.toUpperCase(),
         xr,
         ry + 2.4,
         queimada ? [255, 243, 224] : [238, 244, 253],
-        queimada ? [167, 110, 19] : [23, 58, 120]
+        queimada ? [167, 110, 19] : [23, 58, 120],
+        false,
+        larguraDir
       );
     }
     doc.setTextColor(...INK);
@@ -457,7 +473,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   const { default: JsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
 
-  const logoInfo = await carregarImagemInfo("/logo-crv-branca.png");
+  const logoInfo = await carregarImagemInfo("/logo-crv-branca-pdf.png");
 
   const doc = new JsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -488,10 +504,10 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     );
 
     if (logoInfo) {
-      // logo em tamanho de leitura (antes 7 mm, pequena demais no PDF)
-      const alturaLogo = 12;
+      // arquivo recortado (sem a margem transparente) e em tamanho de leitura
+      const alturaLogo = 10.5;
       const larguraLogo = (logoInfo.largura / logoInfo.altura) * alturaLogo;
-      doc.addImage(logoInfo.dataUrl, "PNG", pageWidth - MARGEM - larguraLogo, 2, larguraLogo, alturaLogo);
+      doc.addImage(logoInfo.dataUrl, "PNG", pageWidth - MARGEM - larguraLogo, 2.7, larguraLogo, alturaLogo);
     }
     doc.setTextColor(...INK);
   }
@@ -603,7 +619,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     startY: inicioTabela,
     head: [cabecalhoResumo],
     body: [...dados.resumoFrentes.map(linhaResumo), linhaResumo(dados.resumoTotais)],
-    styles: { fontSize: 7.5, cellPadding: 1.8 },
+    styles: { fontSize: 7, cellPadding: 1.6 },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], halign: "right" },
     columnStyles: { 0: { halign: "left", fontStyle: "bold" }, 1: { halign: "right" } },
     didParseCell: (data) => {
@@ -747,9 +763,9 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
 
   autoTable(doc, {
     startY: cursorY,
-    head: [["Frente", "Ordem", "Fazenda", "Fundo Agrícola", "Área(ha) Colhida", "Prod.(t) Total Real. Até Hoje", "TCH(t/ha) Real. Parcial"]],
+    head: [["Frente", "Ordem", "Fazenda", "Fundo Agrícola", "Área Colhida (ha)", "Produção Acumulada (t)", "TCH Parcial (t/ha)"]],
     body: corpoDetalhado,
-    styles: { fontSize: 7.5, cellPadding: 1.8 },
+    styles: { fontSize: 7, cellPadding: 1.6 },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold" },
     columnStyles: { 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
     didParseCell: (data) => {

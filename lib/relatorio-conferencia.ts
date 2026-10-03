@@ -54,7 +54,7 @@ function linhaTabela(l: LinhaConferida): (string | number)[] {
 export async function gerarConferenciaPdf(dados: DadosRelatorioConferencia): Promise<void> {
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
-  const logo = await carregarImagemInfo("/logo-crv-branca.png");
+  const logo = await carregarImagemInfo("/logo-crv-branca-pdf.png");
 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const largura = doc.internal.pageSize.getWidth();
@@ -103,9 +103,9 @@ export async function gerarConferenciaPdf(dados: DadosRelatorioConferencia): Pro
     doc.setFontSize(7.5);
     doc.text(dados.filtrosTexto || "Todos os registros importados", MARGEM, 13);
     if (logo) {
-      const h = 11.5;
+      const h = 10.5;
       const w = (logo.largura / logo.altura) * h;
-      doc.addImage(logo.dataUrl, "PNG", largura - MARGEM - w, 2, w, h);
+      doc.addImage(logo.dataUrl, "PNG", largura - MARGEM - w, 2.1, w, h);
     }
 
     const y = altura - 10;

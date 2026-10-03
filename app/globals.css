@@ -81,3 +81,18 @@ body {
     break-inside: avoid;
   }
 }
+
+/* Card de ordem: duas colunas só quando o próprio card tem largura para isso */
+.card-ordem {
+  container-type: inline-size;
+}
+.card-ordem-corpo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+@container (min-width: 560px) {
+  .card-ordem-corpo {
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  }
+}

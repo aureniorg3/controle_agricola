@@ -497,6 +497,17 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
     // Talhões/entradas são sempre o retrato completo da importação —
     // limpa e reconstrói do zero pras ordens que sobraram, mais simples e
     // seguro do que tentar diffar linha a linha.
+    // a área colhida lançada à mão (medição de campo) não se perde numa nova importação
+    const { rows: medidas } = await client.query<{ ord_num: string; faz_cod: string; tlh: string; area_col_ha: number }>(
+      "SELECT ord_num, faz_cod, tlh, area_col_ha FROM tlh WHERE area_col_ha > 0"
+    );
+    const medida = new Map(medidas.map((m) => [`${m.ord_num}|${m.faz_cod}|${m.tlh}`, m.area_col_ha]));
+    for (const o of ordens) {
+      for (const t of o.talhoes) {
+        const anterior = medida.get(`${o.numero}|${t.fazendaCodigo}|${t.talhao}`);
+        if (anterior !== undefined && t.areaColhidaHa === 0) t.areaColhidaHa = Math.min(anterior, t.areaHa);
+      }
+    }
     await client.query("DELETE FROM tlh");
     await client.query("DELETE FROM ent_dia");
 
@@ -610,6 +621,67 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
 /** Números de ordem marcados para exibição — o `JOIN` garante que uma ordem
  * que sumiu numa reimportação não fica presa na lista (a linha já teria
  * sido removida via `ON DELETE CASCADE`, mas o filtro é uma rede extra). */
+/** Números de todas as ordens cadastradas (leve, sem talhões nem entradas). */
+export async function listNumerosOrdens(): Promise<string[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ num: string }>("SELECT num FROM ord");
+  return rows.map((r) => r.num);
+}
+
+/**
+ * Troca TODAS as entradas de cana pelas de uma importação só da pesagem — o
+ * cadastro de ordens e talhões não muda. Entradas de ordens que não existem
+ * no cadastro são ignoradas.
+ */
+export async function substituirEntradas(entradasPorOrdem: Map<string, EntradaDiaria[]>): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM ent_dia");
+    const ord: string[] = [];
+    const dt: string[] = [];
+    const faz: string[] = [];
+    const tlh: string[] = [];
+    const ton: number[] = [];
+    const t6: number[] = [];
+    const t12: number[] = [];
+    const t18: number[] = [];
+    const vgn: number[] = [];
+    for (const [numero, lista] of entradasPorOrdem) {
+      for (const e of lista) {
+        ord.push(numero);
+        dt.push(e.data);
+        faz.push(e.fazendaCodigo);
+        tlh.push(e.talhao);
+        ton.push(e.toneladas);
+        t6.push(e.toneladasAte6h);
+        t12.push(e.toneladasAte12h);
+        t18.push(e.toneladasAte18h);
+        vgn.push(e.viagens);
+      }
+    }
+    if (ord.length > 0) {
+      await client.query(
+        `INSERT INTO ent_dia (ord_num, dt, faz_cod, tlh, ton, ton_ate_6h, ton_ate_12h, ton_ate_18h, vgn)
+         SELECT u.* FROM unnest($1::text[], $2::date[], $3::text[], $4::text[], $5::numeric[], $6::numeric[], $7::numeric[], $8::numeric[], $9::int[])
+           AS u(o, d, f, t, a, b, c, e, v)
+          WHERE EXISTS (SELECT 1 FROM ord WHERE num = u.o)`,
+        [ord, dt, faz, tlh, ton, t6, t12, t18, vgn]
+      );
+    }
+    await client.query("UPDATE app_met SET ult_imp = now(), ult_atu = now() WHERE id = true");
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listOrdensVisiveis(): Promise<string[]> {
   const pool = getPool();
   await prepararBanco(pool);
