@@ -1446,18 +1446,18 @@ function OrdemCard({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[1.3fr_1fr]">
+        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[1.45fr_1fr]">
           {/* Talhões */}
           <div className="flex min-w-0 flex-col">
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Talhões</div>
             <table className="w-full text-[12px]">
               <thead className="bg-card">
-                <tr className="text-left text-muted">
-                  <th className="py-1 font-semibold">Talhão</th>
-                  <th className="py-1 text-right font-semibold">Área (ha)</th>
-                  <th className="py-1 text-right font-semibold">Dia Anterior (t)</th>
-                  <th className="py-1 text-right font-semibold">Dia Atual (t)</th>
-                  <th className="py-1 text-right font-semibold">Acumulado (t)</th>
+                <tr className="whitespace-nowrap text-[9.5px] text-muted">
+                  <th className="px-0.5 py-1 text-center font-semibold">Talhão</th>
+                  <th className="px-0.5 py-1 text-right font-semibold">Área (ha)</th>
+                  <th className="px-0.5 py-1 text-right font-semibold">Dia Anterior (t)</th>
+                  <th className="px-0.5 py-1 text-right font-semibold">Dia Atual (t)</th>
+                  <th className="px-0.5 py-1 text-right font-semibold">Acumulado (t)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1479,7 +1479,7 @@ function OrdemCard({
                     )}
                     {g.talhoes.map((t) => (
                       <tr key={`${t.fazendaCodigo}-${t.talhao}`} className="border-t border-line/70">
-                        <td className="py-1 font-medium text-ink">{t.talhao}</td>
+                        <td className="py-1 text-center font-medium text-ink">{t.talhao}</td>
                         <td className="py-1 text-right tabular text-muted">{fmtHa(t.areaHa)}</td>
                         <td className="py-1 text-right tabular text-muted">
                           {fmtT(calcTalhaoDiaAnterior(ordem, t, referencia))}
@@ -1496,7 +1496,7 @@ function OrdemCard({
                 ))}
                 {ordem.talhoes.length > 0 && (
                   <tr className="border-t border-line bg-surface font-semibold text-ink">
-                    <td className="py-1">Total</td>
+                    <td className="py-1 text-center">Total</td>
                     <td className="py-1 text-right tabular">{fmtHa(m.areaTotalHa)}</td>
                     <td className="py-1 text-right tabular">{fmtT(totalDiaAnteriorT)}</td>
                     <td className="py-1 text-right tabular">{fmtT(totalDiaAtual6hT)}</td>

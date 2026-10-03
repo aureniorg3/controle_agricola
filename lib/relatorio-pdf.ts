@@ -111,7 +111,7 @@ function colunasCard(xStart: number, largura: number) {
   const wTalhao = largura * 0.24;
   const wResto = (largura - wTalhao) / 4;
   return [
-    { x: xStart, align: "left" as const },
+    { x: xStart + wTalhao / 2 - 1, align: "center" as const },
     { x: xStart + wTalhao + wResto, align: "right" as const },
     { x: xStart + wTalhao + wResto * 2, align: "right" as const },
     { x: xStart + wTalhao + wResto * 3, align: "right" as const },
@@ -121,7 +121,7 @@ function colunasCard(xStart: number, largura: number) {
 
 function desenharLinhaCard(
   doc: import("jspdf").jsPDF,
-  cols: { x: number; align: "left" | "right" }[],
+  cols: { x: number; align: "left" | "right" | "center" }[],
   valores: (string | number)[],
   y: number
 ) {

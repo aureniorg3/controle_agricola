@@ -50,8 +50,9 @@ export function aplicarCorteERateio(
       continue;
     }
 
-    const daFazenda = ordem.talhoes.filter((t) => t.fazendaCodigo === e.fazendaCodigo);
-    const candidatos = daFazenda.length > 0 ? daFazenda : ordem.talhoes;
+    // ordem com mais de uma fazenda: o rateio vale para TODOS os talhões da ordem,
+    // não só os da fazenda da pesagem (a entrada ainda não foi apropriada a talhão nenhum)
+    const candidatos = ordem.talhoes;
 
     const estimados = candidatos
       .map((t) => ({ t, est: estPorTalhao?.[`${t.fazendaCodigo}|${t.talhao}`] }))
