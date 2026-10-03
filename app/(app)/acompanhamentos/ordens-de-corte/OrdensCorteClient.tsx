@@ -574,18 +574,17 @@ export default function OrdensCorteClient({
   }, [resumoDetalhado]);
 
   const rotulosResumo = useMemo(() => {
-    // Os fins de Semana/Quinzena/Mês Atual são sempre a própria referência
-    // (não o fim natural do período) — mesma regra "até a data selecionada"
-    // usada em resumoPorFrente, pra o rótulo bater com o que é somado de
-    // verdade.
+    // Semana/Quinzena/Mês Atual vão até o dia anterior à referência (o dia
+    // atual só entra na coluna "Dia Atual") — mesma regra de resumoPorFrente,
+    // pra o rótulo bater com o que é somado de verdade.
     const dm = (iso: string) => fmtDateBR(iso).slice(0, 5);
     const mesAnterior = mesAnteriorRange(referencia);
     return {
       diaAnterior: dm(addDays(referencia, -1)),
       diaAtual: dm(referencia),
-      semana: `${dm(startOfWeekMonday(referencia))}–${dm(referencia)}`,
-      quinzena: `${dm(quinzenaRange(referencia).inicio)}–${dm(referencia)}`,
-      mesAtual: `${dm(startOfMonth(referencia))}–${dm(referencia)}`,
+      semana: `${dm(startOfWeekMonday(referencia))}–${dm(addDays(referencia, -1))}`,
+      quinzena: `${dm(quinzenaRange(referencia).inicio)}–${dm(addDays(referencia, -1))}`,
+      mesAtual: `${dm(startOfMonth(referencia))}–${dm(addDays(referencia, -1))}`,
       mesAnterior: `${dm(mesAnterior.inicio)}–${dm(mesAnterior.fim)}`,
     };
   }, [referencia]);

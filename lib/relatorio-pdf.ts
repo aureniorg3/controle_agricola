@@ -517,9 +517,11 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   // -------------------------------------------------------------------
   cabecalhoPagina("Resumo por frente");
 
-  const semana = { inicio: startOfWeekMonday(dados.referencia), fim: dados.referencia };
-  const quinzena = { inicio: quinzenaRange(dados.referencia).inicio, fim: dados.referencia };
-  const mesAtual = { inicio: startOfMonth(dados.referencia), fim: dados.referencia };
+  // o dia atual só entra na coluna "Dia Atual": os demais períodos vão até o dia anterior
+  const ontem = addDays(dados.referencia, -1);
+  const semana = { inicio: startOfWeekMonday(dados.referencia), fim: ontem };
+  const quinzena = { inicio: quinzenaRange(dados.referencia).inicio, fim: ontem };
+  const mesAtual = { inicio: startOfMonth(dados.referencia), fim: ontem };
   const mesAnterior = mesAnteriorRange(dados.referencia);
 
   const cabecalhoResumo = [

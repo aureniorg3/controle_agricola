@@ -310,20 +310,20 @@ export function resumoPorFrente(
   /** horário de corte do dia atual (6, 12, 18 ou 24 = 00:00); a meta do dia atual é a fração hora/24 */
   horaCorte = 6
 ): FrenteResumo[] {
-  // Semana/Quinzena/Mês Atual/Safra são recortes "até a data selecionada":
-  // o fim de cada um é sempre a própria referência, nunca o fim natural do
-  // período — senão, escolher uma data retroativa mostraria produção de
-  // dias futuros (já presentes na base por causa de importações mais
-  // recentes) misturada com o que realmente tinha até aquele dia. Mês
-  // Anterior e Dia Anterior já são inteiramente passados em relação à
-  // referência, então não precisam desse limite.
-  const diaAnterior = { inicio: addDays(referencia, -1), fim: addDays(referencia, -1) };
-  const semana = { inicio: startOfWeekMonday(referencia), fim: referencia };
-  const quinzena = { inicio: quinzenaRange(referencia).inicio, fim: referencia };
-  const mesAtual = { inicio: startOfMonth(referencia), fim: referencia };
+  // Semana/Quinzena/Mês Atual/Safra vão até o DIA ANTERIOR à referência: a
+  // entrada do dia atual (parcial, até o horário de corte) aparece só na
+  // coluna "Dia Atual" e não entra nesses acumulados. Também não passam da
+  // referência — escolher uma data retroativa não mistura produção de dias
+  // futuros já presentes na base. Mês Anterior e Dia Anterior já são
+  // inteiramente passados.
+  const ontem = addDays(referencia, -1);
+  const diaAnterior = { inicio: ontem, fim: ontem };
+  const semana = { inicio: startOfWeekMonday(referencia), fim: ontem };
+  const quinzena = { inicio: quinzenaRange(referencia).inicio, fim: ontem };
+  const mesAtual = { inicio: startOfMonth(referencia), fim: ontem };
   const mesAnterior = mesAnteriorRange(referencia);
   // a safra conta a partir do início da produção cadastrada (Cadastros > Safras)
-  const safra = { inicio: safraInicio ?? "0000-01-01", fim: referencia };
+  const safra = { inicio: safraInicio ?? "0000-01-01", fim: ontem };
 
   // A meta de uma frente só conta a partir do dia da primeira entrada de cana
   // dela (e é reajustada pelas vigências das metas cadastradas); antes disso,
