@@ -382,7 +382,7 @@ export default function OrdensCorteClient({
   // resumo detalhado no final do relatório segue só as ordens marcadas e
   // mostradas nos cards — mesmo critério das colunas "Ordens"/"Área
   // Selecionada" lá em cima.
-  const resumoDetalhado = useMemo(() => resumoDetalhadoPorOrdemFazenda(ordensFiltradas), [ordensFiltradas]);
+  const resumoDetalhado = useMemo(() => resumoDetalhadoPorOrdemFazenda(ordensFiltradas, referencia), [ordensFiltradas, referencia]);
 
   const resumoDetalhadoPorFrenteComSubtotal = useMemo(() => {
     const grupos = new Map<string, LinhaResumoDetalhado[]>();
@@ -555,7 +555,7 @@ export default function OrdensCorteClient({
         if (e.data === referencia) prodDiaAtualAte6hT += e.toneladasAte6h;
       }
       if (colhida > 0) {
-        realT += calcAcumSafraT(o);
+        realT += calcAcumSafraT(o, referencia);
         realArea += colhida;
       }
     }
@@ -586,13 +586,13 @@ export default function OrdensCorteClient({
       const colhida = calcAreaColhidaHa(o);
       const est = tchEstimadoDe(o.numero);
       if (colhida <= 0 || est === null || est <= 0) continue;
-      const real = calcAcumSafraT(o) / colhida;
+      const real = calcAcumSafraT(o, referencia) / colhida;
       const pct = (real / est - 1) * 100;
       if (Math.abs(pct) > LIMITE_DIVERGENCIA_TCH_PCT) lista.push({ numero: o.numero, real, est, pct });
     }
     return lista.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ordensFiltradas, historicoTch]);
+  }, [ordensFiltradas, historicoTch, referencia]);
   const divergenciaPorOrdem = useMemo(() => new Map(divergencias.map((d) => [d.numero, d.pct])), [divergencias]);
 
   function toggleColapso(frente: string) {

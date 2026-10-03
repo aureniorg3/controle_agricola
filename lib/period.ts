@@ -70,6 +70,16 @@ export function rangeForPeriod(period: Periodo, referencia: string): { inicio: s
   return null; // safra = sem recorte de data (acumulado)
 }
 
+/**
+ * Toneladas de uma entrada que contam nos acumulados/períodos da tela: os
+ * dias anteriores à referência valem inteiros, o dia da referência vale só até
+ * as 06:00 (a fração pesada depois disso não soma) e nada depois da referência.
+ */
+export function tonAteReferencia(e: EntradaDiaria, referencia: string): number {
+  if (e.data > referencia) return 0;
+  return e.data === referencia ? e.toneladasAte6h : e.toneladas;
+}
+
 /** Entrada de um talhão no período selecionado — soma direta, sem rateio:
  * cada `EntradaDiaria` já vem por talhão, direto das viagens reais. */
 export function calcTalhaoEntradaPeriodo(
@@ -82,7 +92,7 @@ export function calcTalhaoEntradaPeriodo(
   const total = ordem.entradas
     .filter((e) => e.talhao === talhao.talhao && e.fazendaCodigo === talhao.fazendaCodigo)
     .filter((e) => range === null || (e.data >= range.inicio && e.data <= range.fim))
-    .reduce((s, e) => s + e.toneladas, 0);
+    .reduce((s, e) => s + tonAteReferencia(e, referencia), 0);
   return Math.round(total * 100) / 100;
 }
 
@@ -94,8 +104,9 @@ export interface OrdemMetrics {
   temMovimentoNoPeriodo: boolean;
 }
 
-export function calcAcumSafraT(ordem: OrdemCorte): number {
-  return ordem.entradas.reduce((s, e) => s + e.toneladas, 0);
+/** Acumulado da ordem até a referência (dia da referência só até 06:00). */
+export function calcAcumSafraT(ordem: OrdemCorte, referencia: string): number {
+  return ordem.entradas.reduce((s, e) => s + tonAteReferencia(e, referencia), 0);
 }
 
 export function calcAreaTotalHa(ordem: OrdemCorte): number {
@@ -141,7 +152,7 @@ export interface LinhaResumoDetalhado {
  * mais de uma linha, igual ao relatório impresso de referência. Usada no
  * resumo detalhado da tela e no PDF.
  */
-export function resumoDetalhadoPorOrdemFazenda(ordens: OrdemCorte[]): LinhaResumoDetalhado[] {
+export function resumoDetalhadoPorOrdemFazenda(ordens: OrdemCorte[], referencia: string): LinhaResumoDetalhado[] {
   const linhas: LinhaResumoDetalhado[] = [];
   for (const ordem of ordens) {
     const porFazenda = new Map<string, { fazendaNome: string; areaColhidaHa: number; producaoT: number }>();
@@ -152,7 +163,7 @@ export function resumoDetalhadoPorOrdemFazenda(ordens: OrdemCorte[]): LinhaResum
     }
     for (const e of ordem.entradas) {
       const atual = porFazenda.get(e.fazendaCodigo);
-      if (atual) atual.producaoT += e.toneladas;
+      if (atual) atual.producaoT += tonAteReferencia(e, referencia);
     }
     for (const [fazendaCodigo, dados] of porFazenda) {
       const areaColhidaHa = round2(dados.areaColhidaHa);
@@ -176,7 +187,7 @@ export function resumoDetalhadoPorOrdemFazenda(ordens: OrdemCorte[]): LinhaResum
 }
 
 export function calcOrdemMetrics(ordem: OrdemCorte, period: Periodo, referencia: string): OrdemMetrics {
-  const acumSafraT = calcAcumSafraT(ordem);
+  const acumSafraT = calcAcumSafraT(ordem, referencia);
   const areaTotalHa = calcAreaTotalHa(ordem);
   const range = rangeForPeriod(period, referencia);
   const entradaPeriodoT =
@@ -184,7 +195,7 @@ export function calcOrdemMetrics(ordem: OrdemCorte, period: Periodo, referencia:
       ? acumSafraT
       : ordem.entradas
           .filter((e) => e.data >= range.inicio && e.data <= range.fim)
-          .reduce((s, e) => s + e.toneladas, 0);
+          .reduce((s, e) => s + tonAteReferencia(e, referencia), 0);
   const tchGeralRealizado = areaTotalHa > 0 ? acumSafraT / areaTotalHa : 0;
   return {
     entradaPeriodoT: Math.round(entradaPeriodoT * 100) / 100,
@@ -267,11 +278,14 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function somaNoIntervalo(entradas: EntradaDiaria[], range: { inicio: string; fim: string } | null): number {
-  if (range === null) return entradas.reduce((s, e) => s + e.toneladas, 0);
+function somaNoIntervalo(
+  entradas: EntradaDiaria[],
+  range: { inicio: string; fim: string } | null,
+  referencia: string
+): number {
   return entradas
-    .filter((e) => e.data >= range.inicio && e.data <= range.fim)
-    .reduce((s, e) => s + e.toneladas, 0);
+    .filter((e) => range === null || (e.data >= range.inicio && e.data <= range.fim))
+    .reduce((s, e) => s + tonAteReferencia(e, referencia), 0);
 }
 
 /**
@@ -362,12 +376,12 @@ export function resumoPorFrente(
   for (const ordem of ordensTodas) {
     const atual = getOrInit(ordem.frente);
     atual.areaAcumuladaHa += calcAreaTotalHa(ordem);
-    atual.safraT += somaNoIntervalo(ordem.entradas, safra);
-    atual.mesAnteriorT += somaNoIntervalo(ordem.entradas, mesAnterior);
-    atual.mesAtualT += somaNoIntervalo(ordem.entradas, mesAtual);
-    atual.quinzenaT += somaNoIntervalo(ordem.entradas, quinzena);
-    atual.semanaT += somaNoIntervalo(ordem.entradas, semana);
-    atual.diaAnteriorT += somaNoIntervalo(ordem.entradas, diaAnterior);
+    atual.safraT += somaNoIntervalo(ordem.entradas, safra, referencia);
+    atual.mesAnteriorT += somaNoIntervalo(ordem.entradas, mesAnterior, referencia);
+    atual.mesAtualT += somaNoIntervalo(ordem.entradas, mesAtual, referencia);
+    atual.quinzenaT += somaNoIntervalo(ordem.entradas, quinzena, referencia);
+    atual.semanaT += somaNoIntervalo(ordem.entradas, semana, referencia);
+    atual.diaAnteriorT += somaNoIntervalo(ordem.entradas, diaAnterior, referencia);
     atual.diaAtualT += ordem.entradas
       .filter((e) => e.data === referencia)
       .reduce((s, e) => s + e.toneladasAte6h, 0);
