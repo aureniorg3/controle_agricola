@@ -1734,6 +1734,9 @@ interface ResultadoImportacaoUI {
   avisos: string[];
   erros: string[];
   modo?: "ambos" | "ordens" | "pesagem";
+  viagensNovas?: number;
+  viagensSubstituidas?: number;
+  periodo?: string | null;
 }
 
 const emptyResultado: ResultadoImportacaoUI = {
@@ -1783,8 +1786,9 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
         de lá — sem mexer nas colunas. Em dias sem abertura de ordem ou sem entrada de cana, importe só o que
         saiu: só <b className="text-ink">Ordem de Colheita</b> atualiza o cadastro (as entradas de cana e as áreas
         medidas são mantidas); só <b className="text-ink">Pesagem</b> atualiza as entradas (o cadastro é mantido).
-        Cada relatório traz a safra completa até a data de geração e <b className="text-ink">substitui</b> a parte
-        que ele cobre.
+        A pesagem pode cobrir só um período: cada viagem é conferida por{" "}
+        <b className="text-ink">data + liberação + controle</b> e <b className="text-ink">substitui</b> a de mesma
+        chave; o histórico anterior não é apagado.
       </p>
 
       <div className="space-y-3">
@@ -1817,9 +1821,9 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
           <p className="font-semibold">
             {resultado.modo === "ordens"
               ? `${resultado.totalOrdens} ordem(ns) no cadastro · entradas de cana mantidas.`
-              : resultado.modo === "pesagem"
-                ? `${resultado.totalViagens} viagem(ns) lida(s) · cadastro de ordens mantido.`
-                : `${resultado.totalOrdens} ordem(ns) · ${resultado.totalViagens} viagem(ns) lida(s).`}
+              : `${resultado.modo === "ambos" ? `${resultado.totalOrdens} ordem(ns) · ` : ""}${resultado.totalViagens} viagem(ns) lida(s)${
+                  resultado.periodo ? ` (${resultado.periodo})` : ""
+                } · ${resultado.viagensNovas ?? 0} nova(s), ${resultado.viagensSubstituidas ?? 0} substituída(s) · histórico anterior mantido.`}
           </p>
           {resultado.viagensSemOrdem > 0 && (
             <p className="mt-1 text-good-600">{resultado.viagensSemOrdem} sem ordem cadastrada.</p>

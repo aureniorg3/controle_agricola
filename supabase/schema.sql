@@ -19,6 +19,7 @@
 --   Tabelas: usr=usuários, ord=ordens, tlh=talhões, ent_dia=entradas diárias,
 --            ord_vis=ordens visíveis, met_frt=metas por frente, conf_pes=conferência
 --            de pesagem (frt_cor=frente correta lançada), eqp_frt=equipamento x frente,
+--            pes_viag=viagens da pesagem (ctl=controle, hsd=hora saída indústria),
 --            saf_tlh=histórico de safras (por talhão), saf_cad=cadastro de safras,
 --            app_met=metadados
 --   Colunas: nm=nome, snm=sobrenome, eml=e-mail, usr=usuário, sen_hsh=senha (hash),
@@ -93,6 +94,21 @@ create table if not exists ent_dia (
   ton_ate_18h numeric not null default 0,
   vgn integer not null default 0,
   primary key (ord_num, dt, faz_cod, tlh)
+);
+
+-- Viagens da pesagem, uma linha por Data Mov. + Liberação (ordem) + Controle.
+-- A importação da pesagem é incremental: o arquivo novo substitui as viagens
+-- de mesma chave e o histórico anterior permanece. `ent_dia` é reconstruída
+-- a partir destas viagens (por ordem + data).
+create table if not exists pes_viag (
+  dt date not null,
+  ord_num text not null,
+  ctl text not null,
+  faz_cod text not null default '-',
+  tlh text not null default '',
+  ton numeric not null default 0,
+  hsd text not null default '',
+  primary key (dt, ord_num, ctl)
 );
 
 -- Ordens marcadas manualmente para aparecer na tela — seleção GLOBAL,

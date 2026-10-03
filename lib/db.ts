@@ -286,6 +286,14 @@ function prepararBanco(pool: Pool): Promise<void> {
            PRIMARY KEY (dt, eqp, frt, faz_cod)
          )`
       );
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS pes_viag (
+           dt date NOT NULL, ord_num text NOT NULL, ctl text NOT NULL,
+           faz_cod text NOT NULL DEFAULT '-', tlh text NOT NULL DEFAULT '',
+           ton numeric NOT NULL DEFAULT 0, hsd text NOT NULL DEFAULT '',
+           PRIMARY KEY (dt, ord_num, ctl)
+         )`
+      );
       await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_12h numeric NOT NULL DEFAULT 0");
       await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_18h numeric NOT NULL DEFAULT 0");
       await pool.query("ALTER TABLE conf_pes ADD COLUMN IF NOT EXISTS frt_cor text");
@@ -630,48 +638,83 @@ export async function listNumerosOrdens(): Promise<string[]> {
 }
 
 /**
- * Troca TODAS as entradas de cana pelas de uma importação só da pesagem — o
- * cadastro de ordens e talhões não muda. Entradas de ordens que não existem
- * no cadastro são ignoradas.
+ * Grava as viagens do arquivo, substituindo as de mesma chave (data +
+ * liberação + controle); as demais ficam como estão. Devolve quantas eram
+ * novas e quantas substituíram uma já existente.
  */
-export async function substituirEntradas(entradasPorOrdem: Map<string, EntradaDiaria[]>): Promise<void> {
+export async function upsertViagens(
+  viagens: { data: string; ordem: string; controle: string; fazendaCodigo: string; talhao: string; toneladas: number; hora: string }[]
+): Promise<{ novas: number; substituidas: number }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const client = await pool.connect();
+  let substituidas = 0;
+  try {
+    await client.query("BEGIN");
+    for (let i = 0; i < viagens.length; i += 5000) {
+      const lote = viagens.slice(i, i + 5000);
+      const dts = lote.map((v) => v.data);
+      const ords = lote.map((v) => v.ordem);
+      const ctls = lote.map((v) => v.controle);
+      const { rows } = await client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM pes_viag p
+           JOIN unnest($1::date[], $2::text[], $3::text[]) AS u(d, o, c) ON p.dt = u.d AND p.ord_num = u.o AND p.ctl = u.c`,
+        [dts, ords, ctls]
+      );
+      substituidas += rows[0].n;
+      await client.query(
+        `INSERT INTO pes_viag (dt, ord_num, ctl, faz_cod, tlh, ton, hsd)
+         SELECT * FROM unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::text[])
+         ON CONFLICT (dt, ord_num, ctl) DO UPDATE SET
+           faz_cod = EXCLUDED.faz_cod, tlh = EXCLUDED.tlh, ton = EXCLUDED.ton, hsd = EXCLUDED.hsd`,
+        [
+          dts,
+          ords,
+          ctls,
+          lote.map((v) => v.fazendaCodigo),
+          lote.map((v) => v.talhao),
+          lote.map((v) => v.toneladas),
+          lote.map((v) => v.hora),
+        ]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+  return { novas: viagens.length - substituidas, substituidas };
+}
+
+/**
+ * Refaz as entradas diárias (por ordem + data + fazenda + talhão) a partir das
+ * viagens gravadas. Só mexe nos pares ordem + data que têm viagens — datas
+ * anteriores ao histórico de viagens (importadas na versão antiga) ficam
+ * intactas.
+ */
+export async function reconstruirEntradas(): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("DELETE FROM ent_dia");
-    const ord: string[] = [];
-    const dt: string[] = [];
-    const faz: string[] = [];
-    const tlh: string[] = [];
-    const ton: number[] = [];
-    const t6: number[] = [];
-    const t12: number[] = [];
-    const t18: number[] = [];
-    const vgn: number[] = [];
-    for (const [numero, lista] of entradasPorOrdem) {
-      for (const e of lista) {
-        ord.push(numero);
-        dt.push(e.data);
-        faz.push(e.fazendaCodigo);
-        tlh.push(e.talhao);
-        ton.push(e.toneladas);
-        t6.push(e.toneladasAte6h);
-        t12.push(e.toneladasAte12h);
-        t18.push(e.toneladasAte18h);
-        vgn.push(e.viagens);
-      }
-    }
-    if (ord.length > 0) {
-      await client.query(
-        `INSERT INTO ent_dia (ord_num, dt, faz_cod, tlh, ton, ton_ate_6h, ton_ate_12h, ton_ate_18h, vgn)
-         SELECT u.* FROM unnest($1::text[], $2::date[], $3::text[], $4::text[], $5::numeric[], $6::numeric[], $7::numeric[], $8::numeric[], $9::int[])
-           AS u(o, d, f, t, a, b, c, e, v)
-          WHERE EXISTS (SELECT 1 FROM ord WHERE num = u.o)`,
-        [ord, dt, faz, tlh, ton, t6, t12, t18, vgn]
-      );
-    }
+    await client.query(
+      `DELETE FROM ent_dia e USING (SELECT DISTINCT v.ord_num, v.dt FROM pes_viag v JOIN ord o ON o.num = v.ord_num) k
+        WHERE e.ord_num = k.ord_num AND e.dt = k.dt`
+    );
+    await client.query(
+      `INSERT INTO ent_dia (ord_num, dt, faz_cod, tlh, ton, ton_ate_6h, ton_ate_12h, ton_ate_18h, vgn)
+       SELECT v.ord_num, v.dt, v.faz_cod, v.tlh,
+              ROUND(SUM(v.ton), 2),
+              ROUND(COALESCE(SUM(v.ton) FILTER (WHERE v.hsd <> '' AND v.hsd < '06:00'), 0), 2),
+              ROUND(COALESCE(SUM(v.ton) FILTER (WHERE v.hsd <> '' AND v.hsd < '12:00'), 0), 2),
+              ROUND(COALESCE(SUM(v.ton) FILTER (WHERE v.hsd <> '' AND v.hsd < '18:00'), 0), 2),
+              COUNT(*)::int
+         FROM pes_viag v JOIN ord o ON o.num = v.ord_num
+        GROUP BY v.ord_num, v.dt, v.faz_cod, v.tlh`
+    );
     await client.query("UPDATE app_met SET ult_imp = now(), ult_atu = now() WHERE id = true");
     await client.query("COMMIT");
   } catch (err) {

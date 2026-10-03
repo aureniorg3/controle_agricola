@@ -303,10 +303,22 @@ export function parseOrdemColheita(buffer: ArrayBuffer): {
 // 2) Relatório de Pesagem de Cana — uma linha por viagem, já com a ordem
 // ---------------------------------------------------------------------------
 //
-// A agregação por (ordem, data, fazenda, talhão) acontece AQUI, linha a
-// linha, em vez de guardar cada viagem num array para juntar depois — a
-// instância gratuita do Render (512 MB) não sobra memória para reter as
-// ~176 mil viagens inteiras E a agregação ao mesmo tempo.
+// Cada viagem é identificada por Data Mov. + Liberação (a ordem) + Controle.
+// O arquivo cobre só um período ("Dat. Mov. : 25/09/26 a 30/09/26"), então a
+// importação é INCREMENTAL: as viagens do arquivo substituem as de mesma
+// chave e o histórico anterior continua como estava.
+
+export interface ViagemPesagem {
+  data: string;
+  ordem: string;
+  /** "Controle" do relatório (ex.: "24332 2") — único dentro da data + ordem */
+  controle: string;
+  fazendaCodigo: string;
+  talhao: string;
+  toneladas: number;
+  /** "Hora Saída Indústria" (HH:MM) — base dos cortes de 06:00, 12:00 e 18:00 */
+  hora: string;
+}
 
 export interface EntradaAgregada {
   ordem: string;
@@ -314,40 +326,52 @@ export interface EntradaAgregada {
   fazendaCodigo: string;
   talhao: string;
   toneladas: number;
-  /** parte de `toneladas` pesada com "Hora Saída Indústria" < 06:00 — usada
-   * pela coluna "Dia Atual" do resumo por frente. */
   toneladasAte6h: number;
-  /** idem, até 12:00 e até 18:00 */
   toneladasAte12h: number;
   toneladasAte18h: number;
   viagens: number;
 }
 
-export async function agregarPesagem(
+export async function lerViagensPesagem(
   buffer: ArrayBuffer,
   ordensCadastradas: Set<string>
 ): Promise<{
-  agregados: Map<string, EntradaAgregada>;
-  totalViagens: number;
+  viagens: ViagemPesagem[];
+  linhasLidas: number;
+  repetidasNoArquivo: number;
   semOrdem: number;
   ordensNaoCadastradas: Set<string>;
+  /** período informado no cabeçalho do relatório */
+  periodoCabecalho: { inicio: string; fim: string } | null;
+  /** menor e maior Data Mov. realmente encontradas */
+  periodoLido: { inicio: string; fim: string } | null;
   avisos: string[];
   erros: string[];
 }> {
   const avisos: string[] = [];
   const erros: string[] = [];
-  const agregados = new Map<string, EntradaAgregada>();
+  const porChave = new Map<string, ViagemPesagem>();
   const ordensNaoCadastradas = new Set<string>();
 
   let numLinha = 0;
   let idxCabecalho: number | null = null;
-  let totalViagens = 0;
+  let linhasLidas = 0;
+  let repetidasNoArquivo = 0;
   let semOrdem = 0;
+  let periodoCabecalho: { inicio: string; fim: string } | null = null;
 
   await paraCadaLinha(buffer, (l) => {
     const linhaAtual = numLinha++;
 
     if (idxCabecalho === null) {
+      const periodo = texto(l[2]).match(/(\d{2})\/(\d{2})\/(\d{2,4})\s*a\s*(\d{2})\/(\d{2})\/(\d{2,4})/);
+      if (periodo && !periodoCabecalho) {
+        const ano = (v: string) => (v.length === 2 ? `20${v}` : v);
+        periodoCabecalho = {
+          inicio: `${ano(periodo[3])}-${periodo[2]}-${periodo[1]}`,
+          fim: `${ano(periodo[6])}-${periodo[5]}-${periodo[4]}`,
+        };
+      }
       if (
         linhaAtual < 15 &&
         l[1] === "Data Mov." &&
@@ -361,65 +385,70 @@ export async function agregarPesagem(
     }
 
     // Linhas de verdade sempre têm "Liberação" (a ordem) numérica — pula
-    // linhas em branco e o rodapé (totais) sem precisar reconhecer o
-    // formato exato deles.
+    // linhas em branco e o rodapé (totais).
     if (typeof l[3] !== "number") return;
 
-    const data = dataIsoSerial(l[1]); // "Data Mov." — sempre igual à "Data Saída Indústria"
+    const data = dataIsoSerial(l[1]); // "Data Mov."
     if (!data) return;
-    totalViagens++;
+    linhasLidas++;
 
     const ordem = texto(l[3]); // "Liberação" já é o número da ordem (O.Q.)
+    const controle = texto(l[4]).replace(/\s+/g, " ");
+    if (!controle) return;
     if (!ordensCadastradas.has(ordem)) {
       ordensNaoCadastradas.add(ordem);
       semOrdem++;
-      return;
     }
 
-    // "Fundo Agrícola" vem como "9529 - FAZ. SANTA VITÓRIA", mesmo formato
-    // da linha "Propriedade" em Ordem de Colheita.xlsx — mesma lógica de
-    // split pra extrair o código.
+    // "Fundo Agrícola" vem como "9529 - FAZ. SANTA VITÓRIA"
     const fundoAgricola = texto(l[13]);
     const fazendaCodigo = fundoAgricola.split(" - ")[0]?.trim() || "-";
-    const talhao = texto(l[14]);
-    const toneladas = numeroBR(l[19]) / 1000; // Peso Líquido, em kg
-    const horaSaidaIndustria = texto(l[31]); // "HH:MM" — já é texto, não fração de dia
-
-    // Fazenda entra na chave porque o número do talhão sozinho não é único
-    // dentro da ordem quando ela abrange mais de uma fazenda (ver TalhaoOrdem).
-    const k = `${ordem}|${data}|${fazendaCodigo}|${talhao}`;
-    const acc =
-      agregados.get(k) ?? {
-        ordem,
-        data,
-        fazendaCodigo,
-        talhao,
-        toneladas: 0,
-        toneladasAte6h: 0,
-        toneladasAte12h: 0,
-        toneladasAte18h: 0,
-        viagens: 0,
-      };
-    acc.toneladas += toneladas;
-    if (horaSaidaIndustria && horaSaidaIndustria < "06:00") acc.toneladasAte6h += toneladas;
-    if (horaSaidaIndustria && horaSaidaIndustria < "12:00") acc.toneladasAte12h += toneladas;
-    if (horaSaidaIndustria && horaSaidaIndustria < "18:00") acc.toneladasAte18h += toneladas;
-    acc.viagens += 1;
-    agregados.set(k, acc);
+    const chave = `${data}|${ordem}|${controle}`;
+    if (porChave.has(chave)) repetidasNoArquivo++;
+    porChave.set(chave, {
+      data,
+      ordem,
+      controle,
+      fazendaCodigo,
+      talhao: texto(l[14]),
+      toneladas: numeroBR(l[19]) / 1000, // Peso Líquido, em kg
+      hora: texto(l[31]), // "HH:MM" — já é texto
+    });
   });
 
   if (idxCabecalho === null) {
     erros.push(
       'Não encontrei o cabeçalho esperado (Data Mov. / Turno / Liberação / Controle) nas primeiras linhas do arquivo "Relatório de Pesagem de Cana". Confira se é o arquivo certo.'
     );
-    return { agregados: new Map(), totalViagens: 0, semOrdem: 0, ordensNaoCadastradas, avisos, erros };
-  }
-
-  if (totalViagens === 0) {
+  } else if (linhasLidas === 0) {
     erros.push('Nenhuma viagem foi lida do arquivo "Relatório de Pesagem de Cana".');
   }
 
-  return { agregados, totalViagens, semOrdem, ordensNaoCadastradas, avisos, erros };
+  const viagens = [...porChave.values()];
+  let periodoLido: { inicio: string; fim: string } | null = null;
+  for (const v of viagens) {
+    if (!periodoLido) periodoLido = { inicio: v.data, fim: v.data };
+    else {
+      if (v.data < periodoLido.inicio) periodoLido.inicio = v.data;
+      if (v.data > periodoLido.fim) periodoLido.fim = v.data;
+    }
+  }
+
+  if (periodoCabecalho && periodoLido) {
+    const cab = periodoCabecalho as { inicio: string; fim: string };
+    if (periodoLido.inicio < cab.inicio || periodoLido.fim > cab.fim) {
+      avisos.push(
+        `Há viagens fora do período informado no cabeçalho do relatório (${cab.inicio} a ${cab.fim}) — confira o arquivo.`
+      );
+    }
+  }
+  if (repetidasNoArquivo > 0) {
+    avisos.push(
+      `${repetidasNoArquivo} viagem(ns) repetida(s) no arquivo (mesma data, liberação e controle) — contadas uma vez só.`
+    );
+  }
+
+  return { viagens, linhasLidas, repetidasNoArquivo, semOrdem, ordensNaoCadastradas, periodoCabecalho, periodoLido, avisos, erros };
 }
 
 // ---------------------------------------------------------------------------

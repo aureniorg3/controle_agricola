@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listNumerosOrdens, listOrdens, substituirEntradas, substituirOrdens, usuarioDaRequisicao } from "@/lib/db";
-import { agregarPesagem, montarOrdens, parseOrdemColheita } from "@/lib/import-pesagem";
+import {
+  listNumerosOrdens,
+  listOrdens,
+  reconstruirEntradas,
+  substituirOrdens,
+  upsertViagens,
+  usuarioDaRequisicao,
+} from "@/lib/db";
+import { lerViagensPesagem, montarOrdens, parseOrdemColheita } from "@/lib/import-pesagem";
 import { podeEditar } from "@/lib/permissoes";
 import type { EntradaDiaria } from "@/lib/types";
 
 export const runtime = "nodejs";
-// O relatório de pesagem sozinho passa de 170 mil linhas — vale mais tempo
+// O relatório de pesagem pode passar de 170 mil linhas — vale mais tempo
 // que o padrão de rotas simples.
 export const maxDuration = 120;
 
@@ -13,12 +20,18 @@ function arquivoValido(v: FormDataEntryValue | null): File | null {
   return v && typeof v !== "string" && v.size > 0 ? v : null;
 }
 
+function fmtBR(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 /**
- * Importa um ou os dois relatórios do CHBWEB:
- *  - só "Ordem de Colheita": atualiza o cadastro (ordens e talhões); as
- *    entradas de cana e as áreas medidas à mão são mantidas;
- *  - só "Pesagem": troca as entradas de cana; o cadastro é mantido;
- *  - os dois: troca tudo (comportamento original).
+ * Importa um ou os dois relatórios do CHBWEB, sem apagar o histórico:
+ *  - "Ordem de Colheita" atualiza o cadastro (ordens e talhões); as entradas de
+ *    cana e as áreas medidas à mão são mantidas;
+ *  - "Pesagem" traz um período (ex.: 25/09 a 30/09): cada viagem, identificada
+ *    por data + liberação (ordem) + controle, substitui a de mesma chave; as
+ *    viagens de outras datas continuam como estavam.
  * Há dias sem abertura de ordem ou sem entrada de cana, então nenhum dos dois
  * é obrigatório.
  */
@@ -71,10 +84,10 @@ export async function POST(req: NextRequest) {
     ? new Set(resOrdens.ordens.map((o) => o.numero))
     : new Set(await listNumerosOrdens());
 
-  let resPesagem: Awaited<ReturnType<typeof agregarPesagem>> | null = null;
+  let resPesagem: Awaited<ReturnType<typeof lerViagensPesagem>> | null = null;
   if (arquivoPesagem) {
     try {
-      resPesagem = await agregarPesagem(await arquivoPesagem.arrayBuffer(), ordensCadastradas);
+      resPesagem = await lerViagensPesagem(await arquivoPesagem.arrayBuffer(), ordensCadastradas);
     } catch (e) {
       return NextResponse.json(
         { error: `Não foi possível ler o arquivo "Relatório de Pesagem de Cana": ${e instanceof Error ? e.message : String(e)}` },
@@ -93,21 +106,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ---- os dois arquivos
-  if (resOrdens && resPesagem) {
-    const resultado = montarOrdens(resOrdens.ordens, resPesagem, "2026/27");
-    await substituirOrdens(resultado.ordens);
-    return NextResponse.json({
-      modo: "ambos",
-      totalOrdens: resultado.totalOrdens,
-      totalViagens: resultado.totalViagens,
-      viagensSemOrdem: resultado.viagensSemOrdem,
-      avisos: [...resOrdens.avisos, ...resPesagem.avisos, ...resultado.avisos],
-      erros: [] as string[],
-    });
-  }
+  const avisos: string[] = [...(resOrdens?.avisos ?? [])];
 
-  // ---- só o cadastro de ordens: mantém as entradas de cana já importadas
+  // 1) cadastro de ordens (mantém as entradas já existentes)
+  let totalOrdens = ordensCadastradas.size;
   if (resOrdens) {
     const existentes = await listOrdens();
     const entradasPorOrdem = new Map<string, EntradaDiaria[]>(existentes.map((o) => [o.numero, o.entradas]));
@@ -115,50 +117,37 @@ export async function POST(req: NextRequest) {
     const resultado = montarOrdens(resOrdens.ordens, vazio, "2026/27");
     for (const o of resultado.ordens) o.entradas = entradasPorOrdem.get(o.numero) ?? [];
     await substituirOrdens(resultado.ordens);
-    return NextResponse.json({
-      modo: "ordens",
-      totalOrdens: resultado.totalOrdens,
-      totalViagens: 0,
-      viagensSemOrdem: 0,
-      avisos: resOrdens.avisos,
-      erros: [] as string[],
-    });
+    totalOrdens = resultado.totalOrdens;
   }
 
-  // ---- só a pesagem: mantém o cadastro, troca as entradas
-  const pesagem = resPesagem!;
-  const entradasPorOrdem = new Map<string, EntradaDiaria[]>();
-  for (const acc of pesagem.agregados.values()) {
-    const lista = entradasPorOrdem.get(acc.ordem) ?? [];
-    lista.push({
-      data: acc.data,
-      fazendaCodigo: acc.fazendaCodigo,
-      talhao: acc.talhao,
-      toneladas: Math.round(acc.toneladas * 100) / 100,
-      toneladasAte6h: Math.round(acc.toneladasAte6h * 100) / 100,
-      toneladasAte12h: Math.round(acc.toneladasAte12h * 100) / 100,
-      toneladasAte18h: Math.round(acc.toneladasAte18h * 100) / 100,
-      viagens: acc.viagens,
-    });
-    entradasPorOrdem.set(acc.ordem, lista);
+  // 2) viagens da pesagem: substitui por data + liberação + controle, sem apagar o resto
+  let novas = 0;
+  let substituidas = 0;
+  if (resPesagem) {
+    ({ novas, substituidas } = await upsertViagens(resPesagem.viagens));
+    avisos.push(...resPesagem.avisos);
+    if (resPesagem.ordensNaoCadastradas.size > 0) {
+      avisos.push(
+        `${resPesagem.ordensNaoCadastradas.size} ordem(ns) aparecem nas viagens mas não estão no cadastro (importe "Ordem de Colheita" — as viagens ficam guardadas e entram sozinhas quando a ordem for cadastrada): ${[
+          ...resPesagem.ordensNaoCadastradas,
+        ]
+          .slice(0, 15)
+          .join(", ")}${resPesagem.ordensNaoCadastradas.size > 15 ? "…" : ""}.`
+      );
+    }
   }
-  await substituirEntradas(entradasPorOrdem);
 
-  const avisos = [...pesagem.avisos];
-  if (pesagem.ordensNaoCadastradas.size > 0) {
-    avisos.push(
-      `${pesagem.ordensNaoCadastradas.size} ordem(ns) aparecem nas viagens mas não estão no cadastro atual (importe "Ordem de Colheita"): ${[
-        ...pesagem.ordensNaoCadastradas,
-      ]
-        .slice(0, 15)
-        .join(", ")}${pesagem.ordensNaoCadastradas.size > 15 ? "…" : ""}.`
-    );
-  }
+  // 3) entradas diárias refeitas a partir das viagens (histórico sem viagens fica intacto)
+  await reconstruirEntradas();
+
   return NextResponse.json({
-    modo: "pesagem",
-    totalOrdens: ordensCadastradas.size,
-    totalViagens: pesagem.totalViagens,
-    viagensSemOrdem: pesagem.semOrdem,
+    modo: resOrdens && resPesagem ? "ambos" : resOrdens ? "ordens" : "pesagem",
+    totalOrdens,
+    totalViagens: resPesagem?.viagens.length ?? 0,
+    viagensNovas: novas,
+    viagensSubstituidas: substituidas,
+    periodo: resPesagem?.periodoLido ? `${fmtBR(resPesagem.periodoLido.inicio)} a ${fmtBR(resPesagem.periodoLido.fim)}` : null,
+    viagensSemOrdem: resPesagem?.semOrdem ?? 0,
     avisos,
     erros: [] as string[],
   });
