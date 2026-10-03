@@ -88,6 +88,9 @@ create table if not exists ent_dia (
   ton numeric not null default 0,
   -- parte de `ton` pesada entre 00:00 e 06:00 (coluna "Dia Atual")
   ton_ate_6h numeric not null default 0,
+  -- idem até 12:00 e até 18:00 (horário de corte do "dia atual" na tela)
+  ton_ate_12h numeric not null default 0,
+  ton_ate_18h numeric not null default 0,
   vgn integer not null default 0,
   primary key (ord_num, dt, faz_cod, tlh)
 );

@@ -68,6 +68,8 @@ export interface DadosRelatorioCompleto {
   kpis: KpiRelatorio[];
   /** TCH das safras anteriores / estimado da safra atual por ordem */
   historicoTch: HistoricoTchOrdem;
+  /** horário de corte do dia atual: 6, 12, 18 ou 24 (00:00) */
+  horaCorte: number;
   /** ordens com TCH real (ton ÷ área medida) divergente do estimado — só para Gravação/Admin */
   divergenciaPorOrdem: Record<string, number>;
   /** início da produção da safra vigente (cadastro de safras), quando houver */
@@ -463,6 +465,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   const limiteY = pageHeight - RODAPE_ALTURA;
   const geradoEm = new Date();
   const dm = (iso: string) => fmtDateBR(iso).slice(0, 5);
+  const rotuloHora = dados.horaCorte === 24 ? "00:00" : `${String(dados.horaCorte).padStart(2, "0")}:00`;
 
   function cabecalhoPagina(subtitulo: string) {
     doc.setFillColor(...NAVY);
@@ -479,15 +482,16 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     doc.text(
       `Safra ${dados.safraLabel} · Capinópolis-MG · Referência ${fmtDateBR(dados.referencia)}${
         dados.producaoDesde ? ` · Produção desde ${fmtDateBR(dados.producaoDesde)}` : ""
-      }${subtitulo ? ` · ${subtitulo}` : ""}`,
+      } · Dia atual até ${rotuloHora}${subtitulo ? ` · ${subtitulo}` : ""}`,
       MARGEM,
       14
     );
 
     if (logoInfo) {
-      const alturaLogo = 7;
+      // logo em tamanho de leitura (antes 7 mm, pequena demais no PDF)
+      const alturaLogo = 12;
       const larguraLogo = (logoInfo.largura / logoInfo.altura) * alturaLogo;
-      doc.addImage(logoInfo.dataUrl, "PNG", pageWidth - MARGEM - larguraLogo, 4.8, larguraLogo, alturaLogo);
+      doc.addImage(logoInfo.dataUrl, "PNG", pageWidth - MARGEM - larguraLogo, 2, larguraLogo, alturaLogo);
     }
     doc.setTextColor(...INK);
   }
@@ -513,7 +517,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     `Quinzena\n${dm(quinzena.inicio)}-${dm(quinzena.fim)}`,
     `Semana\n${dm(semana.inicio)}-${dm(semana.fim)}`,
     `Dia Anterior\n${dm(addDays(dados.referencia, -1))}`,
-    `Dia Atual\n${dm(dados.referencia)} até 06h`,
+    `Dia Atual\n${dm(dados.referencia)} até ${rotuloHora}`,
   ];
 
   // 8 cards do topo da tela, numa faixa só
@@ -550,7 +554,9 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     doc.setFontSize(6.4);
     doc.setTextColor(...MUTED);
     doc.text(
-      "Abaixo de cada produção: meta da frente no período (t) e % atingido. Dia Atual compara com 6/24 da meta diária (só até 06h).",
+      `Abaixo de cada produção: meta da frente no período (t) e % atingido. Dia Atual compara com ${
+        dados.horaCorte === 24 ? "a meta diária inteira" : `${dados.horaCorte}/24 da meta diária`
+      } (só até ${rotuloHora}).`,
       MARGEM,
       inicioTabela + 1.5
     );

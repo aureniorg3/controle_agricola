@@ -24,6 +24,7 @@ import {
 import { fmtDateBR, fmtHa, fmtT, fmtTch, todayISO } from "@/lib/format";
 import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
 import { Campo, ModalShell } from "@/components/ui";
+import { aplicarCorteERateio, HORAS_CORTE, rotuloHoraCorte, type HoraCorte } from "@/lib/rateio";
 import {
   IconCaminhaoCana,
   IconColhedora,
@@ -65,6 +66,83 @@ function MetaLinha({ real, meta }: { real: number; meta: number }) {
   return (
     <div className="mt-0.5 text-[10.5px] font-medium leading-tight text-muted">
       Meta {fmtT(meta)} · <span className={`font-bold ${cor}`}>{pct.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%</span>
+    </div>
+  );
+}
+
+/** Escolhe quais frentes aparecem e em que ordem (setas), em toda a tela e no PDF. */
+function FrentesSeletor({
+  frentes,
+  visiveis,
+  onAlternar,
+  onMover,
+  onTodas,
+  onRestaurar,
+}: {
+  frentes: string[];
+  visiveis: Set<string>;
+  onAlternar: (f: string) => void;
+  onMover: (f: string, delta: -1 | 1) => void;
+  onTodas: () => void;
+  onRestaurar: () => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setAberto((a) => !a)}
+        aria-expanded={aberto}
+        className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink shadow-card hover:bg-surface"
+      >
+        Frentes · {visiveis.size}/{frentes.length}
+      </button>
+      {aberto && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setAberto(false)} aria-hidden="true" />
+          <div className="absolute left-0 top-full z-40 mt-1.5 w-[300px] rounded-xl2 border border-line bg-card p-2 shadow-pop">
+            <p className="px-1.5 pb-1.5 text-[11.5px] text-muted">
+              Marque as frentes que aparecem e use as setas para mudar a ordem.
+            </p>
+            <ul className="max-h-[320px] overflow-y-auto">
+              {frentes.map((f, i) => (
+                <li key={f} className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-surface">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-[12.5px] text-ink">
+                    <input type="checkbox" checked={visiveis.has(f)} onChange={() => onAlternar(f)} />
+                    <span className="truncate">{f}</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => onMover(f, -1)}
+                    disabled={i === 0}
+                    aria-label={`Subir ${f}`}
+                    className="rounded px-1.5 text-[13px] text-muted hover:bg-line disabled:opacity-30"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onMover(f, 1)}
+                    disabled={i === frentes.length - 1}
+                    aria-label={`Descer ${f}`}
+                    className="rounded px-1.5 text-[13px] text-muted hover:bg-line disabled:opacity-30"
+                  >
+                    ▼
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-1.5 flex justify-between border-t border-line px-1.5 pt-2 text-[12px] font-semibold text-brand-700">
+              <button type="button" onClick={onTodas}>
+                Mostrar todas
+              </button>
+              <button type="button" onClick={onRestaurar}>
+                Restaurar ordem
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -167,22 +245,6 @@ export default function OrdensCorteClient({
 }) {
   const podeGravar = podeEditar(perfil);
   const [ordensBrutas, setOrdens] = useState<OrdemCorte[]>(initialOrdens);
-  // só contam as pesagens dentro do período de produção da safra vigente
-  const ordens = useMemo(
-    () =>
-      producao
-        ? ordensBrutas.map((o) => ({
-            ...o,
-            entradas: o.entradas.filter((e) => e.data >= producao.inicio && e.data <= producao.fim),
-          }))
-        : ordensBrutas,
-    [ordensBrutas, producao]
-  );
-  const [ordensVisiveis, setOrdensVisiveis] = useState<Set<string>>(() => new Set(initialOrdensVisiveis));
-  const [inserirNumero, setInserirNumero] = useState("");
-  const [inserirErro, setInserirErro] = useState<string | null>(null);
-  const [inserindo, setInserindo] = useState(false);
-  const [period, setPeriod] = useState<Periodo>("dia");
   const [referencia, setReferencia] = useState<string>(() =>
     ultimaDataComMovimento(
       producao
@@ -193,7 +255,35 @@ export default function OrdensCorteClient({
         : initialOrdens
     )
   );
-  const [frenteFiltro, setFrenteFiltro] = useState<string>("todas");
+  // horário de corte do "dia atual": 06:00, 12:00, 18:00 ou 00:00 (dia completo)
+  const [horaCorte, setHoraCorte] = useState<HoraCorte>(6);
+  const rotuloHora = rotuloHoraCorte(horaCorte);
+  const cortesIntermediarios = useMemo(
+    () => ordensBrutas.some((o) => o.entradas.some((e) => e.toneladasAte12h > 0 || e.toneladasAte18h > 0)),
+    [ordensBrutas]
+  );
+  // só contam as pesagens dentro do período de produção da safra vigente; no
+  // dia da referência vale o horário de corte e as entradas ainda sem talhão
+  // são rateadas pelo TCH estimado x área dos talhões
+  const ordens = useMemo(
+    () =>
+      (producao
+        ? ordensBrutas.map((o) => ({
+            ...o,
+            entradas: o.entradas.filter((e) => e.data >= producao.inicio && e.data <= producao.fim),
+          }))
+        : ordensBrutas
+      ).map((o) => aplicarCorteERateio(o, referencia, horaCorte, historicoTch.estPorTalhao?.[o.numero])),
+    [ordensBrutas, producao, referencia, horaCorte, historicoTch]
+  );
+  const [ordensVisiveis, setOrdensVisiveis] = useState<Set<string>>(() => new Set(initialOrdensVisiveis));
+  const [inserirNumero, setInserirNumero] = useState("");
+  const [inserirErro, setInserirErro] = useState<string | null>(null);
+  const [inserindo, setInserindo] = useState(false);
+  const [period, setPeriod] = useState<Periodo>("dia");
+  // frentes mostradas e a ordem delas (salvo neste navegador)
+  const [frentesCfg, setFrentesCfg] = useState<{ ordem: string[]; ocultas: string[] }>({ ordem: [], ocultas: [] });
+  const [frentesCfgCarregada, setFrentesCfgCarregada] = useState(false);
   const [statusFiltro, setStatusFiltro] = useState<"todas" | StatusOrdem>("todas");
   const [busca, setBusca] = useState("");
   const [importarAberto, setImportarAberto] = useState(false);
@@ -208,7 +298,29 @@ export default function OrdensCorteClient({
 
   useEffect(() => {
     setUltimaSincronizacao(new Date().toISOString());
+    try {
+      const salvo = localStorage.getItem("ca_frentes_cfg");
+      if (salvo) {
+        const j = JSON.parse(salvo);
+        setFrentesCfg({
+          ordem: Array.isArray(j.ordem) ? j.ordem.filter((x: unknown) => typeof x === "string") : [],
+          ocultas: Array.isArray(j.ocultas) ? j.ocultas.filter((x: unknown) => typeof x === "string") : [],
+        });
+      }
+    } catch {
+      /* sem acesso ao armazenamento do navegador: segue com a ordem padrão */
+    }
+    setFrentesCfgCarregada(true);
   }, []);
+
+  useEffect(() => {
+    if (!frentesCfgCarregada) return;
+    try {
+      localStorage.setItem("ca_frentes_cfg", JSON.stringify(frentesCfg));
+    } catch {
+      /* ignora */
+    }
+  }, [frentesCfg, frentesCfgCarregada]);
 
   async function refetch() {
     const res = await fetch("/api/ordens-corte", { cache: "no-store" });
@@ -267,7 +379,39 @@ export default function OrdensCorteClient({
     });
   }
 
-  const frentes = useMemo(() => Array.from(new Set(ordens.map((o) => o.frente))).sort(), [ordens]);
+  const frentesTodas = useMemo(() => Array.from(new Set(ordens.map((o) => o.frente))).sort(), [ordens]);
+  const frentesOrdenadas = useMemo(() => {
+    const conhecidas = frentesCfg.ordem.filter((f) => frentesTodas.includes(f));
+    return [...conhecidas, ...frentesTodas.filter((f) => !conhecidas.includes(f))];
+  }, [frentesCfg.ordem, frentesTodas]);
+  const frentesVisiveis = useMemo(
+    () => new Set(frentesOrdenadas.filter((f) => !frentesCfg.ocultas.includes(f))),
+    [frentesOrdenadas, frentesCfg.ocultas]
+  );
+  const posicaoFrente = (f: string) => {
+    const i = frentesOrdenadas.indexOf(f);
+    return i === -1 ? 9999 : i;
+  };
+  function alternarFrente(f: string) {
+    setFrentesCfg((c) => ({
+      ordem: frentesOrdenadas,
+      ocultas: c.ocultas.includes(f) ? c.ocultas.filter((x) => x !== f) : [...c.ocultas, f],
+    }));
+  }
+  function moverFrente(f: string, delta: -1 | 1) {
+    const lista = [...frentesOrdenadas];
+    const i = lista.indexOf(f);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= lista.length) return;
+    [lista[i], lista[j]] = [lista[j], lista[i]];
+    setFrentesCfg((c) => ({ ...c, ordem: lista }));
+  }
+  function mostrarTodasFrentes() {
+    setFrentesCfg((c) => ({ ...c, ocultas: [] }));
+  }
+  function restaurarOrdemFrentes() {
+    setFrentesCfg({ ordem: [], ocultas: [] });
+  }
 
   const ordensDisponiveis = useMemo(
     () => ordens.filter((o) => !ordensVisiveis.has(o.numero)).sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true })),
@@ -281,7 +425,7 @@ export default function OrdensCorteClient({
   const filtroFrenteStatusBusca = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return (o: OrdemCorte) => {
-      if (frenteFiltro !== "todas" && o.frente !== frenteFiltro) return false;
+      if (!frentesVisiveis.has(o.frente)) return false;
       if (statusFiltro !== "todas" && o.status !== statusFiltro) return false;
       if (termo) {
         const alvo = `${o.numero} ${o.fazendaCodigo} ${o.fazendaNome}`.toLowerCase();
@@ -289,7 +433,7 @@ export default function OrdensCorteClient({
       }
       return true;
     };
-  }, [frenteFiltro, statusFiltro, busca]);
+  }, [frentesVisiveis, statusFiltro, busca]);
 
   const ordensFiltradas = useMemo(
     () => ordensSelecionadas.filter(filtroFrenteStatusBusca),
@@ -309,8 +453,9 @@ export default function OrdensCorteClient({
       arr.push(o);
       map.set(o.frente, arr);
     }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [ordensFiltradas]);
+    return Array.from(map.entries()).sort((a, b) => posicaoFrente(a[0]) - posicaoFrente(b[0]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordensFiltradas, frentesOrdenadas]);
 
   // Data da primeira entrada de cana de cada frente (todas as ordens da safra,
   // independente de filtros) — a meta da frente só começa a contar nesse dia.
@@ -325,8 +470,18 @@ export default function OrdensCorteClient({
   }, [ordens]);
 
   const resumoFrentes = useMemo(
-    () => resumoPorFrente(ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao?.inicio, primeiraEntradaPorFrente),
-    [ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao, primeiraEntradaPorFrente]
+    () =>
+      resumoPorFrente(
+        ordensFiltradas,
+        ordensFiltradasTodas,
+        referencia,
+        metas,
+        producao?.inicio,
+        primeiraEntradaPorFrente,
+        horaCorte
+      ).sort((a, b) => posicaoFrente(a.frente) - posicaoFrente(b.frente)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao, primeiraEntradaPorFrente, horaCorte, frentesOrdenadas]
   );
 
   const resumoTotais = useMemo(
@@ -464,9 +619,9 @@ export default function OrdensCorteClient({
             tom: "blue",
           },
           {
-            label: "Produção dia atual até 06:00",
+            label: `Produção dia atual até ${rotuloHora}`,
             value: `${fmtT(kpisTopo.prodDiaAtualAte6hT)} t`,
-            sub: `Entrada de ${fmtDateBR(referencia)} até 06h`,
+            sub: `Entrada de ${fmtDateBR(referencia)} até ${rotuloHora}`,
             tom: "blue",
           },
           {
@@ -483,6 +638,7 @@ export default function OrdensCorteClient({
           },
         ],
         historicoTch,
+        horaCorte,
         divergenciaPorOrdem: podeGravar ? Object.fromEntries(divergenciaPorOrdem) : {},
         producaoDesde: producao?.inicio,
         porFrente,
@@ -720,17 +876,29 @@ export default function OrdensCorteClient({
           )}
 
           <select
-            value={frenteFiltro}
-            onChange={(e) => setFrenteFiltro(e.target.value)}
+            value={horaCorte}
+            onChange={(e) => setHoraCorte(Number(e.target.value) as HoraCorte)}
+            title="Horário de corte do dia atual: tudo que entrou depois dele não soma"
+            aria-label="Horário de corte do dia atual"
             className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink shadow-card"
           >
-            <option value="todas">Todas as frentes</option>
-            {frentes.map((f) => (
-              <option key={f} value={f}>
-                {f}
+            {HORAS_CORTE.map((h) => (
+              <option key={h.hora} value={h.hora} disabled={(h.hora === 12 || h.hora === 18) && !cortesIntermediarios}>
+                Dia atual até {h.rotulo}
+                {h.hora === 24 ? " (dia completo)" : ""}
+                {(h.hora === 12 || h.hora === 18) && !cortesIntermediarios ? " — reimporte a pesagem" : ""}
               </option>
             ))}
           </select>
+
+          <FrentesSeletor
+            frentes={frentesOrdenadas}
+            visiveis={frentesVisiveis}
+            onAlternar={alternarFrente}
+            onMover={moverFrente}
+            onTodas={mostrarTodasFrentes}
+            onRestaurar={restaurarOrdemFrentes}
+          />
 
           <select
             value={statusFiltro}
@@ -783,9 +951,9 @@ export default function OrdensCorteClient({
           <KpiCard
             tone="blue"
             icon={<IconRelogio size={22} />}
-            label="Produção dia atual até 06:00"
+            label={`Produção dia atual até ${rotuloHora}`}
             value={`${fmtT(kpisTopo.prodDiaAtualAte6hT)} t`}
-            sub={`Entrada de ${fmtDateBR(referencia)} até 06h`}
+            sub={`Entrada de ${fmtDateBR(referencia)} até ${rotuloHora}`}
           />
           <KpiCard
             tone="amber"
@@ -856,7 +1024,9 @@ export default function OrdensCorteClient({
               abaixo; as demais colunas são de todas as ordens importadas (
               {ordensFiltradasTodas.length} no filtro atual).
               {temMetas &&
-                " Abaixo de cada produção: meta da frente no período e % atingido (Dia Atual compara com 6/24 da meta diária, por ser só a madrugada até 06h)."}
+                ` Abaixo de cada produção: meta da frente no período e % atingido (Dia Atual compara com ${
+                  horaCorte === 24 ? "a meta diária inteira" : `${horaCorte}/24 da meta diária`
+                }, por contar só até ${rotuloHora}).`}
             </p>
             <table className="w-full text-[12.5px]">
               <thead>
@@ -896,7 +1066,7 @@ export default function OrdensCorteClient({
                   </th>
                   <th className="px-4 py-2 text-right font-semibold">
                     Dia Atual
-                    <div className="font-normal normal-case text-muted/70">{rotulosResumo.diaAtual} até 06h</div>
+                    <div className="font-normal normal-case text-muted/70">{rotulosResumo.diaAtual} até {rotuloHora}</div>
                   </th>
                 </tr>
               </thead>

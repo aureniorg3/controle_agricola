@@ -134,7 +134,7 @@ const COLS_TLH =
   "area_col_ha AS area_colhida_ha";
 const COLS_ENT =
   "ord_num AS ordem_numero, dt AS data, faz_cod AS fazenda_codigo, tlh AS talhao, ton AS toneladas, " +
-  "ton_ate_6h AS toneladas_ate_6h, vgn AS viagens";
+  "ton_ate_6h AS toneladas_ate_6h, ton_ate_12h AS toneladas_ate_12h, ton_ate_18h AS toneladas_ate_18h, vgn AS viagens";
 const COLS_USR =
   "id, nm AS nome, snm AS sobrenome, eml AS email, usr AS usuario, sen_hsh AS senha_hash, prf AS perfil, " +
   "atv AS ativo, prc_trc_sen AS precisa_trocar_senha, cri_em AS criado_em";
@@ -286,6 +286,8 @@ function prepararBanco(pool: Pool): Promise<void> {
            PRIMARY KEY (dt, eqp, frt, faz_cod)
          )`
       );
+      await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_12h numeric NOT NULL DEFAULT 0");
+      await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_18h numeric NOT NULL DEFAULT 0");
       await pool.query("ALTER TABLE conf_pes ADD COLUMN IF NOT EXISTS frt_cor text");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_conf_pes_dt ON conf_pes(dt)");
       await pool.query(
@@ -387,6 +389,8 @@ interface EntradaRow {
   talhao: string;
   toneladas: number;
   toneladas_ate_6h: number;
+  toneladas_ate_12h: number;
+  toneladas_ate_18h: number;
   viagens: number;
 }
 
@@ -428,6 +432,8 @@ async function carregarOrdensCompletas(pool: Pool, numeros?: string[]): Promise<
       talhao: e.talhao,
       toneladas: e.toneladas,
       toneladasAte6h: e.toneladas_ate_6h,
+      toneladasAte12h: e.toneladas_ate_12h,
+      toneladasAte18h: e.toneladas_ate_18h,
       viagens: e.viagens,
     });
     entradasPorOrdem.set(e.ordem_numero, lista);
@@ -554,6 +560,8 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
     const eTalhao: string[] = [];
     const eToneladas: number[] = [];
     const eToneladasAte6h: number[] = [];
+    const eToneladasAte12h: number[] = [];
+    const eToneladasAte18h: number[] = [];
     const eViagens: number[] = [];
     for (const o of ordens) {
       for (const e of o.entradas) {
@@ -563,17 +571,29 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
         eTalhao.push(e.talhao);
         eToneladas.push(e.toneladas);
         eToneladasAte6h.push(e.toneladasAte6h);
+        eToneladasAte12h.push(e.toneladasAte12h);
+        eToneladasAte18h.push(e.toneladasAte18h);
         eViagens.push(e.viagens);
       }
     }
     if (eOrdemNumero.length > 0) {
       await client.query(
         `INSERT INTO ent_dia
-           (ord_num, dt, faz_cod, tlh, ton, ton_ate_6h, vgn)
+           (ord_num, dt, faz_cod, tlh, ton, ton_ate_6h, ton_ate_12h, ton_ate_18h, vgn)
          SELECT * FROM unnest(
-           $1::text[], $2::date[], $3::text[], $4::text[], $5::numeric[], $6::numeric[], $7::int[]
+           $1::text[], $2::date[], $3::text[], $4::text[], $5::numeric[], $6::numeric[], $7::numeric[], $8::numeric[], $9::int[]
          )`,
-        [eOrdemNumero, eData, eFazendaCodigo, eTalhao, eToneladas, eToneladasAte6h, eViagens]
+        [
+          eOrdemNumero,
+          eData,
+          eFazendaCodigo,
+          eTalhao,
+          eToneladas,
+          eToneladasAte6h,
+          eToneladasAte12h,
+          eToneladasAte18h,
+          eViagens,
+        ]
       );
     }
 
@@ -1160,7 +1180,22 @@ export async function historicoTchPorOrdem(safraAtual: number): Promise<Historic
   for (const r of rows) {
     (porOrdem[r.ord_num] ??= []).push({ safra: r.saf, tchReal: r.tch_real, tchEst: r.tch_est });
   }
-  return { safraAtual, safrasAnteriores, porOrdem };
+
+  // TCH estimado de cada talhão da ordem (safra atual) — usado para ratear
+  // entradas que ainda não têm talhão (ordem em aberto).
+  const { rows: porTalhao } = await pool.query<{ ord_num: string; faz_cod: string; tlh: string; tch_est: number }>(
+    `SELECT t.ord_num, t.faz_cod, t.tlh,
+            SUM(s.prod_est) FILTER (WHERE s.prod_est > 0) / NULLIF(SUM(s.area_tot) FILTER (WHERE s.prod_est > 0), 0) AS tch_est
+       FROM tlh t JOIN saf_tlh s ON s.faz_cod = t.faz_cod AND s.tlh = t.tlh AND s.saf = $1
+      GROUP BY t.ord_num, t.faz_cod, t.tlh
+     HAVING SUM(s.prod_est) FILTER (WHERE s.prod_est > 0) > 0`,
+    [safraAtual]
+  );
+  const estPorTalhao: HistoricoTchOrdem["estPorTalhao"] = {};
+  for (const r of porTalhao) {
+    (estPorTalhao[r.ord_num] ??= {})[`${r.faz_cod}|${r.tlh}`] = r.tch_est;
+  }
+  return { safraAtual, safrasAnteriores, porOrdem, estPorTalhao };
 }
 
 export type LancamentoAreaColhida =

@@ -34,6 +34,10 @@ export interface EntradaDiaria {
   /** parte de `toneladas` pesada entre 00:00 e 06:00 desse dia — usada pela
    * coluna "Dia Atual" do resumo por frente, que só conta essa janela. */
   toneladasAte6h: number;
+  /** idem, pesada até 12:00 e até 18:00 — permitem escolher o horário de corte do "dia atual".
+   * Na tela, `toneladasAte6h` passa a valer "até o horário de corte escolhido". */
+  toneladasAte12h: number;
+  toneladasAte18h: number;
   viagens: number;
 }
 
@@ -223,6 +227,8 @@ export interface HistoricoTchOrdem {
   /** as duas safras anteriores mais recentes importadas (mais nova primeiro) */
   safrasAnteriores: number[];
   porOrdem: Record<string, { safra: number; tchReal: number | null; tchEst: number | null }[]>;
+  /** TCH estimado da safra atual por talhão da ordem: ordem -> "fazenda|talhão" -> t/ha (base do rateio das entradas sem talhão) */
+  estPorTalhao: Record<string, Record<string, number>>;
 }
 
 export type Periodo = "dia" | "semana" | "mes" | "safra";

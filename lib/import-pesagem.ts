@@ -317,6 +317,9 @@ export interface EntradaAgregada {
   /** parte de `toneladas` pesada com "Hora Saída Indústria" < 06:00 — usada
    * pela coluna "Dia Atual" do resumo por frente. */
   toneladasAte6h: number;
+  /** idem, até 12:00 e até 18:00 */
+  toneladasAte12h: number;
+  toneladasAte18h: number;
   viagens: number;
 }
 
@@ -386,9 +389,21 @@ export async function agregarPesagem(
     // dentro da ordem quando ela abrange mais de uma fazenda (ver TalhaoOrdem).
     const k = `${ordem}|${data}|${fazendaCodigo}|${talhao}`;
     const acc =
-      agregados.get(k) ?? { ordem, data, fazendaCodigo, talhao, toneladas: 0, toneladasAte6h: 0, viagens: 0 };
+      agregados.get(k) ?? {
+        ordem,
+        data,
+        fazendaCodigo,
+        talhao,
+        toneladas: 0,
+        toneladasAte6h: 0,
+        toneladasAte12h: 0,
+        toneladasAte18h: 0,
+        viagens: 0,
+      };
     acc.toneladas += toneladas;
     if (horaSaidaIndustria && horaSaidaIndustria < "06:00") acc.toneladasAte6h += toneladas;
+    if (horaSaidaIndustria && horaSaidaIndustria < "12:00") acc.toneladasAte12h += toneladas;
+    if (horaSaidaIndustria && horaSaidaIndustria < "18:00") acc.toneladasAte18h += toneladas;
     acc.viagens += 1;
     agregados.set(k, acc);
   });
@@ -454,6 +469,8 @@ export function montarOrdens(
       talhao: acc.talhao,
       toneladas: Math.round(acc.toneladas * 100) / 100,
       toneladasAte6h: Math.round(acc.toneladasAte6h * 100) / 100,
+      toneladasAte12h: Math.round(acc.toneladasAte12h * 100) / 100,
+      toneladasAte18h: Math.round(acc.toneladasAte18h * 100) / 100,
       viagens: acc.viagens,
     });
   }

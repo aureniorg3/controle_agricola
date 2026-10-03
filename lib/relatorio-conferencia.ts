@@ -103,9 +103,9 @@ export async function gerarConferenciaPdf(dados: DadosRelatorioConferencia): Pro
     doc.setFontSize(7.5);
     doc.text(dados.filtrosTexto || "Todos os registros importados", MARGEM, 13);
     if (logo) {
-      const h = 7;
+      const h = 11.5;
       const w = (logo.largura / logo.altura) * h;
-      doc.addImage(logo.dataUrl, "PNG", largura - MARGEM - w, 4, w, h);
+      doc.addImage(logo.dataUrl, "PNG", largura - MARGEM - w, 2, w, h);
     }
 
     const y = altura - 10;

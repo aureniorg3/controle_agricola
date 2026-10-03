@@ -306,7 +306,9 @@ export function resumoPorFrente(
   referencia: string,
   metas: MetaFrente[] = [],
   safraInicio?: string,
-  primeiraEntradaPorFrente?: Record<string, string>
+  primeiraEntradaPorFrente?: Record<string, string>,
+  /** horário de corte do dia atual (6, 12, 18 ou 24 = 00:00); a meta do dia atual é a fração hora/24 */
+  horaCorte = 6
 ): FrenteResumo[] {
   // Semana/Quinzena/Mês Atual/Safra são recortes "até a data selecionada":
   // o fim de cada um é sempre a própria referência, nunca o fim natural do
@@ -339,7 +341,7 @@ export function resumoPorFrente(
       diaAnterior: round2(metaNoIntervalo(metas, frente, desde(diaAnterior))),
       diaAtual:
         primeira !== undefined && referencia >= primeira
-          ? round2((metaDoDia(metas, frente, referencia) * 6) / 24)
+          ? round2((metaDoDia(metas, frente, referencia) * horaCorte) / 24)
           : 0,
     };
   }
