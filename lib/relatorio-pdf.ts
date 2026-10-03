@@ -1,4 +1,4 @@
-import type { FrenteResumo, LinhaResumoDetalhado } from "./period";
+import type { FrenteResumo, LinhaResumoDetalhado, MetasPorPeriodo } from "./period";
 import {
   addDays,
   calcAreaColhidaHa,
@@ -12,7 +12,7 @@ import {
   startOfWeekMonday,
 } from "./period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch } from "./format";
-import type { OrdemCorte, Periodo } from "./types";
+import type { HistoricoTchOrdem, OrdemCorte, Periodo } from "./types";
 
 const EMPRESA = "CRV Industrial";
 const MARGEM = 10;
@@ -29,6 +29,24 @@ const MUTED: [number, number, number] = [92, 102, 117];
 // Mesmas cores do badge de status da tela (Aberta=verde, Encerrada=âmbar).
 const STATUS_ABERTA: [number, number, number] = [22, 100, 48];
 const STATUS_ENCERRADA: [number, number, number] = [167, 110, 19];
+const BOM: [number, number, number] = [22, 100, 48];
+const ATENCAO: [number, number, number] = [167, 110, 19];
+const ALERTA: [number, number, number] = [178, 60, 43];
+
+type TomKpi = "blue" | "green" | "amber" | "red";
+const TONS_KPI: Record<TomKpi, { fundo: [number, number, number]; texto: [number, number, number] }> = {
+  blue: { fundo: [238, 244, 253], texto: [23, 58, 120] },
+  green: { fundo: [232, 245, 233], texto: [22, 100, 48] },
+  amber: { fundo: [255, 243, 224], texto: [167, 110, 19] },
+  red: { fundo: [255, 235, 238], texto: [178, 60, 43] },
+};
+
+export interface KpiRelatorio {
+  label: string;
+  value: string;
+  sub?: string;
+  tom: TomKpi;
+}
 
 export interface ResumoDetalhadoFrente {
   frente: string;
@@ -44,6 +62,16 @@ export interface DadosRelatorioCompleto {
   periodLabel: string;
   resumoFrentes: FrenteResumo[];
   resumoTotais: Omit<FrenteResumo, "frente" | "meta">;
+  /** meta somada de todas as frentes em cada período (linha Total geral) */
+  metaTotais: MetasPorPeriodo;
+  /** os 8 cards do topo da tela */
+  kpis: KpiRelatorio[];
+  /** TCH das safras anteriores / estimado da safra atual por ordem */
+  historicoTch: HistoricoTchOrdem;
+  /** ordens com TCH real (ton ÷ área medida) divergente do estimado — só para Gravação/Admin */
+  divergenciaPorOrdem: Record<string, number>;
+  /** início da produção da safra vigente (cadastro de safras), quando houver */
+  producaoDesde?: string;
   porFrente: [string, OrdemCorte[]][];
   resumoDetalhadoPorFrente: ResumoDetalhadoFrente[];
   resumoDetalhadoTotalGeral: { areaColhidaHa: number; producaoTotalT: number; tchRealParcial: number };
@@ -135,7 +163,13 @@ function montarCardOrdem(
   ordem: OrdemCorte,
   period: Periodo,
   referencia: string,
-  largura: number
+  largura: number,
+  tch: {
+    historico?: HistoricoTchOrdem["porOrdem"][string];
+    safraAtual: number;
+    safrasAnteriores: number[];
+    divergenciaPct?: number;
+  }
 ): { altura: number; desenhar: (x: number, y: number) => void } {
   const pad = 2.2;
   const larguraUtil = largura - pad * 2;
@@ -158,6 +192,34 @@ function montarCardOrdem(
   const linhaResumo1 = `Área: ${fmtHa(m.areaTotalHa)} ha   ·   Colhida: ${fmtHa(areaColhidaHa)} ha`;
   const linhaResumo2 = `TCH: ${fmtTch(m.tchGeralRealizado)}   ·   ${ordem.tipoCana || "-"}`;
 
+  // bloco de TCH (mesmo conteúdo do rodapé do card na tela); campos sem dado ficam em branco
+  const realDe = (safra: number) => tch.historico?.find((h) => h.safra === safra)?.tchReal ?? null;
+  const estimado = tch.historico?.find((h) => h.safra === tch.safraAtual)?.tchEst ?? null;
+  const mostrarTch = tch.safrasAnteriores.length > 0 || !!tch.historico;
+  const linhasTch: { texto: string; valor: string; fundo: [number, number, number] }[] = mostrarTch
+    ? [
+        { texto: "Área Liberada (Ordem)", valor: fmtHa(m.areaTotalHa), fundo: [232, 245, 233] },
+        ...tch.safrasAnteriores.map((safra) => ({
+          texto: `TCH Realizado Safra ${safra}`,
+          valor: realDe(safra) !== null ? fmtTch(realDe(safra)!) : "",
+          fundo: [255, 255, 232] as [number, number, number],
+        })),
+        { texto: `TCH Estimado ${tch.safraAtual}`, valor: estimado !== null ? fmtTch(estimado) : "", fundo: [255, 255, 232] },
+        ...(tch.divergenciaPct !== undefined
+          ? [
+              {
+                texto: "(!) TCH real (ton / area medida) vs. estimado",
+                valor: `${tch.divergenciaPct >= 0 ? "+" : "-"}${Math.abs(tch.divergenciaPct).toFixed(0)}%`,
+                fundo: [255, 243, 224] as [number, number, number],
+              },
+            ]
+          : []),
+        { texto: `TCH Geral Realizado ${tch.safraAtual}`, valor: fmtTch(m.tchGeralRealizado), fundo: [255, 243, 224] },
+      ]
+    : [];
+  const alturaLinhaTch = 3.3;
+  const alturaBlocoTch = linhasTch.length > 0 ? linhasTch.length * alturaLinhaTch + 2.5 : 0;
+
   const nTalhoes = ordem.talhoes.length;
   const alturaTitulo = 3.3;
   const alturaFazenda = linhasFazenda.length * 3.1;
@@ -177,7 +239,8 @@ function montarCardOrdem(
     alturaTotalRow +
     alturaSemTalhao +
     1.5 +
-    alturaResumo;
+    alturaResumo +
+    alturaBlocoTch;
 
   function desenhar(x: number, y: number) {
     doc.setDrawColor(...LINE);
@@ -264,6 +327,23 @@ function montarCardOrdem(
     doc.text(linhaResumo1, x + pad, cy);
     doc.text(linhaResumo2, x + pad, cy + 3.4);
     doc.setTextColor(...INK);
+
+    if (linhasTch.length > 0) {
+      const topoTch = cy + alturaResumo + 0.4;
+      let ty = topoTch + 2.4;
+      doc.setFontSize(6);
+      linhasTch.forEach((l) => {
+        doc.setFillColor(...l.fundo);
+        doc.rect(x + pad, ty - 2.4, larguraUtil, alturaLinhaTch, "F");
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...INK);
+        doc.text(l.texto, x + pad + 1, ty, { maxWidth: larguraUtil - 14 });
+        doc.text(l.valor, x + pad + larguraUtil - 1, ty, { align: "right" });
+        ty += alturaLinhaTch;
+      });
+      doc.setDrawColor(...LINE);
+      doc.rect(x + pad, topoTch, larguraUtil, linhasTch.length * alturaLinhaTch);
+    }
   }
 
   return { altura, desenhar };
@@ -302,8 +382,8 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     doc.setFontSize(7.5);
     doc.text(
       `Safra ${dados.safraLabel} · Capinópolis-MG · Referência ${fmtDateBR(dados.referencia)}${
-        subtitulo ? ` · ${subtitulo}` : ""
-      }`,
+        dados.producaoDesde ? ` · Produção desde ${fmtDateBR(dados.producaoDesde)}` : ""
+      }${subtitulo ? ` · ${subtitulo}` : ""}`,
       MARGEM,
       14
     );
@@ -340,6 +420,69 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     `Dia Atual\n${dm(dados.referencia)} até 06h`,
   ];
 
+  // 8 cards do topo da tela, numa faixa só
+  const ALTURA_KPI = 13.5;
+  {
+    const gapKpi = 2.5;
+    const larguraKpi = (pageWidth - MARGEM * 2 - gapKpi * 7) / 8;
+    dados.kpis.forEach((k, i) => {
+      const kx = MARGEM + i * (larguraKpi + gapKpi);
+      const tom = TONS_KPI[k.tom];
+      doc.setFillColor(...tom.fundo);
+      doc.roundedRect(kx, 22, larguraKpi, ALTURA_KPI, 1.5, 1.5, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(5.8);
+      doc.setTextColor(...MUTED);
+      doc.text((doc.splitTextToSize(k.label, larguraKpi - 3) as string[])[0], kx + 1.8, 25.6);
+      doc.setFontSize(10);
+      doc.setTextColor(...tom.texto);
+      doc.text(k.value, kx + 1.8, 31);
+      if (k.sub) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(5);
+        doc.setTextColor(...MUTED);
+        doc.text((doc.splitTextToSize(k.sub, larguraKpi - 3) as string[])[0], kx + 1.8, 34);
+      }
+      doc.setTextColor(...INK);
+    });
+  }
+
+  const temMetas = dados.metaTotais.safra > 0 || dados.metaTotais.mesAtual > 0 || dados.metaTotais.diaAtual > 0;
+  let inicioTabela = 22 + ALTURA_KPI + 3;
+  if (temMetas) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.4);
+    doc.setTextColor(...MUTED);
+    doc.text(
+      "Abaixo de cada produção: meta da frente no período (t) e % atingido. Dia Atual compara com 6/24 da meta diária (só até 06h).",
+      MARGEM,
+      inicioTabela + 1.5
+    );
+    doc.setTextColor(...INK);
+    inicioTabela += 4;
+  }
+
+  const realDoPeriodo = (r: Omit<FrenteResumo, "frente" | "meta"> & { frente?: string }) => [
+    r.safraT,
+    r.mesAnteriorT,
+    r.mesAtualT,
+    r.quinzenaT,
+    r.semanaT,
+    r.diaAnteriorT,
+    r.diaAtualT,
+  ];
+  const metaDoPeriodo = (m: MetasPorPeriodo) => [m.safra, m.mesAnterior, m.mesAtual, m.quinzena, m.semana, m.diaAnterior, m.diaAtual];
+  const metasLinhas: ({ real: number; meta: number } | null)[][] = [
+    ...dados.resumoFrentes.map((r) => {
+      const metas = metaDoPeriodo(r.meta);
+      return realDoPeriodo(r).map((real, i) => (metas[i] > 0 ? { real, meta: metas[i] } : null));
+    }),
+    (() => {
+      const metas = metaDoPeriodo(dados.metaTotais);
+      return realDoPeriodo(dados.resumoTotais).map((real, i) => (metas[i] > 0 ? { real, meta: metas[i] } : null));
+    })(),
+  ];
+
   const linhaResumo = (r: FrenteResumo | (Omit<FrenteResumo, "frente" | "meta"> & { frente?: string })) => [
     r.frente ?? "Total geral",
     String(r.ordensSelecionadas),
@@ -355,7 +498,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   ];
 
   autoTable(doc, {
-    startY: 22,
+    startY: inicioTabela,
     head: [cabecalhoResumo],
     body: [...dados.resumoFrentes.map(linhaResumo), linhaResumo(dados.resumoTotais)],
     styles: { fontSize: 7.5, cellPadding: 1.8 },
@@ -364,6 +507,10 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     didParseCell: (data) => {
       if (data.column.index > 0) data.cell.styles.halign = "right";
       if (data.section === "body") {
+        // espaço embaixo da produção para a linha de meta desenhada em didDrawCell
+        if (data.column.index >= 4 && metasLinhas[data.row.index]?.[data.column.index - 4]) {
+          data.cell.styles.cellPadding = { top: 1.8, bottom: 4.6, left: 1.8, right: 1.8 };
+        }
         if (data.row.index === dados.resumoFrentes.length) {
           data.cell.styles.fontStyle = "bold";
           data.cell.styles.fillColor = NAVY;
@@ -372,6 +519,25 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
           data.cell.styles.fillColor = ALT_ROW;
         }
       }
+    },
+    didDrawCell: (data) => {
+      if (data.section !== "body" || data.column.index < 4) return;
+      const m = metasLinhas[data.row.index]?.[data.column.index - 4];
+      if (!m) return;
+      const pct = (m.real / m.meta) * 100;
+      const naTotal = data.row.index === dados.resumoFrentes.length;
+      const xDir = data.cell.x + data.cell.width - 1.8;
+      const yBase = data.cell.y + data.cell.height - 1.5;
+      const txtPct = `${pct.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(5.8);
+      doc.setTextColor(...(naTotal ? ([255, 255, 255] as [number, number, number]) : pct >= 100 ? BOM : pct >= 80 ? ATENCAO : ALERTA));
+      doc.text(txtPct, xDir, yBase, { align: "right" });
+      const larguraPct = doc.getTextWidth(txtPct);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...(naTotal ? ([255, 255, 255] as [number, number, number]) : MUTED));
+      doc.text(`${fmtT(m.meta)} ·`, xDir - larguraPct - 0.8, yBase, { align: "right" });
+      doc.setTextColor(...INK);
     },
     margin: { top: 22, left: MARGEM, right: MARGEM, bottom: RODAPE_ALTURA },
   });
@@ -395,8 +561,21 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   const GAP = 3;
   const colWidth = (pageWidth - MARGEM * 2 - GAP * 3) / 4;
 
+  const montarCards = (grupo: OrdemCorte[]) =>
+    grupo.map((ordem) =>
+      montarCardOrdem(doc, ordem, dados.period, dados.referencia, colWidth, {
+        historico: dados.historicoTch.porOrdem[ordem.numero],
+        safraAtual: dados.historicoTch.safraAtual,
+        safrasAnteriores: dados.historicoTch.safrasAnteriores,
+        divergenciaPct: dados.divergenciaPorOrdem[ordem.numero],
+      })
+    );
+
   for (const [frente, ordensFrente] of dados.porFrente) {
-    garantirEspaco(9);
+    // o título da frente nunca fica sozinho no fim da página: reserva também a 1ª linha de cards
+    const cardsLinha = montarCards(ordensFrente.slice(0, 4));
+    const alturaPrimeiraLinha = cardsLinha.length > 0 ? Math.max(...cardsLinha.map((c) => c.altura)) : 0;
+    garantirEspaco(9.5 + alturaPrimeiraLinha + GAP);
     doc.setFillColor(...NAVY);
     doc.rect(MARGEM, cursorY, pageWidth - MARGEM * 2, 6.5, "F");
     doc.setTextColor(255, 255, 255);
@@ -408,7 +587,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
 
     for (let i = 0; i < ordensFrente.length; i += 4) {
       const grupo = ordensFrente.slice(i, i + 4);
-      const cards = grupo.map((ordem) => montarCardOrdem(doc, ordem, dados.period, dados.referencia, colWidth));
+      const cards = i === 0 ? cardsLinha : montarCards(grupo);
       const alturaLinha = Math.max(...cards.map((c) => c.altura));
       garantirEspaco(alturaLinha + GAP);
       grupo.forEach((_, idx) => {
