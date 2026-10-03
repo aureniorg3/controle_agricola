@@ -153,10 +153,11 @@ function desenharGraficoBarras(
 }
 
 /**
- * Monta (mede, mas não desenha) um card de ordem — mesmo conteúdo do card da
- * tela: talhões com área/dia anterior/dia atual/acumulado, linha de total e
- * resumo (área/área colhida/TCH). Devolve a altura exata que vai ocupar e
- * uma função `desenhar(x, y)` pra posicionar no grid de 4 colunas.
+ * Monta (mede, mas não desenha) um card de ordem no formato novo da tela:
+ * faixa lateral de status, talhões à esquerda (com o bloco de TCH embaixo) e,
+ * à direita, áreas, progresso da colheita, produção do período, TCH geral com
+ * selo e tipo de cana. Devolve a altura exata que vai ocupar e uma função
+ * `desenhar(x, y)` pra posicionar no grid de 3 colunas.
  */
 function montarCardOrdem(
   doc: import("jspdf").jsPDF,
@@ -171,16 +172,21 @@ function montarCardOrdem(
     divergenciaPct?: number;
   }
 ): { altura: number; desenhar: (x: number, y: number) => void } {
-  const pad = 2.2;
-  const larguraUtil = largura - pad * 2;
+  const pad = 2.6;
+  const faixa = 1.3;
+  const gapColunas = 3;
+  const larguraInterna = largura - faixa - pad * 2;
+  const larguraEsq = Math.round(larguraInterna * 0.62 * 10) / 10;
+  const larguraDir = larguraInterna - larguraEsq - gapColunas;
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(6.6);
+  doc.setFontSize(6.4);
   const fazendas = [...new Set(ordem.talhoes.map((t) => `${t.fazendaCodigo} · ${t.fazendaNome}`))].join("   ");
-  const linhasFazenda = doc.splitTextToSize(fazendas || "Sem talhão cadastrado", larguraUtil) as string[];
+  const linhasFazenda = doc.splitTextToSize(fazendas || "Sem talhão cadastrado", larguraInterna - 20) as string[];
 
   const m = calcOrdemMetrics(ordem, period, referencia);
   const areaColhidaHa = calcAreaColhidaHa(ordem);
+  const progresso = m.areaTotalHa > 0 ? Math.min(100, Math.round((areaColhidaHa / m.areaTotalHa) * 100)) : 0;
   const diaAnteriorIso = addDays(referencia, -1);
   const totalDiaAnteriorT = round2(
     ordem.entradas.filter((e) => e.data === diaAnteriorIso).reduce((s, e) => s + e.toneladas, 0)
@@ -189,10 +195,7 @@ function montarCardOrdem(
     ordem.entradas.filter((e) => e.data === referencia).reduce((s, e) => s + e.toneladasAte6h, 0)
   );
 
-  const linhaResumo1 = `Área: ${fmtHa(m.areaTotalHa)} ha   ·   Colhida: ${fmtHa(areaColhidaHa)} ha`;
-  const linhaResumo2 = `TCH: ${fmtTch(m.tchGeralRealizado)}   ·   ${ordem.tipoCana || "-"}`;
-
-  // bloco de TCH (mesmo conteúdo do rodapé do card na tela); campos sem dado ficam em branco
+  // bloco de TCH (rodapé da coluna dos talhões); campos sem dado ficam em branco
   const realDe = (safra: number) => tch.historico?.find((h) => h.safra === safra)?.tchReal ?? null;
   const estimado = tch.historico?.find((h) => h.safra === tch.safraAtual)?.tchEst ?? null;
   const mostrarTch = tch.safrasAnteriores.length > 0 || !!tch.historico;
@@ -208,7 +211,7 @@ function montarCardOrdem(
         ...(tch.divergenciaPct !== undefined
           ? [
               {
-                texto: "(!) TCH real (ton / area medida) vs. estimado",
+                texto: "(!) TCH real vs. estimado",
                 valor: `${tch.divergenciaPct >= 0 ? "+" : "-"}${Math.abs(tch.divergenciaPct).toFixed(0)}%`,
                 fundo: [255, 243, 224] as [number, number, number],
               },
@@ -221,60 +224,79 @@ function montarCardOrdem(
   const alturaBlocoTch = linhasTch.length > 0 ? linhasTch.length * alturaLinhaTch + 2.5 : 0;
 
   const nTalhoes = ordem.talhoes.length;
-  const alturaTitulo = 3.3;
-  const alturaFazenda = linhasFazenda.length * 3.1;
-  const alturaTabCabecalho = nTalhoes > 0 ? 4 : 0;
   const alturaLinhaTalhao = 3.3;
-  const alturaTabela = nTalhoes * alturaLinhaTalhao;
-  const alturaTotalRow = nTalhoes > 0 ? 3.8 : 0;
-  const alturaSemTalhao = nTalhoes === 0 ? 3.6 : 0;
-  const alturaResumo = 7;
-  const altura =
-    pad * 2 +
-    alturaTitulo +
-    alturaFazenda +
-    1 +
-    alturaTabCabecalho +
-    alturaTabela +
-    alturaTotalRow +
-    alturaSemTalhao +
-    1.5 +
-    alturaResumo +
-    alturaBlocoTch;
+  const alturaCabecalho = 3.6 + linhasFazenda.length * 3 + 1.5;
+  const alturaEsq =
+    3 + (nTalhoes > 0 ? 4 + nTalhoes * alturaLinhaTalhao + 3.8 + 2 : 4) + alturaBlocoTch;
+  const alturaDir = 9.5 + 2 + 5.5 + 2 + 11.5 + 2 + 10.5 + 2 + 4.6;
+  const altura = pad + alturaCabecalho + Math.max(alturaEsq, alturaDir) + pad;
+
+  function caixa(bx: number, by: number, bw: number, bh: number, fundo: [number, number, number]) {
+    doc.setFillColor(...fundo);
+    doc.roundedRect(bx, by, bw, bh, 1.2, 1.2, "F");
+  }
+
+  function selo(texto: string, sx: number, sy: number, fundo: [number, number, number], corTexto: [number, number, number], alinharDireita = false) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(5.4);
+    const w = doc.getTextWidth(texto) + 4;
+    const px = alinharDireita ? sx - w : sx;
+    doc.setFillColor(...fundo);
+    doc.roundedRect(px, sy - 2.6, w, 3.8, 1.9, 1.9, "F");
+    doc.setTextColor(...corTexto);
+    doc.text(texto, px + 2, sy);
+    doc.setTextColor(...INK);
+    return w;
+  }
 
   function desenhar(x: number, y: number) {
+    const aberta = ordem.status === "Aberta";
     doc.setDrawColor(...LINE);
     doc.setLineWidth(0.2);
     doc.rect(x, y, largura, altura);
+    doc.setFillColor(...(aberta ? STATUS_ABERTA : STATUS_ENCERRADA));
+    doc.rect(x, y, faixa, altura, "F");
 
-    let cy = y + pad + 3;
+    const xi = x + faixa + pad;
+    let cy = y + pad + 3.4;
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.2);
+    doc.setFontSize(9);
     doc.setTextColor(...NAVY);
-    doc.text(`Ordem ${ordem.numero}`, x + pad, cy);
-    const aberta = ordem.status === "Aberta";
-    doc.setFontSize(6.6);
-    doc.setTextColor(...(aberta ? STATUS_ABERTA : STATUS_ENCERRADA));
-    doc.text(ordem.status, x + largura - pad, cy, { align: "right" });
-    doc.setTextColor(...INK);
+    doc.text(`Ordem ${ordem.numero}`, xi, cy);
+    selo(
+      ordem.status,
+      xi + larguraInterna,
+      cy - 0.4,
+      aberta ? [232, 245, 233] : [255, 243, 224],
+      aberta ? STATUS_ABERTA : STATUS_ENCERRADA,
+      true
+    );
 
-    cy += alturaTitulo;
+    cy += 3.6;
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.6);
+    doc.setFontSize(6.4);
     doc.setTextColor(...MUTED);
-    linhasFazenda.forEach((l, i) => doc.text(l, x + pad, cy + i * 3.1));
-    cy += alturaFazenda + 1;
+    linhasFazenda.forEach((l, i) => doc.text(l, xi, cy + i * 3));
+    cy += linhasFazenda.length * 3 - 1.5 + 1.5;
+
+    const topoCorpo = cy;
+    // ------------------------------ coluna esquerda: talhões
+    let ey = topoCorpo + 2.4;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(5.4);
+    doc.setTextColor(...MUTED);
+    doc.text("TALHÕES", xi, ey);
+    ey += 3;
 
     if (nTalhoes > 0) {
-      const colsX = colunasCard(x + pad, larguraUtil);
-
+      const colsX = colunasCard(xi, larguraEsq);
       doc.setFillColor(...ALT_ROW);
-      doc.rect(x + pad, cy - 2.6, larguraUtil, alturaTabCabecalho, "F");
+      doc.rect(xi, ey - 2.6, larguraEsq, 4, "F");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(5.6);
+      doc.setFontSize(5.4);
       doc.setTextColor(...MUTED);
-      desenharLinhaCard(doc, colsX, ["Talhão", "Área", "D.Ant", "D.Atu", "Acum"], cy);
-      cy += alturaTabCabecalho;
+      desenharLinhaCard(doc, colsX, ["Talhão", "Área", "D.Ant", "D.Atu", "Acum"], ey);
+      ey += 4;
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(6);
@@ -282,7 +304,7 @@ function montarCardOrdem(
       ordem.talhoes.forEach((t, i) => {
         if (i % 2 === 1) {
           doc.setFillColor(...ALT_ROW);
-          doc.rect(x + pad, cy - 2.5, larguraUtil, alturaLinhaTalhao, "F");
+          doc.rect(xi, ey - 2.5, larguraEsq, alturaLinhaTalhao, "F");
         }
         desenharLinhaCard(
           doc,
@@ -294,13 +316,13 @@ function montarCardOrdem(
             fmtT(calcTalhaoDiaAtualAte6h(ordem, t, referencia)),
             fmtT(calcTalhaoEntradaPeriodo(ordem, t, "safra", referencia)),
           ],
-          cy
+          ey
         );
-        cy += alturaLinhaTalhao;
+        ey += alturaLinhaTalhao;
       });
 
       doc.setFillColor(...NAVY);
-      doc.rect(x + pad, cy - 2.6, larguraUtil, alturaTotalRow, "F");
+      doc.rect(xi, ey - 2.6, larguraEsq, 3.8, "F");
       doc.setFont("helvetica", "bold");
       doc.setFontSize(6);
       doc.setTextColor(255, 255, 255);
@@ -308,42 +330,116 @@ function montarCardOrdem(
         doc,
         colsX,
         ["Total", fmtHa(m.areaTotalHa), fmtT(totalDiaAnteriorT), fmtT(totalDiaAtual6hT), fmtT(m.acumSafraT)],
-        cy
+        ey
       );
       doc.setTextColor(...INK);
-      cy += alturaTotalRow + 1.5;
+      ey += 3.8 + 2;
     } else {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(6.4);
       doc.setTextColor(...MUTED);
-      doc.text("Sem talhão cadastrado.", x + pad, cy);
+      doc.text("Sem talhão cadastrado.", xi, ey);
       doc.setTextColor(...INK);
-      cy += alturaSemTalhao + 1.5;
+      ey += 4;
     }
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.4);
-    doc.setTextColor(...MUTED);
-    doc.text(linhaResumo1, x + pad, cy);
-    doc.text(linhaResumo2, x + pad, cy + 3.4);
-    doc.setTextColor(...INK);
-
     if (linhasTch.length > 0) {
-      const topoTch = cy + alturaResumo + 0.4;
+      const topoTch = ey + 0.4;
       let ty = topoTch + 2.4;
       doc.setFontSize(6);
       linhasTch.forEach((l) => {
         doc.setFillColor(...l.fundo);
-        doc.rect(x + pad, ty - 2.4, larguraUtil, alturaLinhaTch, "F");
+        doc.rect(xi, ty - 2.4, larguraEsq, alturaLinhaTch, "F");
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...INK);
-        doc.text(l.texto, x + pad + 1, ty, { maxWidth: larguraUtil - 14 });
-        doc.text(l.valor, x + pad + larguraUtil - 1, ty, { align: "right" });
+        doc.text(l.texto, xi + 1, ty, { maxWidth: larguraEsq - 14 });
+        doc.text(l.valor, xi + larguraEsq - 1, ty, { align: "right" });
         ty += alturaLinhaTch;
       });
       doc.setDrawColor(...LINE);
-      doc.rect(x + pad, topoTch, larguraUtil, linhasTch.length * alturaLinhaTch);
+      doc.rect(xi, topoTch, larguraEsq, linhasTch.length * alturaLinhaTch);
     }
+
+    // ------------------------------ coluna direita: resumo
+    const xr = xi + larguraEsq + gapColunas;
+    let ry = topoCorpo + 1;
+    const larguraMini = (larguraDir - 1.6) / 2;
+    const FUNDO: [number, number, number] = [245, 247, 250];
+    [
+      ["Área da ordem", `${fmtHa(m.areaTotalHa)} ha`],
+      ["Área colhida", `${fmtHa(areaColhidaHa)} ha`],
+    ].forEach(([rotulo, valor], i) => {
+      const bx = xr + i * (larguraMini + 1.6);
+      caixa(bx, ry, larguraMini, 9.5, FUNDO);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(5.2);
+      doc.setTextColor(...MUTED);
+      doc.text(rotulo, bx + 1.8, ry + 3);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.6);
+      doc.setTextColor(...INK);
+      doc.text(valor, bx + 1.8, ry + 7.6);
+    });
+    ry += 9.5 + 2;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(5.4);
+    doc.setTextColor(...MUTED);
+    doc.text("Progresso da colheita", xr, ry + 1.6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...INK);
+    doc.text(`${progresso}%`, xr + larguraDir, ry + 1.6, { align: "right" });
+    doc.setFillColor(237, 240, 244);
+    doc.roundedRect(xr, ry + 2.6, larguraDir, 1.8, 0.9, 0.9, "F");
+    if (progresso > 0) {
+      doc.setFillColor(31, 122, 61);
+      doc.roundedRect(xr, ry + 2.6, Math.max((larguraDir * progresso) / 100, 1.8), 1.8, 0.9, 0.9, "F");
+    }
+    ry += 5.5 + 2;
+
+    caixa(xr, ry, larguraDir, 11.5, [255, 255, 209]);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(5.4);
+    doc.setTextColor(...MUTED);
+    doc.text("Produção no período", xr + 1.8, ry + 3.4);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...INK);
+    doc.text(`${fmtT(m.entradaPeriodoT)} t`, xr + 1.8, ry + 9);
+    ry += 11.5 + 2;
+
+    caixa(xr, ry, larguraDir, 10.5, FUNDO);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(5.2);
+    doc.setTextColor(...MUTED);
+    doc.text("TCH geral realizado", xr + 1.8, ry + 3.2);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.6);
+    doc.setTextColor(...INK);
+    doc.text(fmtTch(m.tchGeralRealizado), xr + 1.8, ry + 8.2);
+    const t = m.tchGeralRealizado;
+    const nivel: [string, [number, number, number], [number, number, number]] =
+      t > 80
+        ? ["Excelente", [232, 245, 233], [22, 100, 48]]
+        : t >= 60
+          ? ["Bom", [238, 244, 253], [23, 58, 120]]
+          : t >= 40
+            ? ["Médio", [255, 243, 224], [167, 110, 19]]
+            : ["Baixo", [255, 235, 238], [178, 60, 43]];
+    selo(nivel[0], xr + larguraDir - 1.8, ry + 7.6, nivel[1], nivel[2], true);
+    ry += 10.5 + 2;
+
+    if (ordem.tipoCana) {
+      const queimada = ordem.tipoCana.toLowerCase().includes("queimada");
+      selo(
+        doc.splitTextToSize(ordem.tipoCana.toUpperCase(), larguraDir - 4)[0] as string,
+        xr,
+        ry + 2.4,
+        queimada ? [255, 243, 224] : [238, 244, 253],
+        queimada ? [167, 110, 19] : [23, 58, 120]
+      );
+    }
+    doc.setTextColor(...INK);
   }
 
   return { altura, desenhar };
@@ -543,7 +639,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   });
 
   // -------------------------------------------------------------------
-  // Cards de ordem em grade de 4 colunas, agrupados por frente — mesmo
+  // Cards de ordem em grade de 3 colunas, agrupados por frente — mesmo
   // conteúdo e mesmo layout dos cards da tela.
   // -------------------------------------------------------------------
   doc.addPage();
@@ -559,7 +655,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   }
 
   const GAP = 3;
-  const colWidth = (pageWidth - MARGEM * 2 - GAP * 3) / 4;
+  const colWidth = (pageWidth - MARGEM * 2 - GAP * 2) / 3;
 
   const montarCards = (grupo: OrdemCorte[]) =>
     grupo.map((ordem) =>
@@ -573,7 +669,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
 
   for (const [frente, ordensFrente] of dados.porFrente) {
     // o título da frente nunca fica sozinho no fim da página: reserva também a 1ª linha de cards
-    const cardsLinha = montarCards(ordensFrente.slice(0, 4));
+    const cardsLinha = montarCards(ordensFrente.slice(0, 3));
     const alturaPrimeiraLinha = cardsLinha.length > 0 ? Math.max(...cardsLinha.map((c) => c.altura)) : 0;
     garantirEspaco(9.5 + alturaPrimeiraLinha + GAP);
     doc.setFillColor(...NAVY);
@@ -585,8 +681,8 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     doc.setTextColor(...INK);
     cursorY += 9.5;
 
-    for (let i = 0; i < ordensFrente.length; i += 4) {
-      const grupo = ordensFrente.slice(i, i + 4);
+    for (let i = 0; i < ordensFrente.length; i += 3) {
+      const grupo = ordensFrente.slice(i, i + 3);
       const cards = i === 0 ? cardsLinha : montarCards(grupo);
       const alturaLinha = Math.max(...cards.map((c) => c.altura));
       garantirEspaco(alturaLinha + GAP);
