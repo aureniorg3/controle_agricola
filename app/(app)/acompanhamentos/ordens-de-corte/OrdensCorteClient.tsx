@@ -1747,21 +1747,21 @@ const emptyResultado: ResultadoImportacaoUI = {
 };
 
 function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImportado: () => void }) {
-  const [arqOrdens, setArqOrdens] = useState<File | null>(null);
-  const [arqPesagem, setArqPesagem] = useState<File | null>(null);
+  const [arqOrdens, setArqOrdens] = useState<File[]>([]);
+  const [arqPesagem, setArqPesagem] = useState<File[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoImportacaoUI | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   async function enviar() {
-    if (!arqOrdens && !arqPesagem) return;
+    if (arqOrdens.length === 0 && arqPesagem.length === 0) return;
     setEnviando(true);
     setErro(null);
     setResultado(null);
     try {
       const form = new FormData();
-      if (arqOrdens) form.append("ordens", arqOrdens);
-      if (arqPesagem) form.append("pesagem", arqPesagem);
+      arqOrdens.forEach((f) => form.append("ordens", f));
+      arqPesagem.forEach((f) => form.append("pesagem", f));
       const res = await fetch("/api/ordens-corte/importar", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) {
@@ -1791,19 +1791,21 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
       </p>
 
       <div className="space-y-3">
-        <Campo label='1. "Ordem de Colheita.xlsx" — cadastro (status, frente, fazenda, talhões) — opcional'>
+        <Campo label='1. "Ordem de Colheita.xlsx" — cadastro (status, frente, fazenda, talhões) — opcional, até 10 arquivos'>
           <input
             type="file"
+            multiple
             accept=".xlsx,.xls"
-            onChange={(e) => setArqOrdens(e.target.files?.[0] ?? null)}
+            onChange={(e) => setArqOrdens(Array.from(e.target.files ?? []).slice(0, 10))}
             className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
           />
         </Campo>
-        <Campo label='2. "Relatório de Pesagem de Cana" — viagens já com a ordem (coluna Liberação), fazenda e peso — opcional'>
+        <Campo label='2. "Relatório de Pesagem de Cana" — viagens já com a ordem (coluna Liberação), fazenda e peso — opcional, até 10 arquivos'>
           <input
             type="file"
+            multiple
             accept=".xlsx,.xls"
-            onChange={(e) => setArqPesagem(e.target.files?.[0] ?? null)}
+            onChange={(e) => setArqPesagem(Array.from(e.target.files ?? []).slice(0, 10))}
             className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
           />
         </Campo>
@@ -1862,7 +1864,7 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
         </button>
         <button
           type="button"
-          disabled={(!arqOrdens && !arqPesagem) || enviando}
+          disabled={(arqOrdens.length === 0 && arqPesagem.length === 0) || enviando}
           onClick={enviar}
           className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
         >

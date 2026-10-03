@@ -16,8 +16,10 @@ export const runtime = "nodejs";
 // que o padrão de rotas simples.
 export const maxDuration = 120;
 
-function arquivoValido(v: FormDataEntryValue | null): File | null {
-  return v && typeof v !== "string" && v.size > 0 ? v : null;
+const MAX_ARQUIVOS = 10;
+
+function arquivosValidos(form: FormData, campo: string): File[] {
+  return form.getAll(campo).filter((v): v is File => typeof v !== "string" && v.size > 0);
 }
 
 function fmtBR(iso: string): string {
@@ -26,7 +28,7 @@ function fmtBR(iso: string): string {
 }
 
 /**
- * Importa um ou os dois relatórios do CHBWEB, sem apagar o histórico:
+ * Importa até 10 arquivos de cada relatório do CHBWEB, sem apagar o histórico:
  *  - "Ordem de Colheita" atualiza o cadastro (ordens e talhões); as entradas de
  *    cana e as áreas medidas à mão são mantidas;
  *  - "Pesagem" traz um período (ex.: 25/09 a 30/09): cada viagem, identificada
@@ -48,35 +50,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Não foi possível ler os arquivos enviados." }, { status: 400 });
   }
 
-  const arquivoOrdens = arquivoValido(form.get("ordens"));
-  const arquivoPesagem = arquivoValido(form.get("pesagem"));
-  if (!arquivoOrdens && !arquivoPesagem) {
+  const arquivosOrdens = arquivosValidos(form, "ordens");
+  const arquivosPesagem = arquivosValidos(form, "pesagem");
+  if (arquivosOrdens.length === 0 && arquivosPesagem.length === 0) {
     return NextResponse.json(
       { error: 'Envie pelo menos um arquivo: "Ordem de Colheita" ou "Relatório de Pesagem de Cana".' },
       { status: 400 }
     );
   }
+  if (arquivosOrdens.length > MAX_ARQUIVOS || arquivosPesagem.length > MAX_ARQUIVOS) {
+    return NextResponse.json({ error: `Envie no máximo ${MAX_ARQUIVOS} arquivos de cada tipo por vez.` }, { status: 400 });
+  }
 
-  let resOrdens: ReturnType<typeof parseOrdemColheita> | null = null;
-  if (arquivoOrdens) {
-    try {
-      resOrdens = parseOrdemColheita(await arquivoOrdens.arrayBuffer());
-    } catch (e) {
-      return NextResponse.json(
-        { error: `Não foi possível ler o arquivo "Ordem de Colheita": ${e instanceof Error ? e.message : String(e)}` },
-        { status: 400 }
-      );
+  // Ordem de Colheita: vários arquivos se somam; a mesma ordem em dois arquivos vale a do último
+  const avisosOrdens: string[] = [];
+  let resOrdens: { ordens: ReturnType<typeof parseOrdemColheita>["ordens"] } | null = null;
+  if (arquivosOrdens.length > 0) {
+    const porNumero = new Map<string, ReturnType<typeof parseOrdemColheita>["ordens"][number]>();
+    for (const arq of arquivosOrdens) {
+      let lido: ReturnType<typeof parseOrdemColheita>;
+      try {
+        lido = parseOrdemColheita(await arq.arrayBuffer());
+      } catch (e) {
+        return NextResponse.json(
+          { error: `Não foi possível ler "${arq.name}" (Ordem de Colheita): ${e instanceof Error ? e.message : String(e)}` },
+          { status: 400 }
+        );
+      }
+      if (lido.erros.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Não foi possível importar "${arq.name}". Confira se cada arquivo foi anexado no campo certo.`,
+            erros: lido.erros,
+            avisos: [...avisosOrdens, ...lido.avisos],
+          },
+          { status: 400 }
+        );
+      }
+      avisosOrdens.push(...lido.avisos.map((a) => (arquivosOrdens.length > 1 ? `${arq.name}: ${a}` : a)));
+      for (const o of lido.ordens) porNumero.set(o.numero, o);
     }
-    if (resOrdens.erros.length > 0) {
-      return NextResponse.json(
-        {
-          error: "Não foi possível importar. Confira se cada arquivo foi anexado no campo certo.",
-          erros: resOrdens.erros,
-          avisos: resOrdens.avisos,
-        },
-        { status: 400 }
-      );
-    }
+    resOrdens = { ordens: [...porNumero.values()] };
   }
 
   // Ordens que a pesagem pode referenciar: as do arquivo novo ou, se ele não veio, as já cadastradas.
@@ -84,29 +98,49 @@ export async function POST(req: NextRequest) {
     ? new Set(resOrdens.ordens.map((o) => o.numero))
     : new Set(await listNumerosOrdens());
 
-  let resPesagem: Awaited<ReturnType<typeof lerViagensPesagem>> | null = null;
-  if (arquivoPesagem) {
-    try {
-      resPesagem = await lerViagensPesagem(await arquivoPesagem.arrayBuffer(), ordensCadastradas);
-    } catch (e) {
-      return NextResponse.json(
-        { error: `Não foi possível ler o arquivo "Relatório de Pesagem de Cana": ${e instanceof Error ? e.message : String(e)}` },
-        { status: 400 }
-      );
+  // Pesagem: viagens de todos os arquivos juntas; mesma data + ordem + controle vale a do último arquivo
+  type ResPes = Awaited<ReturnType<typeof lerViagensPesagem>>;
+  let resPesagem: { viagens: ResPes["viagens"]; semOrdem: number; ordensNaoCadastradas: Set<string>; periodoLido: ResPes["periodoLido"]; avisos: string[] } | null = null;
+  if (arquivosPesagem.length > 0) {
+    const viagens = new Map<string, ResPes["viagens"][number]>();
+    const acc = { semOrdem: 0, ordensNaoCadastradas: new Set<string>(), periodoLido: null as ResPes["periodoLido"], avisos: [] as string[] };
+    for (const arq of arquivosPesagem) {
+      let lido: ResPes;
+      try {
+        lido = await lerViagensPesagem(await arq.arrayBuffer(), ordensCadastradas);
+      } catch (e) {
+        return NextResponse.json(
+          { error: `Não foi possível ler "${arq.name}" (Relatório de Pesagem de Cana): ${e instanceof Error ? e.message : String(e)}` },
+          { status: 400 }
+        );
+      }
+      if (lido.erros.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Não foi possível importar "${arq.name}". Confira se cada arquivo foi anexado no campo certo.`,
+            erros: lido.erros,
+            avisos: [...avisosOrdens, ...acc.avisos, ...lido.avisos],
+          },
+          { status: 400 }
+        );
+      }
+      for (const v of lido.viagens) viagens.set(`${v.data}|${v.ordem}|${v.controle}`, v);
+      acc.semOrdem += lido.semOrdem;
+      lido.ordensNaoCadastradas.forEach((o) => acc.ordensNaoCadastradas.add(o));
+      if (lido.periodoLido) {
+        acc.periodoLido = acc.periodoLido
+          ? {
+              inicio: lido.periodoLido.inicio < acc.periodoLido.inicio ? lido.periodoLido.inicio : acc.periodoLido.inicio,
+              fim: lido.periodoLido.fim > acc.periodoLido.fim ? lido.periodoLido.fim : acc.periodoLido.fim,
+            }
+          : lido.periodoLido;
+      }
+      acc.avisos.push(...lido.avisos.map((a) => (arquivosPesagem.length > 1 ? `${arq.name}: ${a}` : a)));
     }
-    if (resPesagem.erros.length > 0) {
-      return NextResponse.json(
-        {
-          error: "Não foi possível importar. Confira se cada arquivo foi anexado no campo certo.",
-          erros: resPesagem.erros,
-          avisos: [...(resOrdens?.avisos ?? []), ...resPesagem.avisos],
-        },
-        { status: 400 }
-      );
-    }
+    resPesagem = { viagens: [...viagens.values()], ...acc };
   }
 
-  const avisos: string[] = [...(resOrdens?.avisos ?? [])];
+  const avisos: string[] = [...avisosOrdens];
 
   // 1) cadastro de ordens (mantém as entradas já existentes)
   let totalOrdens = ordensCadastradas.size;
