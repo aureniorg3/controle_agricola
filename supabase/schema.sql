@@ -19,6 +19,7 @@
 --   Tabelas: usr=usuários, ord=ordens, tlh=talhões, ent_dia=entradas diárias,
 --            ord_vis=ordens visíveis, met_frt=metas por frente, conf_pes=conferência
 --            de pesagem (frt_cor=frente correta lançada), eqp_frt=equipamento x frente,
+--            cad_itm=cadastros importados (cad=cadastro, cod=código, nm=descrição, dds=colunas),
 --            pes_viag=viagens da pesagem (ctl=controle, hsd=hora saída indústria),
 --            saf_tlh=histórico de safras (por talhão), saf_cad=cadastro de safras,
 --            app_met=metadados
@@ -109,6 +110,19 @@ create table if not exists pes_viag (
   ton numeric not null default 0,
   hsd text not null default '',
   primary key (dt, ord_num, ctl)
+);
+
+-- Cadastros de apoio importados de planilhas (fazendas, solos, tipos de solo,
+-- maturação, estados, fornecedores e prestadores, regiões, blocos, variedades).
+-- Uma linha por item: cad = qual cadastro, cod = código, nm = descrição e
+-- dds = todas as colunas da planilha (jsonb, pelo nome normalizado da coluna).
+create table if not exists cad_itm (
+  cad text not null,
+  cod text not null,
+  nm text not null default '',
+  dds jsonb not null default '{}'::jsonb,
+  atu_em timestamptz not null default now(),
+  primary key (cad, cod)
 );
 
 -- Ordens marcadas manualmente para aparecer na tela — seleção GLOBAL,

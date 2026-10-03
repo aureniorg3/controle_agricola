@@ -16,5 +16,11 @@ export const CADASTROS: { slug: string; label: string }[] = [
   { slug: "operacoes", label: "Operações" },
   { slug: "safras", label: "Safras" },
   { slug: "sistema-aplicacao", label: "Sistema de Aplicação" },
+  { slug: "fazendas", label: "Fazendas" },
+  { slug: "solos", label: "Solos" },
+  { slug: "tipos-solo", label: "Tipos de Solo" },
+  { slug: "maturacao", label: "Maturação" },
+  { slug: "estados", label: "Estados" },
+  { slug: "fornecedores-prestadores", label: "Fornecedores e Prestadores" },
   { slug: "usuarios", label: "Usuários" },
 ];

@@ -294,6 +294,13 @@ function prepararBanco(pool: Pool): Promise<void> {
            PRIMARY KEY (dt, ord_num, ctl)
          )`
       );
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS cad_itm (
+           cad text NOT NULL, cod text NOT NULL, nm text NOT NULL DEFAULT '',
+           dds jsonb NOT NULL DEFAULT '{}'::jsonb, atu_em timestamptz NOT NULL DEFAULT now(),
+           PRIMARY KEY (cad, cod)
+         )`
+      );
       await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_12h numeric NOT NULL DEFAULT 0");
       await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_18h numeric NOT NULL DEFAULT 0");
       await pool.query("ALTER TABLE conf_pes ADD COLUMN IF NOT EXISTS frt_cor text");
@@ -975,6 +982,91 @@ export async function excluirEquiptoFrente(id: string): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
   await pool.query("DELETE FROM eqp_frt WHERE id = $1", [id]);
+}
+
+// ---------------------------------------------------------------------------
+// Cadastros de apoio importados de planilhas (tabela genérica cad_itm)
+// ---------------------------------------------------------------------------
+
+export interface ItemCadastro {
+  cod: string;
+  nm: string;
+  dados: Record<string, string | number>;
+}
+
+export async function listarCadastro(
+  cad: string,
+  busca: string,
+  pagina: number,
+  tamanho: number
+): Promise<{ total: number; itens: ItemCadastro[] }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const termo = `%${busca.trim().replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+  const filtro = "cad = $1 AND ($2 = '%%' OR cod ILIKE $2 OR nm ILIKE $2 OR dds::text ILIKE $2)";
+  const { rows: cont } = await pool.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM cad_itm WHERE ${filtro}`, [cad, termo]);
+  const { rows } = await pool.query<{ cod: string; nm: string; dds: Record<string, string | number> }>(
+    `SELECT cod, nm, dds FROM cad_itm WHERE ${filtro}
+      ORDER BY CASE WHEN cod ~ '^[0-9]+$' THEN lpad(cod, 15, '0') ELSE cod END
+      LIMIT $3 OFFSET $4`,
+    [cad, termo, tamanho, Math.max(0, (pagina - 1) * tamanho)]
+  );
+  return { total: cont[0].n, itens: rows.map((r) => ({ cod: r.cod, nm: r.nm, dados: r.dds })) };
+}
+
+/** Grava os itens (novos entram, existentes são atualizados pelo código); o resto do cadastro fica como está. */
+export async function upsertCadastroLote(cad: string, itens: ItemCadastro[]): Promise<{ novos: number; atualizados: number }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const client = await pool.connect();
+  let atualizados = 0;
+  try {
+    await client.query("BEGIN");
+    for (let i = 0; i < itens.length; i += 2000) {
+      const lote = itens.slice(i, i + 2000);
+      const json = JSON.stringify(lote.map((it) => ({ cod: it.cod, nm: it.nm, dds: it.dados })));
+      const { rows } = await client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM cad_itm c
+           JOIN jsonb_to_recordset($2::jsonb) AS x(cod text) ON c.cod = x.cod WHERE c.cad = $1`,
+        [cad, json]
+      );
+      atualizados += rows[0].n;
+      await client.query(
+        `INSERT INTO cad_itm (cad, cod, nm, dds)
+         SELECT $1, x.cod, x.nm, x.dds FROM jsonb_to_recordset($2::jsonb) AS x(cod text, nm text, dds jsonb)
+         ON CONFLICT (cad, cod) DO UPDATE SET nm = EXCLUDED.nm, dds = EXCLUDED.dds, atu_em = now()`,
+        [cad, json]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+  return { novos: itens.length - atualizados, atualizados };
+}
+
+export async function atualizarItemCadastro(
+  cad: string,
+  cod: string,
+  nm: string,
+  dados: Record<string, string | number>
+): Promise<boolean> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rowCount } = await pool.query(
+    "UPDATE cad_itm SET nm = $3, dds = dds || $4::jsonb, atu_em = now() WHERE cad = $1 AND cod = $2",
+    [cad, cod, nm, JSON.stringify(dados)]
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export async function excluirItemCadastro(cad: string, cod: string): Promise<void> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  await pool.query("DELETE FROM cad_itm WHERE cad = $1 AND cod = $2", [cad, cod]);
 }
 
 // ---------------------------------------------------------------------------
