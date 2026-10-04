@@ -983,5 +983,5 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   // "gesto do usuário" pra maioria dos bloqueadores de pop-up. `save()`
   // baixa o arquivo direto (não é bloqueado) — o usuário abre o PDF baixado
   // pra imprimir, ou já sai imprimindo pelo próprio visualizador de PDF.
-  doc.save(`${dados.titulo}.pdf`);
+  doc.save(`${dados.titulo}_${dados.referencia.replace(/-/g, "")}.pdf`);
 }
