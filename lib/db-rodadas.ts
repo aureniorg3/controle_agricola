@@ -38,6 +38,20 @@ export async function buscarCodigo(cad: string, cod: string): Promise<CodigoCada
   return { cadastroComItens: cont[0].n > 0, item: rows[0] ?? null };
 }
 
+/** Responsável cadastrado para a região (Rodadas de Campo > Responsável Região); o código da região aceita 1 = 01. */
+export async function responsavelDaRegiao(reg: string): Promise<{ cod: string; nm: string } | null> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const norm = (v: string) => (NUMERICO.test(v.trim()) ? v.trim().replace(/^0+/, "") || "0" : v.trim().toLowerCase());
+  const alvo = norm(reg);
+  if (!alvo) return null;
+  const { rows } = await pool.query<{ cod: string; nm: string; reg: string | null }>(
+    "SELECT cod, nm, dds->>'regiao' AS reg FROM cad_itm WHERE cad = 'responsavel-regiao' ORDER BY cod"
+  );
+  const r = rows.find((x) => x.reg !== null && norm(String(x.reg)) === alvo);
+  return r ? { cod: r.cod, nm: r.nm } : null;
+}
+
 // ---------------------------------------------------------------------------
 // Cadastro de Rodadas (calendário de 8 semanas)
 // ---------------------------------------------------------------------------
@@ -171,6 +185,9 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
   const faz = await validarCodigo("fazendas", "Fazenda", b.faz, true);
   if ("erro" in faz) return faz;
 
+  // sem responsável informado, vale o cadastrado para a região
+  const respFinal = b.resp.trim() || (await responsavelDaRegiao(reg.cod))?.nm || "";
+
   const itens = b.itens.filter((i) => i.oco.trim() || i.tlh.trim() || i.rec.trim());
   if (itens.length === 0) return { erro: "Lance pelo menos uma ocorrência." };
   const validados: { oco: string; pre: string; niv: string; pri: string; tlh: string; rec: string }[] = [];
@@ -195,7 +212,7 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
     const bol = rows[0].n;
     await client.query(
       `INSERT INTO rod_bol (bol, rod, dt, sem, reg, resp, faz, ori, usr) VALUES ($1,$2,$3,$4,$5,$6,$7,'apontamento',$8)`,
-      [bol, b.rod, b.dt, sem, reg.cod, b.resp.trim(), faz.cod, usuario]
+      [bol, b.rod, b.dt, sem, reg.cod, respFinal, faz.cod, usuario]
     );
     for (let n = 0; n < validados.length; n++) {
       const v = validados[n];

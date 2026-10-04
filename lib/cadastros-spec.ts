@@ -232,6 +232,20 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
       { chave: "descricao", rotulo: "Descrição", largura: 320 },
     ],
   },
+  {
+    slug: "responsavel-regiao",
+    titulo: "Responsável Região",
+    arquivos: ["responsavel regiao", "responsaveis regiao", "responsavel por regiao", "responsaveis"],
+    obrigatorias: ["codigo", "nome", "regiao"],
+    codigo: (d) => texto(d.codigo),
+    nome: (d) => texto(d.nome),
+    chaves: ["codigo"],
+    colunas: [
+      { chave: "codigo", rotulo: "Código", largura: 90 },
+      { chave: "nome", rotulo: "Nome", largura: 300 },
+      { chave: "regiao", rotulo: "Região (código)", largura: 130 },
+    ],
+  },
 ];
 
 export function specPorSlug(slug: string): CadastroSpec | undefined {

@@ -72,6 +72,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
   async function consultar(cad: Cad, cod: string) {
     const valor = cod.trim();
     if (!valor) return;
+    if (cad === "regiao") preencherResponsavel(valor);
     const chave = `${cad}|${valor}`;
     try {
       const res = await fetch(`/api/rodadas/apontamento?cad=${cad}&cod=${encodeURIComponent(valor)}`, { cache: "no-store" });
@@ -79,6 +80,17 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
       if (res.ok) setConsultas((c) => ({ ...c, [chave]: { nm: j.item?.nm ?? null, vazio: !j.cadastroComItens } }));
     } catch {
       /* a gravação confere de novo no servidor */
+    }
+  }
+
+  // ao informar a região, traz o responsável cadastrado (continua editável)
+  async function preencherResponsavel(regiao: string) {
+    try {
+      const res = await fetch(`/api/rodadas/apontamento?resp_regiao=${encodeURIComponent(regiao)}`, { cache: "no-store" });
+      const j = await res.json();
+      if (res.ok && j.responsavel?.nm) setResp(j.responsavel.nm);
+    } catch {
+      /* o servidor completa o responsável ao gravar */
     }
   }
 

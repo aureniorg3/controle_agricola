@@ -88,6 +88,7 @@ const SECTIONS: Section[] = [
           { label: "Cadastro de Nível de Infestação", href: "/rodadas-de-campo/nivel-de-infestacao" },
           { label: "Cadastro Presença de Infestação", href: "/rodadas-de-campo/presenca-de-infestacao" },
           { label: "Prioridade", href: "/rodadas-de-campo/prioridade" },
+          { label: "Responsável Região", href: "/rodadas-de-campo/responsavel-regiao" },
         ],
       },
     ],

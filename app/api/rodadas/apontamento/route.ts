@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { buscarCodigo, gravarBoletim, proximoBoletim, type ItemApontamento } from "@/lib/db-rodadas";
+import { buscarCodigo, gravarBoletim, proximoBoletim, responsavelDaRegiao, type ItemApontamento } from "@/lib/db-rodadas";
 import { podeEditar } from "@/lib/permissoes";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,10 @@ const CADASTROS_CONSULTA = new Set(["regiao", "fazendas", "ocorrencias", "nivel-
 export async function GET(req: NextRequest) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
+  const regResp = req.nextUrl.searchParams.get("resp_regiao");
+  if (regResp !== null) {
+    return NextResponse.json({ responsavel: await responsavelDaRegiao(regResp) });
+  }
   const cad = req.nextUrl.searchParams.get("cad");
   if (cad) {
     if (!CADASTROS_CONSULTA.has(cad)) return NextResponse.json({ error: "Cadastro desconhecido." }, { status: 404 });
