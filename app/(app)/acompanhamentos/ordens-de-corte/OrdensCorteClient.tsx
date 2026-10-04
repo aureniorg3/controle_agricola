@@ -23,7 +23,7 @@ import {
   startOfMonth,
   startOfWeekMonday,
 } from "@/lib/period";
-import { fmtDateBR, fmtHa, fmtT, fmtTch, todayISO } from "@/lib/format";
+import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev, todayISO } from "@/lib/format";
 import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
 import { Campo, ModalShell } from "@/components/ui";
 import { aplicarCorteERateio, HORAS_CORTE, rotuloHoraCorte, type HoraCorte } from "@/lib/rateio";
@@ -221,7 +221,7 @@ function periodoTexto(period: Periodo, referencia: string, safraLabel: string): 
   if (period === "semana")
     return `Semana de ${fmtDateBR(startOfWeekMonday(referencia))} a ${fmtDateBR(endOfWeekMonday(referencia))}`;
   if (period === "mes")
-    return `Mês de ${fmtDateBR(startOfMonth(referencia)).slice(3)} (${fmtDateBR(startOfMonth(referencia))} a ${fmtDateBR(
+    return `Mês de ${rotuloMesAbrev(referencia)} (${fmtDateBR(startOfMonth(referencia))} a ${fmtDateBR(
       endOfMonth(referencia)
     )})`;
   return `Safra ${safraLabel} · acumulado`;
@@ -1381,13 +1381,9 @@ function StatusBadge({ status }: { status: StatusOrdem }) {
   );
 }
 
-const MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const DIAS_SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
-function rotuloMes(mes: string): string {
-  const [a, m] = mes.split("-").map(Number);
-  return `${MESES_PT[m - 1]} de ${a}`;
-}
+const rotuloMes = rotuloMesAbrev;
 
 /** Barra fina com o quanto da meta foi alcançado (passa de 100% sem estourar a célula). */
 function BarraMeta({ real, meta }: { real: number; meta: number }) {

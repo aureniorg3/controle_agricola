@@ -16,6 +16,14 @@ export function fmtDateBR(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+const MESES_ABREV = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
+
+/** "2026-04" ou "2026-04-15" -> "ABR - 26" (mês abreviado e ano com dois dígitos). */
+export function rotuloMesAbrev(isoOuMes: string): string {
+  const [a, m] = isoOuMes.split("-");
+  return `${MESES_ABREV[Number(m) - 1] ?? m} - ${a.slice(2)}`;
+}
+
 export function todayISO(): string {
   const d = new Date();
   const mm = String(d.getMonth() + 1).padStart(2, "0");

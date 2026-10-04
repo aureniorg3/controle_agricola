@@ -11,7 +11,7 @@ import {
   startOfMonth,
   startOfWeekMonday,
 } from "./period";
-import { fmtDateBR, fmtHa, fmtT, fmtTch } from "./format";
+import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev } from "./format";
 import type { HistoricoTchOrdem, OrdemCorte, Periodo } from "./types";
 
 const EMPRESA = "CRV Industrial";
@@ -769,9 +769,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   // alcançado sobre a meta diária em cada célula (página própria).
   // -------------------------------------------------------------------
   const rm = dados.resumoMensal;
-  const MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
-  const [anoMes, numMes] = rm.mes.split("-").map(Number);
-  const tituloMensal = `Resumo diário por frente — ${MESES_PT[numMes - 1]} de ${anoMes}`;
+  const tituloMensal = `Resumo diário por frente — ${rotuloMesAbrev(rm.mes)}`;
   doc.addPage();
   cabecalhoPagina(tituloMensal);
   const nFrentes = rm.frentes.length;
