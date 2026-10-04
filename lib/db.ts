@@ -736,6 +736,35 @@ export async function reconstruirEntradas(): Promise<void> {
   }
 }
 
+/** Quantas viagens e entradas diárias de cana existem entre as datas (inclusive). */
+export async function contarPesagens(inicio: string, fim: string): Promise<{ viagens: number; entradas: number }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const v = await pool.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM pes_viag WHERE dt BETWEEN $1 AND $2", [inicio, fim]);
+  const e = await pool.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM ent_dia WHERE dt BETWEEN $1 AND $2", [inicio, fim]);
+  return { viagens: v.rows[0].n, entradas: e.rows[0].n };
+}
+
+/** Apaga do banco as viagens e as entradas diárias de cana das datas informadas (inclusive). */
+export async function limparPesagens(inicio: string, fim: string): Promise<{ viagens: number; entradas: number }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const v = await client.query("DELETE FROM pes_viag WHERE dt BETWEEN $1 AND $2", [inicio, fim]);
+    const e = await client.query("DELETE FROM ent_dia WHERE dt BETWEEN $1 AND $2", [inicio, fim]);
+    await client.query("UPDATE app_met SET ult_atu = now() WHERE id = true");
+    await client.query("COMMIT");
+    return { viagens: v.rowCount ?? 0, entradas: e.rowCount ?? 0 };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listOrdensVisiveis(): Promise<string[]> {
   const pool = getPool();
   await prepararBanco(pool);

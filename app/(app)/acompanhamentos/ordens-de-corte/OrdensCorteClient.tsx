@@ -41,7 +41,7 @@ import {
   IconTalhao,
   IconTch,
 } from "@/components/icons";
-import { podeEditar } from "@/lib/permissoes";
+import { ehAdmin, podeEditar } from "@/lib/permissoes";
 
 const PERIODOS: { key: Periodo; label: string }[] = [
   { key: "dia", label: "Dia" },
@@ -1288,7 +1288,7 @@ export default function OrdensCorteClient({
         </p>
       </div>
 
-      {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} onImportado={refetch} />}
+      {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} onImportado={refetch} admin={ehAdmin(perfil)} />}
       {areaColhidaAlvo && (
         <AreaColhidaModal
           ordem={areaColhidaAlvo}
@@ -1913,7 +1913,150 @@ const emptyResultado: ResultadoImportacaoUI = {
   erros: [],
 };
 
-function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImportado: () => void }) {
+/** Limpeza de pesagens por dia ou período — só administrador, com a senha dele. */
+function LimparPesagens({ onLimpo }: { onLimpo: () => void }) {
+  const [inicio, setInicio] = useState("");
+  const [fim, setFim] = useState("");
+  const [contagem, setContagem] = useState<{ viagens: number; entradas: number } | null>(null);
+  const [senha, setSenha] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [feito, setFeito] = useState<string | null>(null);
+
+  const periodo = fim && fim !== inicio ? `${fmtDateBR(inicio)} a ${fmtDateBR(fim)}` : fmtDateBR(inicio);
+
+  async function chamar(extra: Record<string, unknown>) {
+    const res = await fetch("/api/pesagens/limpar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inicio, fim: fim || inicio, ...extra }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error ?? "Não foi possível concluir.");
+    return data;
+  }
+
+  async function verificar() {
+    setOcupado(true);
+    setErro(null);
+    setFeito(null);
+    try {
+      setContagem(await chamar({}));
+      setSenha("");
+    } catch (e) {
+      setContagem(null);
+      setErro(e instanceof Error ? e.message : "Erro ao verificar.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function limpar() {
+    setOcupado(true);
+    setErro(null);
+    try {
+      const r = await chamar({ confirmar: true, senha });
+      setFeito(`Pesagens de ${periodo} removidas do banco: ${r.viagens} viagem(ns) e ${r.entradas} entrada(s) diária(s).`);
+      setContagem(null);
+      setSenha("");
+      await onLimpo();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro ao limpar.");
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <div className="mt-5 rounded-lg border border-alert-500/30 bg-alert-50/50 p-3">
+      <p className="text-[12.5px] font-semibold text-alert-700">Limpar pesagens (somente administrador)</p>
+      <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted">
+        Apaga do banco todas as viagens e as entradas de cana do dia ou do período escolhido, de todas as ordens. Não
+        tem volta: depois é preciso importar a pesagem de novo.
+      </p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <label className="text-[11.5px] font-semibold text-muted">
+          Data inicial
+          <input
+            type="date"
+            value={inicio}
+            onChange={(e) => {
+              setInicio(e.target.value);
+              setContagem(null);
+            }}
+            className="mt-0.5 block rounded-lg border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink"
+          />
+        </label>
+        <label className="text-[11.5px] font-semibold text-muted">
+          Data final <span className="font-normal">(vazio = só o dia)</span>
+          <input
+            type="date"
+            value={fim}
+            min={inicio || undefined}
+            onChange={(e) => {
+              setFim(e.target.value);
+              setContagem(null);
+            }}
+            className="mt-0.5 block rounded-lg border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!inicio || ocupado}
+          onClick={verificar}
+          className="rounded-lg border border-alert-500/50 bg-card px-3 py-1.5 text-[12.5px] font-semibold text-alert-700 disabled:opacity-40"
+        >
+          Verificar
+        </button>
+      </div>
+      {contagem && (
+        <div className="mt-2.5 text-[12.5px] text-ink">
+          {contagem.viagens === 0 && contagem.entradas === 0 ? (
+            <p className="text-muted">Não há pesagens em {periodo}.</p>
+          ) : (
+            <>
+              <p>
+                Em <b>{periodo}</b> serão apagadas <b>{contagem.viagens}</b> viagem(ns) e <b>{contagem.entradas}</b>{" "}
+                entrada(s) diária(s).
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  type="password"
+                  value={senha}
+                  onChange={(e) => setSenha(e.target.value)}
+                  placeholder="Senha do administrador"
+                  autoComplete="current-password"
+                  className="w-[220px] rounded-lg border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink"
+                />
+                <button
+                  type="button"
+                  disabled={!senha || ocupado}
+                  onClick={limpar}
+                  className="rounded-lg bg-alert-600 px-3 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-40"
+                >
+                  {ocupado ? "Limpando…" : "Limpar do banco"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {erro && <p className="mt-2 text-[12px] text-alert-600">{erro}</p>}
+      {feito && <p className="mt-2 text-[12px] font-semibold text-good-700">{feito}</p>}
+    </div>
+  );
+}
+
+function ImportarModal({
+  onFechar,
+  onImportado,
+  admin,
+}: {
+  onFechar: () => void;
+  onImportado: () => void;
+  admin: boolean;
+}) {
+
   const [arqOrdens, setArqOrdens] = useState<File[]>([]);
   const [arqPesagem, setArqPesagem] = useState<File[]>([]);
   const [enviando, setEnviando] = useState(false);
@@ -2020,6 +2163,8 @@ function ImportarModal({ onFechar, onImportado }: { onFechar: () => void; onImpo
           </ul>
         </div>
       )}
+
+      {admin && <LimparPesagens onLimpo={onImportado} />}
 
       <div className="mt-5 flex justify-end gap-2">
         <button
