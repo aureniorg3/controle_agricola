@@ -107,6 +107,8 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
       { chave: "setor", rotulo: "Setor" },
       { chave: "descricao", rotulo: "Descrição", largura: 280 },
       { chave: "grau", rotulo: "Grau", alinhar: "direita" },
+      { chave: "regiao", rotulo: "Região (código)", largura: 130, ref: "regiao" },
+      { chave: "regiao_nm", rotulo: "Descrição da Região", largura: 220, derivada: true },
     ],
   },
   {

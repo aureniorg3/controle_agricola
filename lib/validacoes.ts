@@ -268,6 +268,29 @@ export const VERIFICACOES: Verificacao[] = [
            ORDER BY c.cod`,
   },
   {
+    id: "bloco-sem-regiao",
+    modulo: "Cadastros",
+    titulo: "Blocos sem região informada",
+    severidade: "info",
+    descricao: "O bloco não tem região escolhida, então não dá para agrupar por região.",
+    acao: "Abra Configurações → Cadastros → Bloco, edite o item e escolha a região (ou importe a planilha com a coluna Região).",
+    sql: `SELECT c.dds->>'setor' AS "Setor", c.dds->>'descricao' AS "Descrição"
+            FROM cad_itm c WHERE c.cad = 'bloco' AND COALESCE(c.dds->>'regiao', '') = '' ORDER BY 1, 2`,
+  },
+  {
+    id: "bloco-regiao-invalida",
+    modulo: "Cadastros",
+    titulo: "Blocos com região que não existe no cadastro de Região",
+    severidade: "atencao",
+    descricao: "O código da região do bloco não está no cadastro de Região.",
+    acao: "Edite o bloco e escolha uma região do cadastro, ou cadastre a região que falta.",
+    sql: `SELECT c.dds->>'setor' AS "Setor", c.dds->>'descricao' AS "Descrição", c.dds->>'regiao' AS "Região informada"
+            FROM cad_itm c
+           WHERE c.cad = 'bloco' AND COALESCE(c.dds->>'regiao', '') <> '' AND EXISTS (SELECT 1 FROM cad_itm WHERE cad = 'regiao')
+             AND NOT EXISTS (SELECT 1 FROM cad_itm r WHERE r.cad = 'regiao' AND ${IGUAL("r.cod", "(c.dds->>'regiao')")})
+           ORDER BY 1, 2`,
+  },
+  {
     id: "boletim-rodada-sem-calendario",
     modulo: "Rodadas de Campo",
     titulo: "Boletins de rodada sem calendário cadastrado",
