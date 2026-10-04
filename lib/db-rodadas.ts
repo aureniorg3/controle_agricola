@@ -110,6 +110,47 @@ export async function criarRodada(rod: number, inicio: string): Promise<true | {
   return true;
 }
 
+/** Reconfigura as semanas da rodada (início e fim de cada uma). Pode ser feito mesmo com boletins lançados: eles guardam o número da semana. */
+export async function atualizarSemanas(rod: number, semanas: SemanaRodada[]): Promise<true | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query("SELECT 1 FROM rod_cad WHERE rod = $1", [rod]);
+  if (rows.length === 0) return { erro: `A rodada ${rod} não está cadastrada.` };
+  if (semanas.length === 0) return { erro: "Informe pelo menos uma semana." };
+  const ISO = /^\d{4}-\d{2}-\d{2}$/;
+  const vistas = new Set<number>();
+  for (const s of semanas) {
+    if (!Number.isInteger(s.sem) || s.sem <= 0 || vistas.has(s.sem)) return { erro: "Número de semana inválido ou repetido." };
+    vistas.add(s.sem);
+    if (!ISO.test(s.ini) || !ISO.test(s.fim) || Number.isNaN(Date.parse(s.ini)) || Number.isNaN(Date.parse(s.fim))) {
+      return { erro: `Semana ${s.sem}: informe o início e o fim.` };
+    }
+    if (s.fim < s.ini) return { erro: `Semana ${s.sem}: o fim não pode ser anterior ao início.` };
+  }
+  const ordenadas = [...semanas].sort((a, b) => a.sem - b.sem);
+  for (let i = 1; i < ordenadas.length; i++) {
+    if (ordenadas[i].ini <= ordenadas[i - 1].fim) {
+      return { erro: `Semana ${ordenadas[i].sem} começa antes do fim da semana ${ordenadas[i - 1].sem}.` };
+    }
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM rod_sem WHERE rod = $1", [rod]);
+    for (const s of ordenadas) {
+      await client.query("INSERT INTO rod_sem (rod, sem, ini, fim) VALUES ($1,$2,$3,$4)", [rod, s.sem, s.ini, s.fim]);
+    }
+    await client.query("UPDATE rod_cad SET ini = $2 WHERE rod = $1", [rod, ordenadas[0].ini]);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+  return true;
+}
+
 export async function excluirRodada(rod: number): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);

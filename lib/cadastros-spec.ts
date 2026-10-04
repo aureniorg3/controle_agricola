@@ -8,6 +8,10 @@ export interface ColunaCadastro {
   /** largura mínima sugerida na tabela (px) */
   largura?: number;
   alinhar?: "esquerda" | "direita" | "centro";
+  /** a coluna guarda o código de outro cadastro (slug): é conferida lá e traz a descrição junto */
+  ref?: string;
+  /** preenchida pelo sistema (ex.: descrição de uma referência): aparece na lista, não no formulário */
+  derivada?: boolean;
 }
 
 export interface CadastroSpec {
@@ -243,7 +247,8 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
     colunas: [
       { chave: "codigo", rotulo: "Código", largura: 90 },
       { chave: "nome", rotulo: "Nome", largura: 300 },
-      { chave: "regiao", rotulo: "Região (código)", largura: 130 },
+      { chave: "regiao", rotulo: "Região (código)", largura: 130, ref: "regiao" },
+      { chave: "regiao_nm", rotulo: "Descrição da Região", largura: 220, derivada: true },
     ],
   },
 ];

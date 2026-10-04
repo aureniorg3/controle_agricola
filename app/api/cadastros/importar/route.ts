@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { upsertCadastroLote, usuarioDaRequisicao } from "@/lib/db";
 import { specPorSlug } from "@/lib/cadastros-spec";
 import { lerCadastro } from "@/lib/cadastros-import";
+import { resolverReferencias } from "@/lib/cadastros-ref";
 import { podeEditar } from "@/lib/permissoes";
 
 export const runtime = "nodejs";
@@ -66,8 +67,24 @@ export async function POST(req: NextRequest) {
         resultados.push({ ...base, erro: lido.erros.join(" ") });
         continue;
       }
-      const { novos, atualizados } = await upsertCadastroLote(spec.slug, lido.itens);
-      resultados.push({ ...base, ok: true, lidos: lido.itens.length, novos, atualizados, avisos: lido.avisos });
+      // colunas que apontam para outro cadastro (ex.: Região) são conferidas; linhas com código inexistente ficam de fora
+      const avisos = [...lido.avisos];
+      let itens = lido.itens;
+      if (spec.colunas.some((c) => c.ref)) {
+        const validos: typeof itens = [];
+        const recusados: string[] = [];
+        for (const it of itens) {
+          const erroRef = await resolverReferencias(spec, it.dados);
+          if (erroRef) recusados.push(`${it.cod}: ${erroRef}`);
+          else validos.push(it);
+        }
+        if (recusados.length > 0) {
+          avisos.push(`${recusados.length} linha(s) não importada(s): ${recusados.slice(0, 5).join(" | ")}${recusados.length > 5 ? "…" : ""}`);
+        }
+        itens = validos;
+      }
+      const { novos, atualizados } = await upsertCadastroLote(spec.slug, itens);
+      resultados.push({ ...base, ok: true, lidos: itens.length, novos, atualizados, avisos });
     } catch (e) {
       resultados.push({ ...base, erro: `Não foi possível ler o arquivo: ${e instanceof Error ? e.message : String(e)}` });
     }

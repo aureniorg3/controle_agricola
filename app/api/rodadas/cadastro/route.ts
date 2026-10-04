@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { criarRodada, excluirRodada, listarRodadasCad } from "@/lib/db-rodadas";
+import { atualizarSemanas, criarRodada, excluirRodada, listarRodadasCad } from "@/lib/db-rodadas";
 import { gerarSemanas } from "@/lib/rodadas";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -30,6 +30,27 @@ export async function POST(req: NextRequest) {
   const r = await criarRodada(rod, inicio);
   if (r !== true) return NextResponse.json({ error: r.erro }, { status: 409 });
   return NextResponse.json({ ok: true, semanas: gerarSemanas(inicio) });
+}
+
+/** Edita as semanas (início e fim) de uma rodada já cadastrada. */
+export async function PUT(req: NextRequest) {
+  const usuario = await usuarioDaRequisicao(req);
+  if (!usuario || !podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para editar rodadas." }, { status: 403 });
+  }
+  const body = await req.json().catch(() => null);
+  const rod = Number(body?.rod);
+  if (!Number.isInteger(rod) || rod <= 0) return NextResponse.json({ error: "Informe a rodada." }, { status: 400 });
+  const semanas = Array.isArray(body?.semanas)
+    ? body.semanas.slice(0, 20).map((s: Record<string, unknown>) => ({
+        sem: Number(s.sem),
+        ini: typeof s.ini === "string" ? s.ini : "",
+        fim: typeof s.fim === "string" ? s.fim : "",
+      }))
+    : [];
+  const r = await atualizarSemanas(rod, semanas);
+  if (r !== true) return NextResponse.json({ error: r.erro }, { status: 400 });
+  return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {

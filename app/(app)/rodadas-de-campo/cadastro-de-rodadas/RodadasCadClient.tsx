@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Campo } from "@/components/ui";
+import { Campo, ModalShell } from "@/components/ui";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import { gerarSemanas, segundaDaSemana, somarDias, type RodadaCad } from "@/lib/rodadas";
@@ -19,6 +19,7 @@ export default function RodadasCadClient({ perfil }: { perfil: PerfilUsuario }) 
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [aberta, setAberta] = useState<number | null>(null);
+  const [editando, setEditando] = useState<RodadaCad | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -172,6 +173,7 @@ export default function RodadasCadClient({ perfil }: { perfil: PerfilUsuario }) 
                   aberta={aberta === r.rod}
                   onAlternar={() => setAberta(aberta === r.rod ? null : r.rod)}
                   onExcluir={podeGravar ? () => excluir(r) : undefined}
+                  onEditar={podeGravar ? () => setEditando(r) : undefined}
                 />
               ))}
               {!carregando && rodadas.length === 0 && (
@@ -185,7 +187,112 @@ export default function RodadasCadClient({ perfil }: { perfil: PerfilUsuario }) 
           </table>
         </div>
       </div>
+      {editando && (
+        <EditarSemanasModal
+          rodada={editando}
+          onFechar={() => setEditando(null)}
+          onSalvo={() => {
+            setEditando(null);
+            carregar();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function EditarSemanasModal({ rodada, onFechar, onSalvo }: { rodada: RodadaCad; onFechar: () => void; onSalvo: () => void }) {
+  const [semanas, setSemanas] = useState(() => rodada.semanas.map((s) => ({ ...s })));
+  const [base, setBase] = useState(rodada.semanas[0]?.ini ?? "");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  function alterar(sem: number, campo: "ini" | "fim", valor: string) {
+    setSemanas((l) => l.map((s) => (s.sem === sem ? { ...s, [campo]: valor } : s)));
+  }
+
+  // refaz as semanas de segunda a domingo a partir da data escolhida (mantém o mesmo número de semanas)
+  function recalcular() {
+    if (!base) return;
+    const novas = gerarSemanas(base);
+    setSemanas((l) => l.map((s, i) => (novas[i] ? { ...s, ini: novas[i].ini, fim: novas[i].fim } : s)));
+  }
+
+  async function salvar() {
+    setErro(null);
+    setSalvando(true);
+    try {
+      const res = await fetch("/api/rodadas/cadastro", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rod: rodada.rod, semanas }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível salvar as semanas.");
+      onSalvo();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível salvar as semanas.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <ModalShell titulo={`Configurar semanas · Rodada ${rodada.rod}`} onFechar={onFechar}>
+      <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-line bg-surface p-2.5">
+        <Campo label="Refazer de segunda a domingo a partir de">
+          <input type="date" value={base} onChange={(e) => setBase(e.target.value)} className={INPUT} />
+        </Campo>
+        <button
+          type="button"
+          onClick={recalcular}
+          className="rounded-lg border border-line bg-card px-3 py-2 text-[12.5px] font-semibold text-navy-800 hover:bg-surface"
+        >
+          Recalcular
+        </button>
+      </div>
+      <table className="w-full text-[12.5px]">
+        <thead>
+          <tr className="border-b border-line text-left text-muted">
+            <th className="px-2 py-1.5 text-right font-semibold">Semana</th>
+            <th className="px-2 py-1.5 font-semibold">Início</th>
+            <th className="px-2 py-1.5 font-semibold">Fim</th>
+          </tr>
+        </thead>
+        <tbody>
+          {semanas.map((s) => (
+            <tr key={s.sem} className="border-b border-line/60">
+              <td className="px-2 py-1 text-right font-semibold tabular text-ink">{s.sem}</td>
+              <td className="px-2 py-1">
+                <input type="date" value={s.ini} onChange={(e) => alterar(s.sem, "ini", e.target.value)} className={INPUT} />
+              </td>
+              <td className="px-2 py-1">
+                <input type="date" value={s.fim} onChange={(e) => alterar(s.sem, "fim", e.target.value)} className={INPUT} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rodada.boletins > 0 && (
+        <p className="mt-2 text-[11.5px] text-muted">
+          Esta rodada tem {rodada.boletins} boletim(ns). Eles guardam só o número da semana, então mudar as datas não os altera.
+        </p>
+      )}
+      {erro && <p className="mt-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <button type="button" onClick={onFechar} className="rounded-lg border border-line px-4 py-2 text-[13px] font-semibold text-ink">
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={salvar}
+          disabled={salvando}
+          className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+        >
+          {salvando ? "Salvando…" : "Salvar semanas"}
+        </button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -194,11 +301,13 @@ function FragmentoRodada({
   aberta,
   onAlternar,
   onExcluir,
+  onEditar,
 }: {
   r: RodadaCad;
   aberta: boolean;
   onAlternar: () => void;
   onExcluir?: () => void;
+  onEditar?: () => void;
 }) {
   const fim = r.semanas[r.semanas.length - 1]?.fim;
   return (
@@ -217,6 +326,15 @@ function FragmentoRodada({
           >
             {aberta ? "Ocultar" : "Calendário"}
           </button>
+          {onEditar && (
+            <button
+              type="button"
+              onClick={onEditar}
+              className="mr-1 rounded px-1.5 py-0.5 text-[12px] font-semibold text-brand-700 hover:bg-brand-50"
+            >
+              Editar
+            </button>
+          )}
           {onExcluir && (
             <button
               type="button"

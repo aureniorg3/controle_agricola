@@ -267,6 +267,18 @@ function EditarModal({
   const [valores, setValores] = useState<Record<string, string>>(() =>
     Object.fromEntries(spec.colunas.map((c) => [c.chave, String(item?.dados[c.chave] ?? "")]))
   );
+  // sugestões do cadastro de origem para colunas com `ref` (ex.: Região em Responsável Região)
+  const [sugestoes, setSugestoes] = useState<{ chave: string; itens: { cod: string; nm: string }[] } | null>(null);
+
+  async function buscarSugestoes(chave: string, ref: string, termo: string) {
+    try {
+      const res = await fetch(`/api/cadastros/${ref}?q=${encodeURIComponent(termo.trim())}&pg=1`, { cache: "no-store" });
+      const j = await res.json();
+      if (res.ok) setSugestoes({ chave, itens: (j.itens as { cod: string; nm: string }[]).slice(0, 8) });
+    } catch {
+      /* sem sugestões, o código ainda é conferido ao salvar */
+    }
+  }
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -276,7 +288,7 @@ function EditarModal({
     setSalvando(true);
     try {
       const dados: Record<string, string | number> = {};
-      for (const c of spec.colunas) {
+      for (const c of spec.colunas.filter((x) => !x.derivada)) {
         const v = valores[c.chave].trim();
         dados[c.chave] = v !== "" && /^-?\d+([.,]\d+)?$/.test(v) && c.alinhar === "direita" ? Number(v.replace(",", ".")) : v;
       }
@@ -299,16 +311,49 @@ function EditarModal({
     <ModalShell titulo={`${novo ? "Novo" : "Editar"} · ${spec.titulo}`} onFechar={onFechar}>
       <form onSubmit={salvar} className="space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {spec.colunas.map((c) => (
-            <Campo key={c.chave} label={c.rotulo}>
-              <input
-                value={valores[c.chave]}
-                onChange={(e) => setValores((v) => ({ ...v, [c.chave]: e.target.value }))}
-                disabled={!novo && spec.chaves.includes(c.chave)}
-                className={`${INPUT} disabled:bg-surface disabled:text-muted`}
-              />
-            </Campo>
-          ))}
+          {spec.colunas
+            .filter((c) => !c.derivada)
+            .map((c) => (
+              <div key={c.chave} className="relative">
+                <Campo label={c.rotulo}>
+                  <input
+                    value={valores[c.chave]}
+                    onChange={(e) => {
+                      setValores((v) => ({ ...v, [c.chave]: e.target.value }));
+                      if (c.ref) buscarSugestoes(c.chave, c.ref, e.target.value);
+                    }}
+                    onFocus={() => c.ref && buscarSugestoes(c.chave, c.ref, valores[c.chave])}
+                    onBlur={() => setTimeout(() => setSugestoes(null), 150)}
+                    autoComplete="off"
+                    disabled={!novo && spec.chaves.includes(c.chave)}
+                    className={`${INPUT} disabled:bg-surface disabled:text-muted`}
+                  />
+                </Campo>
+                {c.ref && sugestoes?.chave === c.chave && sugestoes.itens.length > 0 && (
+                  <ul className="absolute left-0 right-0 z-10 mt-1 max-h-48 overflow-y-auto rounded-md border border-line bg-card shadow-pop">
+                    {sugestoes.itens.map((s) => (
+                      <li key={s.cod}>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setValores((v) => ({ ...v, [c.chave]: s.cod }));
+                            setSugestoes(null);
+                          }}
+                          className="flex w-full items-center gap-3 px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-surface"
+                        >
+                          <span className="w-10 flex-shrink-0 font-semibold tabular">{s.cod}</span>
+                          <span className="truncate">{s.nm}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {c.ref && (
+                  <p className="mt-0.5 text-[11px] text-muted">Código do cadastro de {c.ref === "regiao" ? "Região" : c.ref}; a descrição vem de lá.</p>
+                )}
+              </div>
+            ))}
         </div>
         {erro && (
           <div className="rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">{erro}</div>
