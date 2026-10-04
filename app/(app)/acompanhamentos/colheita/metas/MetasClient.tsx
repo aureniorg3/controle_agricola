@@ -2,7 +2,8 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Campo } from "@/components/ui";
+import { Campo, ModalShell } from "@/components/ui";
+import { IconImportar } from "@/components/icons";
 import { fmtDateBR, fmtT, todayISO } from "@/lib/format";
 import { metaDoDia } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
@@ -29,6 +30,7 @@ export default function MetasClient({
   const [erro, setErro] = useState<string | null>(null);
   const [filtroFrente, setFiltroFrente] = useState("todas");
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [importarAberto, setImportarAberto] = useState(false);
 
   const todasFrentes = useMemo(
     () => Array.from(new Set([...frentes, ...metasIniciais.map((m) => m.frente)])).sort((a, b) => a.localeCompare(b)),
@@ -124,6 +126,16 @@ export default function MetasClient({
           <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
             Somente leitura
           </div>
+        )}
+        {podeGravar && (
+          <button
+            type="button"
+            onClick={() => setImportarAberto(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+          >
+            <IconImportar size={14} />
+            Importar
+          </button>
         )}
       </header>
 
@@ -270,6 +282,107 @@ export default function MetasClient({
           </div>
         )}
       </div>
+      {importarAberto && (
+        <ImportarMetasModal
+          onFechar={() => setImportarAberto(false)}
+          onImportado={() => router.refresh()}
+        />
+      )}
     </div>
+  );
+}
+
+interface ResultadoMetasUI {
+  lidas: number;
+  novas: number;
+  atualizadas: number;
+  avisos: string[];
+}
+
+function ImportarMetasModal({ onFechar, onImportado }: { onFechar: () => void; onImportado: () => void }) {
+  const [arquivos, setArquivos] = useState<File[]>([]);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<ResultadoMetasUI | null>(null);
+
+  async function enviar() {
+    if (arquivos.length === 0) return;
+    setEnviando(true);
+    setErro(null);
+    setResultado(null);
+    try {
+      const form = new FormData();
+      arquivos.forEach((f) => form.append("arquivo", f));
+      const res = await fetch("/api/metas/importar", { method: "POST", body: form });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Não foi possível importar as metas.");
+      setResultado(json);
+      onImportado();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível importar as metas.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <ModalShell titulo="Importar metas por frente" onFechar={onFechar}>
+      <p className="mb-4 text-[12.5px] leading-relaxed text-muted">
+        Envie uma planilha (até 10 arquivos) com as colunas <b className="text-ink">Frente</b>,{" "}
+        <b className="text-ink">Meta (t/dia)</b> e <b className="text-ink">Data</b> — uma linha para cada mudança de
+        meta. A meta vale da data em diante, até a próxima da mesma frente. Se a frente já tem meta na mesma data, o
+        valor é atualizado; as demais metas ficam como estão.
+      </p>
+      <Campo label="Planilha de metas (.xlsx)">
+        <input
+          type="file"
+          multiple
+          accept=".xlsx,.xls"
+          onChange={(e) => setArquivos(Array.from(e.target.files ?? []).slice(0, 10))}
+          className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
+        />
+      </Campo>
+
+      {erro && (
+        <div className="mt-3 rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">
+          {erro}
+        </div>
+      )}
+      {resultado && (
+        <div className="mt-3 rounded-lg border border-good-500/30 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">
+          <p className="font-semibold">
+            {resultado.lidas} meta(s) lida(s) · {resultado.novas} nova(s), {resultado.atualizadas} atualizada(s).
+          </p>
+        </div>
+      )}
+      {resultado && resultado.avisos.length > 0 && (
+        <div className="mt-3 max-h-[140px] overflow-y-auto rounded-lg border border-line bg-surface p-2.5 text-[12px] text-muted">
+          <p className="mb-1 font-semibold text-ink">Avisos ({resultado.avisos.length}):</p>
+          <ul className="list-disc space-y-0.5 pl-4">
+            {resultado.avisos.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onFechar}
+          className="rounded-lg border border-line px-4 py-2 text-[13px] font-semibold text-ink"
+        >
+          {resultado ? "Fechar" : "Cancelar"}
+        </button>
+        <button
+          type="button"
+          disabled={arquivos.length === 0 || enviando}
+          onClick={enviar}
+          className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
+        >
+          {enviando ? "Importando…" : "Importar"}
+        </button>
+      </div>
+    </ModalShell>
   );
 }
