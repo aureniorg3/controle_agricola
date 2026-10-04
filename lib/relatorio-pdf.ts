@@ -695,85 +695,150 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   }
 
   // -------------------------------------------------------------------
-  // Resumo detalhado por ordem/fazenda (uma linha por fazenda, subtotal
-  // por frente e total geral) + gráfico de barras de produção por frente.
+  // As duas tabelas finais (resumo detalhado e resumo diário do mês) são
+  // sempre numa página só: cada uma é medida num PDF de rascunho e, se não
+  // couber, a escala (fonte e espaçamento) diminui até caber.
   // -------------------------------------------------------------------
-  garantirEspaco(36);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9.5);
-  doc.setTextColor(...NAVY);
-  doc.text("Resumo detalhado por ordem e fazenda", MARGEM, cursorY + 3);
-  doc.setTextColor(...INK);
-  cursorY += 6;
-  const paginaIniDetalhado = doc.getNumberOfPages();
+  type DocPdf = import("jspdf").jsPDF;
+  type LastAuto = { lastAutoTable: { finalY: number } };
 
-  const corpoDetalhado: (string | number)[][] = [];
-  const linhasSubtotal = new Set<number>();
-  for (const grupo of dados.resumoDetalhadoPorFrente) {
-    grupo.linhas.forEach((l, i) => {
-      corpoDetalhado.push([
-        i === 0 ? l.frente : "",
-        l.ordem,
-        l.fazendaCodigo,
-        l.fazendaNome,
-        l.areaColhidaHa > 0 ? fmtHa(l.areaColhidaHa) : "–",
-        l.producaoTotalT > 0 ? fmtT(l.producaoTotalT) : "–",
-        l.tchRealParcial > 0 ? fmtTch(l.tchRealParcial) : "–",
-      ]);
-    });
-    corpoDetalhado.push([
-      `${grupo.frente} Total`,
-      "",
-      "",
-      "",
-      fmtHa(grupo.subtotal.areaColhidaHa),
-      fmtT(grupo.subtotal.producaoTotalT),
-      fmtTch(grupo.subtotal.tchRealParcial),
-    ]);
-    linhasSubtotal.add(corpoDetalhado.length - 1);
+  function alturaDaTabela(desenhar: (d: DocPdf, escala: number, topo: number) => void, escala: number, topo: number): number {
+    const rascunho = new JsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    desenhar(rascunho, escala, topo);
+    if (rascunho.getNumberOfPages() > 1) return Infinity;
+    return (rascunho as unknown as LastAuto).lastAutoTable.finalY - topo;
   }
-  corpoDetalhado.push([
-    "Total Geral",
-    "",
-    "",
-    "",
-    fmtHa(dados.resumoDetalhadoTotalGeral.areaColhidaHa),
-    fmtT(dados.resumoDetalhadoTotalGeral.producaoTotalT),
-    fmtTch(dados.resumoDetalhadoTotalGeral.tchRealParcial),
-  ]);
-  const indiceTotalGeral = corpoDetalhado.length - 1;
 
-  autoTable(doc, {
-    startY: cursorY,
-    head: [["Frente", "Ordem", "Fazenda", "Fundo Agrícola", "Área Colhida (ha)", "Produção Acumulada (t)", "TCH Parcial (t/ha)"]],
-    body: corpoDetalhado,
-    styles: { fontSize: 6.8, cellPadding: 1.1 },
-    headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold" },
-    columnStyles: { 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
-    didParseCell: (data) => {
-      if (data.section !== "body") return;
-      if (data.row.index === indiceTotalGeral) {
-        data.cell.styles.fillColor = NAVY;
-        data.cell.styles.textColor = [255, 255, 255];
-        data.cell.styles.fontStyle = "bold";
-      } else if (linhasSubtotal.has(data.row.index)) {
-        data.cell.styles.fillColor = [210, 219, 232];
-        data.cell.styles.fontStyle = "bold";
-      } else if (data.row.index % 2 === 1) {
-        data.cell.styles.fillColor = ALT_ROW;
+  /** Maior escala (1 = tamanho normal) em que a tabela cabe no espaço disponível; null se nem a mínima couber. */
+  function escolherEscala(
+    desenhar: (d: DocPdf, escala: number, topo: number) => void,
+    topo: number,
+    disponivel: number,
+    minima: number
+  ): number | null {
+    for (let e = 1; e >= minima - 1e-9; e -= 0.04) {
+      if (alturaDaTabela(desenhar, e, topo) <= disponivel) return e;
+    }
+    return null;
+  }
+
+  // ---------- Resumo detalhado por ordem/fazenda ----------
+  const gruposDetalhado = dados.resumoDetalhadoPorFrente;
+  const fmtDetalhe = (l: { areaColhidaHa: number; producaoTotalT: number; tchRealParcial: number }) => [
+    l.areaColhidaHa > 0 ? fmtHa(l.areaColhidaHa) : "–",
+    l.producaoTotalT > 0 ? fmtT(l.producaoTotalT) : "–",
+    l.tchRealParcial > 0 ? fmtTch(l.tchRealParcial) : "–",
+  ];
+
+  /** Desenha as frentes `grupos` (com total geral, se pedido) em `d`, na coluna que começa em `x` com `largura`. */
+  function desenharDetalhado(
+    d: DocPdf,
+    grupos: typeof gruposDetalhado,
+    comTotalGeral: boolean,
+    escala: number,
+    topo: number,
+    x: number,
+    largura: number,
+    aoNovaPagina?: () => void
+  ) {
+    const corpo: (string | number)[][] = [];
+    const subtotais = new Set<number>();
+    for (const grupo of grupos) {
+      grupo.linhas.forEach((l, i) => {
+        corpo.push([i === 0 ? l.frente : "", l.ordem, l.fazendaCodigo, l.fazendaNome, ...fmtDetalhe(l)]);
+      });
+      corpo.push([`${grupo.frente} Total`, "", "", "", ...fmtDetalhe({ ...grupo.subtotal })]);
+      subtotais.add(corpo.length - 1);
+    }
+    if (comTotalGeral) {
+      corpo.push(["Total Geral", "", "", "", ...fmtDetalhe(dados.resumoDetalhadoTotalGeral)]);
+    }
+    const indiceTotalGeral = comTotalGeral ? corpo.length - 1 : -1;
+    const fonte = Math.max(5.2, 6.8 * escala);
+    const pad = Math.max(0.45, 1.1 * escala);
+    autoTable(d, {
+      startY: topo,
+      head: [["Frente", "Ordem", "Fazenda", "Fundo Agrícola", "Área Colhida (ha)", "Produção Acum. (t)", "TCH Parcial (t/ha)"]],
+      body: corpo,
+      styles: { fontSize: fonte, cellPadding: pad },
+      headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold" },
+      columnStyles: { 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
+      didParseCell: (data) => {
+        if (data.section !== "body") return;
+        if (data.row.index === indiceTotalGeral) {
+          data.cell.styles.fillColor = NAVY;
+          data.cell.styles.textColor = [255, 255, 255];
+          data.cell.styles.fontStyle = "bold";
+        } else if (subtotais.has(data.row.index)) {
+          data.cell.styles.fillColor = [210, 219, 232];
+          data.cell.styles.fontStyle = "bold";
+        } else if (data.row.index % 2 === 1) {
+          data.cell.styles.fillColor = ALT_ROW;
+        }
+      },
+      margin: { top: 22, left: x, right: pageWidth - x - largura, bottom: RODAPE_ALTURA },
+      didDrawPage: aoNovaPagina ? (dp) => aoNovaPagina && dp.pageNumber > 0 && aoNovaPagina() : undefined,
+    });
+  }
+
+  function tituloDetalhado(y: number) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(...NAVY);
+    doc.text("Resumo detalhado por ordem e fazenda", MARGEM, y + 3);
+    doc.setTextColor(...INK);
+  }
+
+  if (gruposDetalhado.length > 0) {
+    const larguraTotal = pageWidth - MARGEM * 2;
+    const umaColuna = (d: DocPdf, e: number, topo: number) => desenharDetalhado(d, gruposDetalhado, true, e, topo, MARGEM, larguraTotal);
+    // duas colunas lado a lado, equilibradas pelo número de linhas
+    const totalLinhas = gruposDetalhado.reduce((s, g) => s + g.linhas.length + 1, 0);
+    let acumulado = 0;
+    let corte = 0;
+    for (let i = 0; i < gruposDetalhado.length; i++) {
+      if (acumulado >= totalLinhas / 2) break;
+      acumulado += gruposDetalhado[i].linhas.length + 1;
+      corte = i + 1;
+    }
+    corte = Math.min(Math.max(corte, 1), gruposDetalhado.length - 1);
+    const larguraMeia = (larguraTotal - GAP) / 2;
+    const esq = gruposDetalhado.slice(0, corte);
+    const dir = gruposDetalhado.slice(corte);
+    const duasColunas = (d: DocPdf, e: number, topo: number) => {
+      desenharDetalhado(d, esq, false, e, topo, MARGEM, larguraMeia);
+      const yEsq = (d as unknown as LastAuto).lastAutoTable.finalY;
+      desenharDetalhado(d, dir, true, e, topo, MARGEM + larguraMeia + GAP, larguraMeia);
+      // a altura que vale é a da coluna mais comprida
+      (d as unknown as LastAuto).lastAutoTable.finalY = Math.max(yEsq, (d as unknown as LastAuto).lastAutoTable.finalY);
+    };
+
+    // 1) cabe inteiro na página dos cards, no tamanho quase normal? 2) página própria, uma coluna;
+    // 3) página própria, duas colunas; 4) último recurso: segue em várias páginas
+    const sobra = limiteY - cursorY - 7;
+    const escalaAqui = sobra > 30 ? escolherEscala(umaColuna, cursorY + 7, sobra, 0.8) : null;
+    if (escalaAqui !== null) {
+      tituloDetalhado(cursorY);
+      umaColuna(doc, escalaAqui, cursorY + 7);
+    } else {
+      doc.addPage();
+      cabecalhoPagina("Resumo detalhado por ordem e fazenda");
+      tituloDetalhado(22);
+      const espaco = limiteY - 22 - 7 - 0.5;
+      const e1 = escolherEscala(umaColuna, 29, espaco, 0.7);
+      const e2 = e1 === null && gruposDetalhado.length > 1 ? escolherEscala(duasColunas, 29, espaco, 0.6) : null;
+      if (e1 !== null) umaColuna(doc, e1, 29);
+      else if (e2 !== null) duasColunas(doc, e2, 29);
+      else {
+        const paginaIni = doc.getNumberOfPages();
+        desenharDetalhado(doc, gruposDetalhado, true, 0.7, 29, MARGEM, larguraTotal, () => {
+          if (doc.getNumberOfPages() > paginaIni) cabecalhoPagina("Resumo detalhado por ordem e fazenda");
+        });
       }
-    },
-    margin: { top: 22, left: MARGEM, right: MARGEM, bottom: RODAPE_ALTURA },
-    // páginas novas ganham o cabeçalho; a primeira já é a página dos cards
-    didDrawPage: (d) => {
-      if (d.pageNumber > paginaIniDetalhado) cabecalhoPagina("Resumo detalhado por ordem e fazenda");
-    },
-  });
+    }
+  }
 
-  // -------------------------------------------------------------------
-  // Resumo diário do mês: dias em linha, frentes em coluna, com a barra do
-  // alcançado sobre a meta diária em cada célula (página própria).
-  // -------------------------------------------------------------------
+  // ---------- Resumo diário do mês ----------
   const rm = dados.resumoMensal;
   const tituloMensal = `Resumo diário por frente — ${rotuloMesAbrev(rm.mes)}`;
   doc.addPage();
@@ -796,57 +861,61 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   const colunasMensal: Record<number, { halign: "right" }> = {};
   for (let c = 1; c <= nFrentes + 1; c++) colunasMensal[c] = { halign: "right" };
   const barraCor = (p: number): [number, number, number] => (p >= 100 ? [93, 158, 72] : p >= 80 ? [215, 123, 56] : [190, 49, 50]);
-  // sempre numa página só: a altura de cada linha se ajusta ao que cabe
-  // (31 dias + total + cabeçalho), no máximo a altura confortável de 5,4 mm
-  const ALTURA_CAB_MENSAL = 5.6;
-  const alturaLinhaMensal = Math.min(5.4, (limiteY - 22 - ALTURA_CAB_MENSAL - 1.5) / corpoMensal.length);
-  const ALTURA_TEXTO_MENSAL = 2.65; // fonte 6,5 pt com o espaçamento padrão do autotable
-  const topoMensal = 0.7;
-  const baseMensal = Math.max(0.6, alturaLinhaMensal - topoMensal - ALTURA_TEXTO_MENSAL);
-  autoTable(doc, {
-    startY: 22,
-    head: [["Data", ...rm.frentes, "Total (t)"]],
-    body: corpoMensal,
-    pageBreak: "avoid",
-    styles: { fontSize: 6.5, cellPadding: { top: topoMensal, bottom: baseMensal, left: 1.6, right: 1.6 } },
-    headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold", cellPadding: 1.4 },
-    columnStyles: colunasMensal,
-    didParseCell: (data) => {
-      if (data.section !== "body") return;
-      if (data.row.index === corpoMensal.length - 1) {
-        data.cell.styles.fillColor = NAVY;
-        data.cell.styles.textColor = [255, 255, 255];
-        data.cell.styles.fontStyle = "bold";
-      } else if (data.row.index % 2 === 1) {
-        data.cell.styles.fillColor = ALT_ROW;
-      }
-    },
-    // barra do alcançado sobre a meta, no pé de cada célula de frente/total
-    didDrawCell: (data) => {
-      if (data.section !== "body" || data.column.index === 0) return;
-      const dia = rm.dias[data.row.index];
-      if (!dia || dia.futuro) return;
-      const col = data.column.index;
-      const real = col <= nFrentes ? dia.frentes[rm.frentes[col - 1]].t : dia.totalT;
-      const meta = col <= nFrentes ? dia.frentes[rm.frentes[col - 1]].meta : dia.totalMeta;
-      if (!(meta > 0)) return;
-      const p = (real / meta) * 100;
-      // meta do dia, sem casas decimais e em cinza suave, à esquerda do valor
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(6.5);
-      doc.setTextColor(150, 158, 168);
-      doc.text(Math.round(meta).toLocaleString("pt-BR"), data.cell.x + data.cell.width * 0.28, data.cell.y + 2.7, { align: "right" });
-      doc.setTextColor(...INK);
-      const larg = data.cell.width - 3.2;
-      const y = data.cell.y + data.cell.height - 1.5;
-      doc.setFillColor(...LINE);
-      doc.rect(data.cell.x + 1.6, y, larg, 0.8, "F");
-      doc.setFillColor(...barraCor(p));
-      doc.rect(data.cell.x + 1.6, y, (larg * Math.min(100, p)) / 100, 0.8, "F");
-    },
-    margin: { top: 22, left: MARGEM, right: MARGEM, bottom: RODAPE_ALTURA },
-    didDrawPage: () => cabecalhoPagina(tituloMensal),
-  });
+
+  function desenharMensal(d: DocPdf, escala: number, topo: number) {
+    const fonte = Math.max(4.6, 6.5 * escala);
+    const topoCel = 0.7 * escala;
+    const baseCel = Math.max(1.3, 1.9 * escala);
+    autoTable(d, {
+      startY: topo,
+      head: [["Data", ...rm.frentes, "Total (t)"]],
+      body: corpoMensal,
+      styles: { fontSize: fonte, cellPadding: { top: topoCel, bottom: baseCel, left: 1.6, right: 1.6 } },
+      headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold", cellPadding: 1.2 * escala + 0.3 },
+      columnStyles: colunasMensal,
+      didParseCell: (data) => {
+        if (data.section !== "body") return;
+        if (data.row.index === corpoMensal.length - 1) {
+          data.cell.styles.fillColor = NAVY;
+          data.cell.styles.textColor = [255, 255, 255];
+          data.cell.styles.fontStyle = "bold";
+        } else if (data.row.index % 2 === 1) {
+          data.cell.styles.fillColor = ALT_ROW;
+        }
+      },
+      // barra do alcançado sobre a meta, no pé de cada célula de frente/total
+      didDrawCell: (data) => {
+        if (data.section !== "body" || data.column.index === 0) return;
+        const dia = rm.dias[data.row.index];
+        if (!dia || dia.futuro) return;
+        const col = data.column.index;
+        const real = col <= nFrentes ? dia.frentes[rm.frentes[col - 1]].t : dia.totalT;
+        const meta = col <= nFrentes ? dia.frentes[rm.frentes[col - 1]].meta : dia.totalMeta;
+        if (!(meta > 0)) return;
+        const p = (real / meta) * 100;
+        // meta do dia, sem casas decimais e em cinza suave, à esquerda do valor
+        d.setFont("helvetica", "normal");
+        d.setFontSize(fonte);
+        d.setTextColor(150, 158, 168);
+        d.text(Math.round(meta).toLocaleString("pt-BR"), data.cell.x + data.cell.width * 0.28, data.cell.y + topoCel + fonte * 0.3528 * 0.85, {
+          align: "right",
+        });
+        d.setTextColor(...INK);
+        const larg = data.cell.width - 3.2;
+        const y = data.cell.y + data.cell.height - (baseCel - 0.4);
+        d.setFillColor(...LINE);
+        d.rect(data.cell.x + 1.6, y, larg, 0.8, "F");
+        d.setFillColor(...barraCor(p));
+        d.rect(data.cell.x + 1.6, y, (larg * Math.min(100, p)) / 100, 0.8, "F");
+      },
+      margin: { top: 22, left: MARGEM, right: MARGEM, bottom: RODAPE_ALTURA },
+      didDrawPage: () => {
+        if (d === doc) cabecalhoPagina(tituloMensal);
+      },
+    });
+  }
+  // sempre numa página só: a escala cai até a tabela caber (31 dias + total + cabeçalho)
+  desenharMensal(doc, escolherEscala(desenharMensal, 22, limiteY - 22 - 0.5, 0.45) ?? 0.45, 22);
 
   // -------------------------------------------------------------------
   // Rodapé em toda página: empresa/usuário/data à esquerda, título ao
