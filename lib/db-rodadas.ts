@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { getPool, prepararBanco } from "./db";
-import { gerarSemanas, segundaDaSemana, semanaDaData, type LinhaResumoRodada, type RodadaCad, type SemanaRodada } from "./rodadas";
+import { gerarSemanas, segundaDaSemana, SEMANAS_POR_RODADA, somarDias, type LinhaResumoRodada, type RodadaCad, type SemanaRodada } from "./rodadas";
 import type { LinhaRodadaImportada } from "./rodadas-import";
 
 const NUMERICO = /^\d+$/;
@@ -142,7 +142,10 @@ export interface TalhaoApontamento {
  */
 export interface BoletimApontamento {
   rod: number;
+  /** data do lançamento no sistema */
   dt: string;
+  /** semana da rodada, informada depois da rodada */
+  sem: number;
   reg: string;
   faz: string;
   pre: string;
@@ -233,8 +236,8 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
 
   const semanas = await semanasDaRodada(b.rod);
   if (semanas.length === 0) return { erro: `A rodada ${b.rod} não está cadastrada.` };
-  const sem = semanaDaData(semanas, b.dt);
-  if (sem === null) return { erro: "A data está fora das semanas da rodada." };
+  const sem = b.sem;
+  if (!semanas.some((s) => s.sem === sem)) return { erro: `A semana ${sem || ""} não existe na rodada ${b.rod}.`.replace("  ", " ") };
 
   const reg = await validarCodigo("regiao", "Região", b.reg, true);
   if ("erro" in reg) return reg;
@@ -430,6 +433,11 @@ export async function importarRodadasCampo(linhas: LinhaRodadaImportada[]): Prom
       if (semanas.length === 0) {
         const menor = ls.map((l) => l.dt).sort()[0];
         semanas = gerarSemanas(segundaDaSemana(menor));
+      }
+      // completa até a semana 8, seguindo de 7 em 7 dias
+      while (semanas.length < SEMANAS_POR_RODADA) {
+        const ult = semanas[semanas.length - 1];
+        semanas.push({ sem: ult.sem + 1, ini: somarDias(ult.fim, 1), fim: somarDias(ult.fim, 7) });
       }
       await client.query("INSERT INTO rod_cad (rod, ini) VALUES ($1, $2) ON CONFLICT (rod) DO NOTHING", [rod, semanas[0].ini]);
       for (const s of semanas) {

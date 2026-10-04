@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { fmtDateBR, fmtHa, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
-import { semanaDaData, type RodadaCad } from "@/lib/rodadas";
+import type { RodadaCad } from "@/lib/rodadas";
 import type { PerfilUsuario } from "@/lib/types";
 
 const INPUT =
@@ -39,8 +39,10 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
   const formRef = useRef<HTMLDivElement>(null);
 
   const [boletim, setBoletim] = useState<number | null>(null);
-  const [dt, setDt] = useState(todayISO());
+  // a data é a do lançamento no sistema (hoje); a semana é informada depois da rodada
+  const [dt] = useState(todayISO());
   const [rod, setRod] = useState("");
+  const [sem, setSem] = useState("");
   const [reg, setReg] = useState("");
   const [faz, setFaz] = useState("");
   const [pre, setPre] = useState("");
@@ -156,8 +158,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
   }
 
   const rodadaSel = useMemo(() => rodadas.find((r) => String(r.rod) === rod.trim()), [rodadas, rod]);
-  const semana = useMemo(() => (rodadaSel ? semanaDaData(rodadaSel.semanas, dt) : null), [rodadaSel, dt]);
-  const semanaInfo = rodadaSel && semana ? rodadaSel.semanas.find((s) => s.sem === semana) : undefined;
+  const semanaInfo = rodadaSel ? rodadaSel.semanas.find((s) => String(s.sem) === sem.trim()) : undefined;
 
   const areaMarcada = useMemo(
     () => talhoes.filter((t) => marcados.has(t.tlh)).reduce((s, t) => s + (t.area ?? 0), 0),
@@ -188,8 +189,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     setTalhoesDe("");
     if (!manterCabecalho) {
       setRod("");
+      setSem("");
       setReg("");
-      setDt(todayISO());
     }
     setErro(null);
   }
@@ -200,7 +201,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     setAviso(null);
     if (!rod.trim()) return setErro("Informe a rodada.");
     if (!rodadaSel) return setErro(`A rodada ${rod} não está cadastrada.`);
-    if (semana === null) return setErro("A data está fora das semanas da rodada.");
+    if (!sem.trim()) return setErro("Informe a semana.");
+    if (!semanaInfo) return setErro(`A semana ${sem} não existe na rodada ${rod}.`);
     if (ocorrencias.length === 0) return setErro("Informe pelo menos uma ocorrência.");
     if (marcados.size === 0) return setErro("Marque pelo menos um talhão.");
     setSalvando(true);
@@ -211,6 +213,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
         body: JSON.stringify({
           rod: Number(rod),
           dt,
+          sem: Number(sem),
           reg,
           faz,
           pre,
@@ -328,8 +331,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                 <input value={boletim ?? ""} readOnly tabIndex={-1} className={`${SOMENTE_LEITURA} text-center font-bold`} aria-label="Boletim (automático)" />
               </div>
               <div>
-                <label className={ROTULO}>Data</label>
-                <input type="date" value={dt} onChange={(e) => setDt(e.target.value)} data-nav disabled={!podeGravar} className={INPUT} />
+                <label className={ROTULO}>Data (lançamento)</label>
+                <input type="date" value={dt} readOnly tabIndex={-1} className={SOMENTE_LEITURA} aria-label="Data do lançamento (automática)" />
               </div>
               <div>
                 <label className={ROTULO}>Rodada</label>
@@ -346,16 +349,27 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
               <div>
                 <label className={ROTULO}>Semana</label>
                 <div className="flex items-center gap-2">
-                  <input value={semana ?? ""} readOnly tabIndex={-1} className={`${SOMENTE_LEITURA} w-[72px] text-center font-bold`} aria-label="Semana" />
+                  <input
+                    value={sem}
+                    onChange={(e) => setSem(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    data-nav
+                    inputMode="numeric"
+                    disabled={!podeGravar}
+                    className={`${INPUT} w-[72px] text-center`}
+                    aria-label="Semana"
+                  />
                   <span className="min-w-0 truncate text-[12px]">
                     {rod.trim() === "" ? (
                       <span className="text-muted">Informe a rodada.</span>
                     ) : !rodadaSel ? (
                       <span className="font-semibold text-alert-600">Rodada {rod} não cadastrada.</span>
-                    ) : semana === null ? (
-                      <span className="font-semibold text-alert-600">Data fora do calendário da rodada.</span>
+                    ) : sem.trim() === "" ? (
+                      <span className="text-muted">Informe a semana (1 a {rodadaSel.semanas.length}).</span>
+                    ) : !semanaInfo ? (
+                      <span className="font-semibold text-alert-600">Semana {sem} não existe nesta rodada.</span>
                     ) : (
-                      semanaInfo && <span className="text-ink">{`${fmtDateBR(semanaInfo.ini)} a ${fmtDateBR(semanaInfo.fim)}`}</span>
+                      <span className="text-ink">{`${fmtDateBR(semanaInfo.ini)} a ${fmtDateBR(semanaInfo.fim)}`}</span>
                     )}
                   </span>
                 </div>

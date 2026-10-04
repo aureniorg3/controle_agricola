@@ -334,6 +334,16 @@ export function prepararBanco(pool: Pool): Promise<void> {
       );
       await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_itm_bol ON rod_itm(bol)");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_bol_chave ON rod_bol(rod, dt, reg, sem, faz)");
+      // toda rodada tem 8 semanas: as que vieram da importação com menos (ex.: rodada em andamento) seguem
+      // até a semana 8, de 7 em 7 dias a partir do fim da última semana
+      await pool.query(
+        `INSERT INTO rod_sem (rod, sem, ini, fim)
+         SELECT s.rod, g.n, s.ult_fim + 1 + (g.n - s.max_sem - 1) * 7, s.ult_fim + 7 + (g.n - s.max_sem - 1) * 7
+           FROM (SELECT rod, MAX(sem) AS max_sem, MAX(fim) AS ult_fim FROM rod_sem GROUP BY rod HAVING MAX(sem) < 8) s
+          CROSS JOIN generate_series(1, 8) AS g(n)
+          WHERE g.n > s.max_sem
+         ON CONFLICT (rod, sem) DO NOTHING`
+      );
       await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_12h numeric NOT NULL DEFAULT 0");
       await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_18h numeric NOT NULL DEFAULT 0");
       await pool.query("ALTER TABLE conf_pes ADD COLUMN IF NOT EXISTS frt_cor text");

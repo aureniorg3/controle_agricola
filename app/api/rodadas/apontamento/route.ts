@@ -55,6 +55,8 @@ export async function POST(req: NextRequest) {
   const dt = typeof body?.dt === "string" ? body.dt : "";
   if (!Number.isInteger(rod) || rod <= 0) return NextResponse.json({ error: "Informe a rodada." }, { status: 400 });
   if (!DATA.test(dt) || Number.isNaN(Date.parse(dt))) return NextResponse.json({ error: "Informe a data." }, { status: 400 });
+  const sem = Number(body?.sem);
+  if (!Number.isInteger(sem) || sem <= 0) return NextResponse.json({ error: "Informe a semana." }, { status: 400 });
   const texto = (v: unknown) => (typeof v === "string" ? v : "");
   const ocos: string[] = Array.isArray(body?.ocos) ? body.ocos.slice(0, 50).map(texto).filter(Boolean) : [];
   const talhoes: TalhaoApontamento[] = Array.isArray(body?.talhoes)
@@ -67,6 +69,7 @@ export async function POST(req: NextRequest) {
     {
       rod,
       dt,
+      sem,
       reg: texto(body?.reg),
       faz: texto(body?.faz),
       pre: texto(body?.pre),
