@@ -201,6 +201,15 @@ export function IconMapa(p: IconProps) {
   );
 }
 
+export function IconRodadas(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="5" y="4.5" width="14" height="16" rx="2" />
+      <path d="M9 4.5V3.5h6v1M8.5 11l1.8 1.8L13.5 9.5M8.5 16.5h7" />
+    </Svg>
+  );
+}
+
 export function IconTalhao(p: IconProps) {
   return (
     <Svg {...p}>

@@ -241,3 +241,56 @@ create index if not exists idx_ent_dia_ord on ent_dia(ord_num);
 create index if not exists idx_tlh_ord on tlh(ord_num);
 create index if not exists idx_conf_pes_dt on conf_pes(dt);
 create index if not exists idx_saf_tlh_faz on saf_tlh(faz_cod, tlh);
+
+
+-- ---------------------------------------------------------------------------
+-- Rodadas de Campo
+--   rod_cad = rodada (número + primeira segunda-feira); rod_sem = as 8 semanas
+--   (segunda a domingo); rod_bol = boletim (cabeçalho: rodada, data, semana,
+--   região, responsável, fazenda); rod_itm = linhas do boletim (ocorrência,
+--   presença, nível, prioridade, talhão(es), recomendação). Ocorrência, presença,
+--   nível e prioridade referenciam os cadastros em cad_itm pelo código.
+-- ---------------------------------------------------------------------------
+create table if not exists rod_cad (
+  rod integer primary key,
+  ini date not null,
+  cri_em timestamptz not null default now()
+);
+
+create table if not exists rod_sem (
+  rod integer not null,
+  sem integer not null,
+  ini date not null,
+  fim date not null,
+  primary key (rod, sem)
+);
+
+create table if not exists rod_bol (
+  bol integer primary key,
+  rod integer not null,
+  dt date not null,
+  sem integer not null default 0,
+  reg text not null default '',
+  resp text not null default '',
+  faz text not null default '',
+  ori text not null default 'apontamento',
+  usr text not null default '',
+  cri_em timestamptz not null default now()
+);
+create index if not exists idx_rod_bol_chave on rod_bol(rod, dt, reg, sem, faz);
+
+create table if not exists rod_itm (
+  id bigserial primary key,
+  bol integer not null,
+  seq integer not null default 1,
+  oco text not null default '',
+  oco_txt text not null default '',
+  pre text not null default '',
+  niv text not null default '',
+  pri text not null default '',
+  tlh text not null default '',
+  area numeric,
+  rec text not null default '',
+  ext jsonb not null default '{}'::jsonb
+);
+create index if not exists idx_rod_itm_bol on rod_itm(bol);

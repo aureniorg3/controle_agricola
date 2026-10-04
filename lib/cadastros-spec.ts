@@ -180,6 +180,58 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
       { chave: "ativa", rotulo: "Ativa", alinhar: "centro" },
     ],
   },
+  {
+    slug: "ocorrencias",
+    titulo: "Ocorrências",
+    arquivos: ["ocorrencias", "ocorrencia"],
+    obrigatorias: ["codigo", "descricao"],
+    codigo: (d) => texto(d.codigo),
+    nome: (d) => texto(d.descricao),
+    chaves: ["codigo"],
+    colunas: [
+      { chave: "codigo", rotulo: "Cód.", largura: 90 },
+      { chave: "descricao", rotulo: "Descrição", largura: 320 },
+    ],
+  },
+  {
+    slug: "nivel-infestacao",
+    titulo: "Nível de Infestação",
+    arquivos: ["nivel de infestacao", "niveis de infestacao", "nivel infestacao"],
+    obrigatorias: ["codigo", "descricao"],
+    codigo: (d) => texto(d.codigo),
+    nome: (d) => texto(d.descricao),
+    chaves: ["codigo"],
+    colunas: [
+      { chave: "codigo", rotulo: "Cód.", largura: 90 },
+      { chave: "descricao", rotulo: "Descrição", largura: 320 },
+    ],
+  },
+  {
+    slug: "presenca-infestacao",
+    titulo: "Presença de Infestação",
+    arquivos: ["presenca de infestacao", "presenca infestacao"],
+    obrigatorias: ["codigo", "descricao"],
+    codigo: (d) => texto(d.codigo),
+    nome: (d) => texto(d.descricao),
+    chaves: ["codigo"],
+    colunas: [
+      { chave: "codigo", rotulo: "Cód.", largura: 90 },
+      { chave: "descricao", rotulo: "Descrição", largura: 320 },
+    ],
+  },
+  {
+    slug: "prioridade",
+    titulo: "Prioridade",
+    arquivos: ["prioridade", "prioridades"],
+    obrigatorias: ["codigo", "descricao"],
+    codigo: (d) => texto(d.codigo),
+    nome: (d) => texto(d.descricao),
+    chaves: ["codigo"],
+    colunas: [
+      { chave: "codigo", rotulo: "Cód.", largura: 90 },
+      { chave: "descricao", rotulo: "Descrição", largura: 320 },
+    ],
+  },
 ];
 
 export function specPorSlug(slug: string): CadastroSpec | undefined {

@@ -25,7 +25,15 @@ interface Item {
 
 const ALINHAR = { esquerda: "text-left", direita: "text-right", centro: "text-center" } as const;
 
-export default function CadastroClient({ slug, perfil }: { slug: string; perfil: PerfilUsuario }) {
+export default function CadastroClient({
+  slug,
+  perfil,
+  categoria = "Configurações · Cadastros",
+}: {
+  slug: string;
+  perfil: PerfilUsuario;
+  categoria?: string;
+}) {
   const spec = specPorSlug(slug) as CadastroSpec;
   const podeGravar = podeEditar(perfil);
 
@@ -87,7 +95,7 @@ export default function CadastroClient({ slug, perfil }: { slug: string; perfil:
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
         <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Configurações · Cadastros</span>
+          <span className="text-[11px] uppercase tracking-wide">{categoria}</span>
           <div className="truncate text-[15px] font-bold text-ink">{spec.titulo}</div>
         </nav>
         {!podeGravar && (

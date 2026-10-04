@@ -1,0 +1,343 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { Campo, ModalShell } from "@/components/ui";
+import { IconImportar } from "@/components/icons";
+import { fmtDateBR, fmtHa } from "@/lib/format";
+import { podeEditar } from "@/lib/permissoes";
+import type { LinhaResumoRodada } from "@/lib/rodadas";
+import type { PerfilUsuario } from "@/lib/types";
+
+const FILTRO =
+  "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
+
+interface Opcoes {
+  rodadas: number[];
+  regioes: string[];
+  semanas: number[];
+}
+
+export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
+  const podeGravar = podeEditar(perfil);
+  const [rod, setRod] = useState("");
+  const [reg, setReg] = useState("");
+  const [sem, setSem] = useState("");
+  const [busca, setBusca] = useState("");
+  const [termo, setTermo] = useState("");
+  const [pagina, setPagina] = useState(1);
+  const [linhas, setLinhas] = useState<LinhaResumoRodada[]>([]);
+  const [total, setTotal] = useState(0);
+  const [boletins, setBoletins] = useState(0);
+  const [areaHa, setAreaHa] = useState(0);
+  const [tamanho, setTamanho] = useState(100);
+  const [opcoes, setOpcoes] = useState<Opcoes | null>(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+  const [importarAberto, setImportarAberto] = useState(false);
+
+  const carregar = useCallback(
+    async (comOpcoes = false) => {
+      setCarregando(true);
+      setErro(null);
+      try {
+        const p = new URLSearchParams({ pg: String(pagina) });
+        if (rod) p.set("rod", rod);
+        if (reg) p.set("reg", reg);
+        if (sem) p.set("sem", sem);
+        if (termo) p.set("q", termo);
+        if (comOpcoes || !opcoes) p.set("opcoes", "1");
+        const res = await fetch(`/api/rodadas/resumo?${p}`, { cache: "no-store" });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar o resumo.");
+        setLinhas(json.linhas);
+        setTotal(json.total);
+        setBoletins(json.boletins);
+        setAreaHa(json.areaHa);
+        setTamanho(json.tamanho);
+        if (json.opcoes) setOpcoes(json.opcoes);
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : "Não foi possível carregar o resumo.");
+      } finally {
+        setCarregando(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pagina, rod, reg, sem, termo]
+  );
+
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setPagina(1);
+      setTermo(busca);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [busca]);
+
+  const totalPaginas = Math.max(1, Math.ceil(total / tamanho));
+  const mudar = (fn: () => void) => {
+    fn();
+    setPagina(1);
+  };
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
+        <nav className="min-w-0 flex-1 text-[13px] text-muted">
+          <span className="text-[11px] uppercase tracking-wide">Rodadas de Campo</span>
+          <div className="truncate text-[15px] font-bold text-ink">Resumo</div>
+        </nav>
+        {!podeGravar && (
+          <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
+            Somente leitura
+          </div>
+        )}
+        {podeGravar && (
+          <button
+            type="button"
+            onClick={() => setImportarAberto(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+          >
+            <IconImportar size={14} />
+            Importar
+          </button>
+        )}
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Kpi rotulo="Boletins" valor={boletins.toLocaleString("pt-BR")} />
+          <Kpi rotulo="Linhas lançadas" valor={total.toLocaleString("pt-BR")} />
+          <Kpi rotulo="Área (ha)" valor={fmtHa(areaHa)} />
+          <Kpi rotulo="Rodadas" valor={String(opcoes?.rodadas.length ?? 0)} />
+        </div>
+
+        <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
+          <div className="flex flex-wrap items-center gap-2.5 border-b border-line bg-surface px-4 py-2.5">
+            <h2 className="mr-1 text-[14px] font-bold text-ink">Levantamento de campo</h2>
+            <select value={rod} onChange={(e) => mudar(() => setRod(e.target.value))} className={FILTRO} aria-label="Rodada">
+              <option value="">Todas as rodadas</option>
+              {opcoes?.rodadas.map((r) => (
+                <option key={r} value={r}>
+                  Rodada {r}
+                </option>
+              ))}
+            </select>
+            <select value={reg} onChange={(e) => mudar(() => setReg(e.target.value))} className={FILTRO} aria-label="Região">
+              <option value="">Todas as regiões</option>
+              {opcoes?.regioes.map((r) => (
+                <option key={r} value={r}>
+                  Região {r}
+                </option>
+              ))}
+            </select>
+            <select value={sem} onChange={(e) => mudar(() => setSem(e.target.value))} className={FILTRO} aria-label="Semana">
+              <option value="">Todas as semanas</option>
+              {opcoes?.semanas.map((s) => (
+                <option key={s} value={s}>
+                  Semana {s}
+                </option>
+              ))}
+            </select>
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar fazenda, ocorrência, boletim…"
+              className={`${FILTRO} min-w-[240px]`}
+            />
+          </div>
+
+          {erro && <p className="px-4 py-3 text-[12.5px] font-medium text-alert-600">{erro}</p>}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-line bg-navy-900 text-left text-white">
+                  <th className="px-3 py-2 text-right font-semibold">Boletim</th>
+                  <th className="px-3 py-2 text-right font-semibold">Rodada</th>
+                  <th className="px-3 py-2 font-semibold">Data</th>
+                  <th className="px-3 py-2 text-right font-semibold">Semana</th>
+                  <th className="px-3 py-2 font-semibold">Região</th>
+                  <th className="px-3 py-2 font-semibold">Fazenda</th>
+                  <th className="px-3 py-2 text-center font-semibold">Talhão</th>
+                  <th className="px-3 py-2 text-right font-semibold">Área (ha)</th>
+                  <th className="px-3 py-2 font-semibold">Ocorrência</th>
+                  <th className="px-3 py-2 font-semibold">Presença</th>
+                  <th className="px-3 py-2 font-semibold">Nível</th>
+                  <th className="px-3 py-2 font-semibold">Prioridade</th>
+                  <th className="px-3 py-2 font-semibold">Recomendação / Diagnóstico</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((l, i) => (
+                  <tr key={`${l.bol}-${i}`} className={`border-b border-line/60 ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}>
+                    <td className="px-3 py-1 text-right tabular text-ink">{l.bol}</td>
+                    <td className="px-3 py-1 text-right tabular text-ink">{l.rod}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-ink">{fmtDateBR(l.dt)}</td>
+                    <td className="px-3 py-1 text-right tabular text-ink">{l.sem || ""}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-ink">{l.reg ? (l.regNm ? `${l.reg} · ${l.regNm}` : l.reg) : ""}</td>
+                    <td className="px-3 py-1 text-ink">{l.fazNm ? `${l.faz} · ${l.fazNm}` : l.faz}</td>
+                    <td className="px-3 py-1 text-center text-ink">{l.tlh}</td>
+                    <td className="px-3 py-1 text-right tabular text-ink">{l.area !== null ? fmtHa(l.area) : ""}</td>
+                    <td className="min-w-[200px] px-3 py-1 text-ink">{l.ocorrencia}</td>
+                    <td className="px-3 py-1 text-ink">{l.presenca}</td>
+                    <td className="px-3 py-1 text-ink">{l.nivel}</td>
+                    <td className="px-3 py-1 text-ink">{l.prioridade}</td>
+                    <td className="min-w-[240px] px-3 py-1 text-ink">{l.rec}</td>
+                  </tr>
+                ))}
+                {!carregando && linhas.length === 0 && (
+                  <tr>
+                    <td colSpan={13} className="px-4 py-10 text-center text-muted">
+                      {podeGravar
+                        ? 'Nenhum levantamento ainda. Use "Importar" para carregar a planilha ou lance pelo Apontamento.'
+                        : "Nenhum levantamento ainda."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-line bg-surface px-4 py-2 text-[12.5px] text-muted">
+            <span>{carregando ? "Carregando…" : `Página ${pagina} de ${totalPaginas} · ${total.toLocaleString("pt-BR")} linha(s)`}</span>
+            <span className="flex gap-1.5">
+              <button
+                type="button"
+                disabled={pagina <= 1 || carregando}
+                onClick={() => setPagina((p) => p - 1)}
+                className="rounded-md border border-line bg-card px-2.5 py-1 font-semibold text-navy-800 disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                disabled={pagina >= totalPaginas || carregando}
+                onClick={() => setPagina((p) => p + 1)}
+                className="rounded-md border border-line bg-card px-2.5 py-1 font-semibold text-navy-800 disabled:opacity-40"
+              >
+                Próxima
+              </button>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {importarAberto && (
+        <ImportarModal
+          onFechar={() => {
+            setImportarAberto(false);
+            carregar(true);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function Kpi({ rotulo, valor }: { rotulo: string; valor: string }) {
+  return (
+    <div className="rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{rotulo}</div>
+      <div className="mt-0.5 text-[20px] font-extrabold tabular text-navy-900">{valor}</div>
+    </div>
+  );
+}
+
+interface ResultadoImportacao {
+  lidas: number;
+  boletins: number;
+  itens: number;
+  jaImportados: number;
+  rodadasCriadas: number[];
+  primeiroBoletim: number | null;
+  ultimoBoletim: number | null;
+  avisos: string[];
+}
+
+function ImportarModal({ onFechar }: { onFechar: () => void }) {
+  const [arquivos, setArquivos] = useState<File[]>([]);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<ResultadoImportacao | null>(null);
+
+  async function enviar() {
+    setEnviando(true);
+    setErro(null);
+    setResultado(null);
+    try {
+      const form = new FormData();
+      arquivos.forEach((f) => form.append("arquivo", f));
+      const res = await fetch("/api/rodadas/importar", { method: "POST", body: form });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Não foi possível importar.");
+      setResultado(json);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível importar.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <ModalShell titulo="Importar levantamento de campo" onFechar={onFechar}>
+      <p className="mb-4 text-[12.5px] leading-relaxed text-muted">
+        Envie a planilha <b className="text-ink">Acompanhamento de Levantamento de Área</b> (aba Base_Campo, até 10
+        arquivos). A coluna <b className="text-ink">Status</b> é desconsiderada. As linhas são ordenadas por Rodada,
+        Data, Região, Semana e Fazenda e cada combinação vira um boletim, numerado a partir do último + 1. Boletins já
+        importados (mesma rodada, data, região, semana e fazenda) não são duplicados.
+      </p>
+      <Campo label="Planilha (.xlsx)">
+        <input
+          type="file"
+          multiple
+          accept=".xlsx,.xls"
+          onChange={(e) => setArquivos(Array.from(e.target.files ?? []).slice(0, 10))}
+          className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
+        />
+      </Campo>
+      {erro && (
+        <div className="mt-3 rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">{erro}</div>
+      )}
+      {resultado && (
+        <div className="mt-3 rounded-lg border border-good-500/30 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">
+          <p className="font-semibold">
+            {resultado.lidas.toLocaleString("pt-BR")} linha(s) lida(s) · {resultado.boletins.toLocaleString("pt-BR")} boletim(ns) novo(s) ·{" "}
+            {resultado.itens.toLocaleString("pt-BR")} linha(s) gravada(s).
+          </p>
+          {resultado.primeiroBoletim !== null && (
+            <p>
+              Boletins {resultado.primeiroBoletim} a {resultado.ultimoBoletim}.
+            </p>
+          )}
+          {resultado.rodadasCriadas.length > 0 && <p>Rodadas criadas no cadastro: {resultado.rodadasCriadas.join(", ")}.</p>}
+        </div>
+      )}
+      {resultado && resultado.avisos.length > 0 && (
+        <div className="mt-3 max-h-[140px] overflow-y-auto rounded-lg border border-line bg-surface p-2.5 text-[12px] text-muted">
+          <ul className="list-disc space-y-0.5 pl-4">
+            {resultado.avisos.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="mt-5 flex justify-end gap-2">
+        <button type="button" onClick={onFechar} className="rounded-lg border border-line px-4 py-2 text-[13px] font-semibold text-ink">
+          {resultado ? "Fechar" : "Cancelar"}
+        </button>
+        <button
+          type="button"
+          disabled={arquivos.length === 0 || enviando}
+          onClick={enviar}
+          className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
+        >
+          {enviando ? "Importando…" : "Importar"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}

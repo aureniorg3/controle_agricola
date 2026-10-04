@@ -76,7 +76,7 @@ declare global {
   var _pgPool: Pool | undefined;
 }
 
-function getPool(): Pool {
+export function getPool(): Pool {
   if (!DATABASE_URL) {
     throw new Error(
       'DATABASE_URL não configurada — não é possível conectar ao banco de dados. Ver README.md, seção "Deploy no Render".'
@@ -247,7 +247,7 @@ async function migrarNomesAbreviados(pool: Pool): Promise<void> {
 }
 
 let prepararBancoPromise: Promise<void> | undefined;
-function prepararBanco(pool: Pool): Promise<void> {
+export function prepararBanco(pool: Pool): Promise<void> {
   if (!prepararBancoPromise) {
     prepararBancoPromise = (async () => {
       let count: number;
@@ -303,6 +303,37 @@ function prepararBanco(pool: Pool): Promise<void> {
            PRIMARY KEY (cad, cod)
          )`
       );
+      // Rodadas de Campo: rod_cad/rod_sem = calendário; rod_bol = boletim (cabeçalho); rod_itm = linhas do boletim
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS rod_cad (
+           rod integer PRIMARY KEY, ini date NOT NULL, cri_em timestamptz NOT NULL DEFAULT now()
+         )`
+      );
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS rod_sem (
+           rod integer NOT NULL, sem integer NOT NULL, ini date NOT NULL, fim date NOT NULL,
+           PRIMARY KEY (rod, sem)
+         )`
+      );
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS rod_bol (
+           bol integer PRIMARY KEY, rod integer NOT NULL, dt date NOT NULL, sem integer NOT NULL DEFAULT 0,
+           reg text NOT NULL DEFAULT '', resp text NOT NULL DEFAULT '', faz text NOT NULL DEFAULT '',
+           ori text NOT NULL DEFAULT 'apontamento', usr text NOT NULL DEFAULT '',
+           cri_em timestamptz NOT NULL DEFAULT now()
+         )`
+      );
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS rod_itm (
+           id bigserial PRIMARY KEY, bol integer NOT NULL, seq integer NOT NULL DEFAULT 1,
+           oco text NOT NULL DEFAULT '', oco_txt text NOT NULL DEFAULT '',
+           pre text NOT NULL DEFAULT '', niv text NOT NULL DEFAULT '', pri text NOT NULL DEFAULT '',
+           tlh text NOT NULL DEFAULT '', area numeric, rec text NOT NULL DEFAULT '',
+           ext jsonb NOT NULL DEFAULT '{}'::jsonb
+         )`
+      );
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_itm_bol ON rod_itm(bol)");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_bol_chave ON rod_bol(rod, dt, reg, sem, faz)");
       await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_12h numeric NOT NULL DEFAULT 0");
       await pool.query("ALTER TABLE ent_dia ADD COLUMN IF NOT EXISTS ton_ate_18h numeric NOT NULL DEFAULT 0");
       await pool.query("ALTER TABLE conf_pes ADD COLUMN IF NOT EXISTS frt_cor text");

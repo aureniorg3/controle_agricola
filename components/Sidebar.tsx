@@ -20,6 +20,7 @@ import {
   IconOrdemCorte,
   IconOrdemServico,
   IconPainel,
+  IconRodadas,
   IconSair,
   IconSetaBaixo,
   IconSetaDireita,
@@ -76,6 +77,19 @@ const SECTIONS: Section[] = [
       { label: "Ordem de Serviço Agr.", href: "/acompanhamentos/os-agricola", icon: IconOrdemServico },
       { label: "Colheita Terceiro", href: "/acompanhamentos/colheita-terceiro", icon: IconCaminhaoCana },
       { label: "Painel de ocorrências", href: "/contencioso", icon: IconAlerta },
+      {
+        label: "Rodadas de Campo",
+        icon: IconRodadas,
+        children: [
+          { label: "Resumo", href: "/rodadas-de-campo/resumo" },
+          { label: "Apontamento", href: "/rodadas-de-campo/apontamento" },
+          { label: "Cadastro de Rodadas", href: "/rodadas-de-campo/cadastro-de-rodadas" },
+          { label: "Cadastro de Ocorrências", href: "/rodadas-de-campo/ocorrencias" },
+          { label: "Cadastro de Nível de Infestação", href: "/rodadas-de-campo/nivel-de-infestacao" },
+          { label: "Cadastro Presença de Infestação", href: "/rodadas-de-campo/presenca-de-infestacao" },
+          { label: "Prioridade", href: "/rodadas-de-campo/prioridade" },
+        ],
+      },
     ],
   },
   {
