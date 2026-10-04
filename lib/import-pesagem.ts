@@ -221,8 +221,7 @@ export function parseOrdemColheita(buffer: ArrayBuffer): {
     if (linhaPropriedade) {
       fazendaCodigo = texto(linhaPropriedade[1]);
       const label = texto(linhaPropriedade[3]);
-      const partes = label.split(" - ");
-      fazendaNome = partes.length > 1 ? partes.slice(1).join(" - ").trim() : label;
+      fazendaNome = label.replace(/^\s*\d+\s*-\s*/, "").trim() || label;
     }
     if (!fazendaCodigo) avisos.push(`Ordem ${numero}: sem fazenda identificada.`);
 
@@ -248,8 +247,7 @@ export function parseOrdemColheita(buffer: ArrayBuffer): {
       if (l[0] === "Propriedade") {
         fazendaAtualCodigo = texto(l[1]);
         const label = texto(l[3]);
-        const partes = label.split(" - ");
-        fazendaAtualNome = partes.length > 1 ? partes.slice(1).join(" - ").trim() : label;
+        fazendaAtualNome = label.replace(/^\s*\d+\s*-\s*/, "").trim() || label;
         continue;
       }
       const vazio = l[0] === "" && l[1] === "" && l[2] === "" && l[3] === "" && l[4] === "";
@@ -404,7 +402,8 @@ export async function lerViagensPesagem(
 
     // "Fundo Agrícola" vem como "9529 - FAZ. SANTA VITÓRIA"
     const fundoAgricola = texto(l[13]);
-    const fazendaCodigo = fundoAgricola.split(" - ")[0]?.trim() || "-";
+    // "9529 - FAZ. X" (às vezes "9604 -FAZ. X" ou "9427- FAZ. X"): o código é só o número do começo
+    const fazendaCodigo = fundoAgricola.match(/^\s*(\d+)/)?.[1] ?? (fundoAgricola.split("-")[0]?.trim() || "-");
     const chave = `${data}|${ordem}|${controle}`;
     if (porChave.has(chave)) repetidasNoArquivo++;
     porChave.set(chave, {

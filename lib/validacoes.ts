@@ -68,7 +68,7 @@ export const VERIFICACOES: Verificacao[] = [
     titulo: "Entradas de cana em talhão que não pertence à ordem",
     severidade: "erro",
     descricao: "Há toneladas lançadas para um talhão/fazenda que não está na lista de talhões da ordem, então não entram nos totais do talhão.",
-    acao: "Confira no relatório de pesagem se a viagem foi lançada na Liberação certa, ou importe de novo a Ordem de Colheita para atualizar os talhões da ordem.",
+    acao: "Se a Fazenda aparece com o nome junto do código (ex.: \"9427- FAZ. DOS BAÚS\"), a entrada veio de uma importação antiga: importe de novo a pesagem dessas datas. Nos demais casos, confira se a viagem foi lançada na Liberação certa ou importe de novo a Ordem de Colheita para atualizar os talhões da ordem.",
     sql: `SELECT e.ord_num AS "Ordem", e.faz_cod AS "Fazenda", e.tlh AS "Talhão", COUNT(DISTINCT e.dt)::int AS "Dias", ROUND(SUM(e.ton), 2)::float AS "Toneladas (t)"
             FROM ent_dia e
            WHERE e.tlh NOT IN ('', '0')
