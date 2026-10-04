@@ -131,31 +131,35 @@ export async function proximoBoletim(): Promise<number> {
   return rows[0].n;
 }
 
-export interface ItemApontamento {
-  oco: string;
-  pre: string;
-  niv: string;
-  pri: string;
+export interface TalhaoApontamento {
   tlh: string;
-  rec: string;
-  /** atividade corretiva (texto) */
-  ati: string;
-  /** executada: SIM ou NÃO (vazio = ainda sem informação) */
-  exe: string;
+  area: number | null;
 }
 
+/**
+ * Boletim de um lançamento: uma fazenda, com presença, nível, prioridade, uma ou
+ * mais ocorrências (códigos), a recomendação e os talhões marcados.
+ */
 export interface BoletimApontamento {
   rod: number;
   dt: string;
   reg: string;
-  resp: string;
   faz: string;
-  itens: ItemApontamento[];
+  pre: string;
+  niv: string;
+  pri: string;
+  /** códigos das ocorrências (uma ou mais) */
+  ocos: string[];
+  /** texto livre, até 150 caracteres */
+  rec: string;
+  talhoes: TalhaoApontamento[];
 }
+
+export const LIMITE_RECOMENDACAO = 150;
 
 /** S/SIM/1 -> SIM; N/NÃO/NAO/2 -> NÃO; vazio -> ""; qualquer outra coisa -> null. */
 export function normalizarSimNao(v: string): string | null {
-  const t = v.trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const t = v.trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   if (!t) return "";
   if (["S", "SIM", "1"].includes(t)) return "SIM";
   if (["N", "NAO", "2"].includes(t)) return "NÃO";
@@ -178,11 +182,50 @@ async function validarCodigo(
   return { cod: r.item.cod };
 }
 
+/** Todos os itens de um cadastro de apoio (Cód + Descrição), em ordem de código. */
+export async function listarCodigos(cad: string): Promise<{ cod: string; nm: string }[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ cod: string; nm: string }>(
+    `SELECT cod, nm FROM cad_itm WHERE cad = $1
+      ORDER BY CASE WHEN cod ~ '^[0-9]+$' THEN lpad(cod, 15, '0') ELSE cod END`,
+    [cad]
+  );
+  return rows;
+}
+
 /**
- * Grava um boletim novo. O número do boletim é sempre o último + 1 e o
- * recomeço de numeração não existe: a gravação é serializada para não repetir.
- * Rodada, data (dentro das semanas da rodada), região, fazenda e os códigos de
- * cada linha são conferidos nos cadastros.
+ * Talhões da fazenda para marcar no lançamento. Vem do cadastro de talhões da
+ * safra (a mais recente que tem a fazenda); se não houver, dos talhões das
+ * ordens de corte e, por último, dos já lançados em boletins.
+ */
+export async function talhoesDaFazenda(faz: string): Promise<TalhaoApontamento[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const cod = faz.trim().split("-")[0];
+  if (!cod) return [];
+  const ordem = "ORDER BY CASE WHEN tlh ~ '^[0-9]+$' THEN lpad(tlh, 10, '0') ELSE tlh END";
+  const fontes = [
+    `SELECT tlh, SUM(area_tot)::float AS area FROM saf_tlh
+      WHERE faz_cod = $1 AND saf = (SELECT MAX(saf) FROM saf_tlh WHERE faz_cod = $1)
+      GROUP BY tlh ${ordem}`,
+    `SELECT tlh, MAX(area_ha)::float AS area FROM tlh WHERE faz_cod = $1 GROUP BY tlh ${ordem}`,
+    `SELECT i.tlh, MAX(i.area)::float AS area FROM rod_itm i JOIN rod_bol b ON b.bol = i.bol
+      WHERE b.faz = $1 AND i.tlh <> '' AND i.tlh !~ '[^0-9]' GROUP BY i.tlh ${ordem.replace("ORDER BY", "ORDER BY").replace(/tlh/g, "i.tlh")}`,
+  ];
+  for (const sql of fontes) {
+    const { rows } = await pool.query<{ tlh: string; area: number | null }>(sql, [cod]);
+    if (rows.length > 0) return rows.map((r) => ({ tlh: r.tlh, area: r.area }));
+  }
+  return [];
+}
+
+/**
+ * Grava um boletim novo. O número do boletim é sempre o último + 1 (gravação
+ * serializada, sem repetir). Rodada, data (dentro das semanas da rodada),
+ * região, fazenda e todos os códigos são conferidos nos cadastros. Cada
+ * talhão marcado vira uma linha do boletim, com as mesmas ocorrências,
+ * presença, nível, prioridade e recomendação.
  */
 export async function gravarBoletim(b: BoletimApontamento, usuario: string): Promise<{ bol: number; sem: number } | { erro: string }> {
   const pool = getPool();
@@ -197,36 +240,29 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
   if ("erro" in reg) return reg;
   const faz = await validarCodigo("fazendas", "Fazenda", b.faz, true);
   if ("erro" in faz) return faz;
+  const pre = await validarCodigo("presenca-infestacao", "Presença de infestação", b.pre, false);
+  if ("erro" in pre) return pre;
+  const niv = await validarCodigo("nivel-infestacao", "Nível de infestação", b.niv, false);
+  if ("erro" in niv) return niv;
+  const pri = await validarCodigo("prioridade", "Prioridade", b.pri, false);
+  if ("erro" in pri) return pri;
 
-  // sem responsável informado, vale o cadastrado para a região
-  const respFinal = b.resp.trim() || (await responsavelDaRegiao(reg.cod))?.nm || "";
-
-  const itens = b.itens.filter((i) => i.oco.trim() || i.tlh.trim() || i.rec.trim());
-  if (itens.length === 0) return { erro: "Lance pelo menos uma ocorrência." };
-  const validados: { oco: string; pre: string; niv: string; pri: string; tlh: string; rec: string; ati: string; exe: string }[] = [];
-  for (let n = 0; n < itens.length; n++) {
-    const i = itens[n];
-    const oco = await validarCodigo("ocorrencias", `Ocorrência (linha ${n + 1})`, i.oco, true);
-    if ("erro" in oco) return oco;
-    const pre = await validarCodigo("presenca-infestacao", `Presença de infestação (linha ${n + 1})`, i.pre, false);
-    if ("erro" in pre) return pre;
-    const niv = await validarCodigo("nivel-infestacao", `Nível de infestação (linha ${n + 1})`, i.niv, false);
-    if ("erro" in niv) return niv;
-    const pri = await validarCodigo("prioridade", `Prioridade (linha ${n + 1})`, i.pri, false);
-    if ("erro" in pri) return pri;
-    const exe = normalizarSimNao(i.exe);
-    if (exe === null) return { erro: `Executado (linha ${n + 1}): informe SIM ou NÃO.` };
-    validados.push({
-      oco: oco.cod,
-      pre: pre.cod,
-      niv: niv.cod,
-      pri: pri.cod,
-      tlh: i.tlh.trim(),
-      rec: i.rec.replace(/\s+/g, " ").trim(),
-      ati: i.ati.replace(/\s+/g, " ").trim(),
-      exe,
-    });
+  if (b.ocos.length === 0) return { erro: "Informe pelo menos uma ocorrência." };
+  const ocos: string[] = [];
+  for (const o of b.ocos) {
+    const v = await validarCodigo("ocorrencias", "Ocorrência", o, true);
+    if ("erro" in v) return v;
+    if (!ocos.includes(v.cod)) ocos.push(v.cod);
   }
+
+  const rec = b.rec.replace(/\s+/g, " ").trim();
+  if (rec.length > LIMITE_RECOMENDACAO) return { erro: `A recomendação passa de ${LIMITE_RECOMENDACAO} caracteres.` };
+
+  const talhoes = b.talhoes.filter((t) => t.tlh.trim());
+  if (talhoes.length === 0) return { erro: "Marque pelo menos um talhão." };
+
+  // o responsável é o cadastrado para a região (Rodadas de Campo > Responsável Região)
+  const resp = (await responsavelDaRegiao(reg.cod))?.nm ?? "";
 
   const client = await pool.connect();
   try {
@@ -236,24 +272,13 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
     const bol = rows[0].n;
     await client.query(
       `INSERT INTO rod_bol (bol, rod, dt, sem, reg, resp, faz, ori, usr) VALUES ($1,$2,$3,$4,$5,$6,$7,'apontamento',$8)`,
-      [bol, b.rod, b.dt, sem, reg.cod, respFinal, faz.cod, usuario]
+      [bol, b.rod, b.dt, sem, reg.cod, resp, faz.cod, usuario]
     );
-    for (let n = 0; n < validados.length; n++) {
-      const v = validados[n];
+    for (let n = 0; n < talhoes.length; n++) {
+      const t = talhoes[n];
       await client.query(
-        `INSERT INTO rod_itm (bol, seq, oco, pre, niv, pri, tlh, rec, ext) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-        [
-          bol,
-          n + 1,
-          v.oco,
-          v.pre,
-          v.niv,
-          v.pri,
-          v.tlh,
-          v.rec,
-          // mesmas chaves das colunas da planilha importada, para o Resumo mostrar tudo junto
-          JSON.stringify({ ...(v.ati ? { ATIVIDADE: v.ati } : {}), ...(v.exe ? { "FEITO - SIM/NÃO": v.exe } : {}) }),
-        ]
+        `INSERT INTO rod_itm (bol, seq, oco, pre, niv, pri, tlh, area, rec) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [bol, n + 1, ocos.join(","), pre.cod, niv.cod, pri.cod, t.tlh.trim(), t.area, rec]
       );
     }
     await client.query("COMMIT");
@@ -461,7 +486,6 @@ const JOINS = `
   LEFT JOIN LATERAL (
     SELECT nm FROM cad_itm WHERE cad = 'fazendas' AND (cod = b.faz OR cod LIKE b.faz || '-%') ORDER BY cod LIMIT 1
   ) fz ON true
-  LEFT JOIN cad_itm co ON co.cad = 'ocorrencias' AND co.cod = i.oco
   LEFT JOIN cad_itm pr ON pr.cad = 'presenca-infestacao' AND pr.cod = i.pre
   LEFT JOIN cad_itm nv ON nv.cad = 'nivel-infestacao' AND nv.cod = i.niv
   LEFT JOIN cad_itm pi ON pi.cad = 'prioridade' AND pi.cod = i.pri`;
@@ -485,7 +509,7 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
     params.push(f.q.trim());
     const pe = params.length;
     cond.push(
-      `(COALESCE(co.nm, i.oco_txt) ILIKE $${pl} OR i.rec ILIKE $${pl} OR fz.nm ILIKE $${pl} OR b.faz ILIKE $${pl} OR i.tlh ILIKE $${pl} OR b.resp ILIKE $${pl} OR b.bol::text = $${pe})`
+      `(COALESCE(       NULLIF((SELECT string_agg(c.nm, ', ' ORDER BY u.ord)                 FROM unnest(string_to_array(i.oco, ',')) WITH ORDINALITY AS u(cod, ord)                 JOIN cad_itm c ON c.cad = 'ocorrencias' AND c.cod = trim(u.cod)), ''),       i.oco_txt) ILIKE $${pl} OR i.rec ILIKE $${pl} OR fz.nm ILIKE $${pl} OR b.faz ILIKE $${pl} OR i.tlh ILIKE $${pl} OR b.resp ILIKE $${pl} OR b.bol::text = $${pe})`
     );
   }
   const where = cond.length ? `WHERE ${cond.join(" AND ")}` : "";
@@ -500,7 +524,11 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
     pri: string | null; rec: string; ati: string | null; exe: string | null;
   }>(
     `SELECT b.bol, b.rod, b.dt, b.sem, b.reg, rg.nm AS reg_nm, b.resp, b.faz, fz.nm AS faz_nm, i.tlh, i.area::float AS area,
-            COALESCE(NULLIF(co.nm, ''), i.oco_txt) AS oco, pr.nm AS pre, nv.nm AS niv, pi.nm AS pri, i.rec,
+            COALESCE(
+      NULLIF((SELECT string_agg(c.nm, ', ' ORDER BY u.ord)
+                FROM unnest(string_to_array(i.oco, ',')) WITH ORDINALITY AS u(cod, ord)
+                JOIN cad_itm c ON c.cad = 'ocorrencias' AND c.cod = trim(u.cod)), ''),
+      i.oco_txt) AS oco, pr.nm AS pre, nv.nm AS niv, pi.nm AS pri, i.rec,
             i.ext->>'ATIVIDADE' AS ati, i.ext->>'FEITO - SIM/NÃO' AS exe
        ${JOINS} ${where}
       ORDER BY b.rod, b.dt, NULLIF(regexp_replace(b.reg, '\\D', '', 'g'), '')::int NULLS LAST, b.reg, b.sem,
