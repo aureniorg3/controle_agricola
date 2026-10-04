@@ -545,8 +545,6 @@ export default function OrdensCorteClient({
     for (const o of ordensFiltradasTodas) for (const e of o.entradas) if (e.toneladas > 0 && e.data <= referencia) meses.add(e.data.slice(0, 7));
     return Array.from(meses).sort().reverse();
   }, [ordensFiltradasTodas, referencia]);
-  // frentes escondidas só do resumo diário (o filtro de cima continua valendo para a tela toda)
-  const [frentesMensalOcultas, setFrentesMensalOcultas] = useState<string[]>([]);
   const mesResumoEfetivo = mesResumo && mesesResumo.includes(mesResumo) ? mesResumo : referencia.slice(0, 7);
   const resumoMensal = useMemo(
     () =>
@@ -554,12 +552,12 @@ export default function OrdensCorteClient({
         ordensFiltradasTodas,
         mesResumoEfetivo,
         referencia,
-        resumoFrentes.map((r) => r.frente).filter((f) => !frentesMensalOcultas.includes(f)),
+        resumoFrentes.map((r) => r.frente),
         metas,
         primeiraEntradaPorFrente,
         horaCorte
       ),
-    [ordensFiltradasTodas, mesResumoEfetivo, referencia, resumoFrentes, metas, primeiraEntradaPorFrente, horaCorte, frentesMensalOcultas]
+    [ordensFiltradasTodas, mesResumoEfetivo, referencia, resumoFrentes, metas, primeiraEntradaPorFrente, horaCorte]
   );
 
   // Diferente do resumo por frente (que é de todas as ordens do filtro), o
@@ -1272,16 +1270,14 @@ export default function OrdensCorteClient({
           </div>
         )}
 
-        {resumoFrentes.length > 0 && (
+        {frentesOrdenadas.length > 0 && (
           <ResumoMensalTabela
             resumo={resumoMensal}
             meses={mesesResumo}
             onMes={setMesResumo}
-            todasFrentes={resumoFrentes.map((r) => r.frente)}
-            ocultas={frentesMensalOcultas}
-            onAlternarFrente={(f) =>
-              setFrentesMensalOcultas((o) => (o.includes(f) ? o.filter((x) => x !== f) : [...o, f]))
-            }
+            todasFrentes={frentesOrdenadas}
+            ocultas={frentesCfg.ocultas}
+            onAlternarFrente={alternarFrente}
             referencia={referencia}
             rotuloHora={rotuloHora}
           />
