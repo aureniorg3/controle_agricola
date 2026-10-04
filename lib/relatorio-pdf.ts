@@ -1,4 +1,4 @@
-import type { FrenteResumo, LinhaResumoDetalhado, MetasPorPeriodo } from "./period";
+import type { FrenteResumo, LinhaResumoDetalhado, MetasPorPeriodo, ResumoMensal } from "./period";
 import {
   addDays,
   calcAreaColhidaHa,
@@ -77,6 +77,8 @@ export interface DadosRelatorioCompleto {
   porFrente: [string, OrdemCorte[]][];
   resumoDetalhadoPorFrente: ResumoDetalhadoFrente[];
   resumoDetalhadoTotalGeral: { areaColhidaHa: number; producaoTotalT: number; tchRealParcial: number };
+  /** resumo diário do mês selecionado: uma linha por dia, uma coluna por frente */
+  resumoMensal: ResumoMensal;
   nomeUsuario: string;
 }
 
@@ -126,32 +128,6 @@ function desenharLinhaCard(
   y: number
 ) {
   valores.forEach((v, i) => doc.text(String(v), cols[i].x, y, { align: cols[i].align }));
-}
-
-function desenharGraficoBarras(
-  doc: import("jspdf").jsPDF,
-  dados: { label: string; valor: number }[],
-  x: number,
-  y: number,
-  largura: number
-) {
-  const max = Math.max(1, ...dados.map((d) => d.valor));
-  const alturaLinha = 6;
-  const colunaLabel = 46;
-  const colunaValor = 26;
-  const larguraBarraMax = largura - colunaLabel - colunaValor - 4;
-  dados.forEach((d, i) => {
-    const ly = y + i * alturaLinha;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
-    doc.setTextColor(...INK);
-    doc.text(d.label, x, ly + 3.8, { maxWidth: colunaLabel - 2 });
-    const larguraBarra = Math.max((d.valor / max) * larguraBarraMax, 0.5);
-    doc.setFillColor(...NAVY);
-    doc.rect(x + colunaLabel, ly, larguraBarra, 4.2, "F");
-    doc.setFont("helvetica", "bold");
-    doc.text(`${fmtT(d.valor)} t`, x + colunaLabel + larguraBarra + 2, ly + 3.4);
-  });
 }
 
 /**
@@ -788,22 +764,72 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   });
   cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
-  const dadosGrafico = dados.resumoDetalhadoPorFrente.map((g) => ({
-    label: g.frente,
-    valor: g.subtotal.producaoTotalT,
-  }));
-  if (dadosGrafico.length > 0) {
-    const alturaGrafico = dadosGrafico.length * 6;
-    garantirEspaco(10 + alturaGrafico);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(...NAVY);
-    doc.text("Produção Total (t) por Frente", MARGEM, cursorY);
-    doc.setTextColor(...INK);
-    cursorY += 5;
-    desenharGraficoBarras(doc, dadosGrafico, MARGEM, cursorY, pageWidth - MARGEM * 2);
-    cursorY += alturaGrafico;
-  }
+  // -------------------------------------------------------------------
+  // Resumo diário do mês: dias em linha, frentes em coluna, com a barra do
+  // alcançado sobre a meta diária em cada célula (página própria).
+  // -------------------------------------------------------------------
+  const rm = dados.resumoMensal;
+  const MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const [anoMes, numMes] = rm.mes.split("-").map(Number);
+  const tituloMensal = `Resumo diário por frente — ${MESES_PT[numMes - 1]} de ${anoMes}`;
+  doc.addPage();
+  cabecalhoPagina(tituloMensal);
+  const nFrentes = rm.frentes.length;
+  const pct = (t: number, m: number) => (m > 0 ? `${Math.round((t / m) * 100)}%` : "");
+  const corpoMensal: string[][] = rm.dias.map((d) => {
+    const dow = new Date(`${d.data}T00:00:00Z`).getUTCDay();
+    return [
+      `${fmtDateBR(d.data).slice(0, 5)} ${["dom", "seg", "ter", "qua", "qui", "sex", "sáb"][dow]}`,
+      ...rm.frentes.map((f) => (d.futuro ? "" : d.frentes[f].t > 0 ? fmtT(d.frentes[f].t) : "–")),
+      d.futuro ? "" : d.totalT > 0 ? fmtT(d.totalT) : "–",
+    ];
+  });
+  corpoMensal.push([
+    "Total do mês",
+    ...rm.frentes.map((f) => `${fmtT(rm.totais[f].t)}${rm.totais[f].meta > 0 ? `  (${pct(rm.totais[f].t, rm.totais[f].meta)})` : ""}`),
+    `${fmtT(rm.totalT)}${rm.totalMeta > 0 ? `  (${pct(rm.totalT, rm.totalMeta)})` : ""}`,
+  ]);
+  const colunasMensal: Record<number, { halign: "right" }> = {};
+  for (let c = 1; c <= nFrentes + 1; c++) colunasMensal[c] = { halign: "right" };
+  const barraCor = (p: number): [number, number, number] => (p >= 100 ? [93, 158, 72] : p >= 80 ? [215, 123, 56] : [190, 49, 50]);
+  autoTable(doc, {
+    startY: 22,
+    head: [["Data", ...rm.frentes.map((f) => `${f} (t)`), "Total (t)"]],
+    body: corpoMensal,
+    styles: { fontSize: 6.5, cellPadding: { top: 0.7, bottom: 1.9, left: 1.6, right: 1.6 } },
+    headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold", cellPadding: 1.4 },
+    columnStyles: colunasMensal,
+    didParseCell: (data) => {
+      if (data.section !== "body") return;
+      if (data.row.index === corpoMensal.length - 1) {
+        data.cell.styles.fillColor = NAVY;
+        data.cell.styles.textColor = [255, 255, 255];
+        data.cell.styles.fontStyle = "bold";
+        data.cell.styles.cellPadding = 1.4;
+      } else if (data.row.index % 2 === 1) {
+        data.cell.styles.fillColor = ALT_ROW;
+      }
+    },
+    // barra do alcançado sobre a meta, no pé de cada célula de frente/total
+    didDrawCell: (data) => {
+      if (data.section !== "body" || data.column.index === 0) return;
+      const dia = rm.dias[data.row.index];
+      if (!dia || dia.futuro) return;
+      const col = data.column.index;
+      const real = col <= nFrentes ? dia.frentes[rm.frentes[col - 1]].t : dia.totalT;
+      const meta = col <= nFrentes ? dia.frentes[rm.frentes[col - 1]].meta : dia.totalMeta;
+      if (!(meta > 0)) return;
+      const p = (real / meta) * 100;
+      const larg = data.cell.width - 3.2;
+      const y = data.cell.y + data.cell.height - 1.5;
+      doc.setFillColor(...LINE);
+      doc.rect(data.cell.x + 1.6, y, larg, 0.8, "F");
+      doc.setFillColor(...barraCor(p));
+      doc.rect(data.cell.x + 1.6, y, (larg * Math.min(100, p)) / 100, 0.8, "F");
+    },
+    margin: { top: 22, left: MARGEM, right: MARGEM, bottom: RODAPE_ALTURA },
+    didDrawPage: () => cabecalhoPagina(tituloMensal),
+  });
 
   // -------------------------------------------------------------------
   // Rodapé em toda página: empresa/usuário/data à esquerda, título ao

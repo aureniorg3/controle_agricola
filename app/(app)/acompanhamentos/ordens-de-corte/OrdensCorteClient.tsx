@@ -17,7 +17,9 @@ import {
   mesAnteriorRange,
   quinzenaRange,
   resumoDetalhadoPorOrdemFazenda,
+  resumoDiarioMes,
   resumoPorFrente,
+  type ResumoMensal,
   startOfMonth,
   startOfWeekMonday,
 } from "@/lib/period";
@@ -533,6 +535,31 @@ export default function OrdensCorteClient({
   );
   const temMetas = metaTotais.safra > 0 || metaTotais.diaAtual > 0 || metaTotais.mesAtual > 0;
 
+  // Resumo diário do mês: uma linha por dia e uma coluna por frente, com a
+  // barra do que foi alcançado da meta. O mês é o da referência, mas dá para
+  // escolher qualquer mês anterior com entrada.
+  const [mesResumo, setMesResumo] = useState<string | null>(null);
+  const mesesResumo = useMemo(() => {
+    const mesRef = referencia.slice(0, 7);
+    const meses = new Set<string>([mesRef]);
+    for (const o of ordensFiltradasTodas) for (const e of o.entradas) if (e.toneladas > 0 && e.data <= referencia) meses.add(e.data.slice(0, 7));
+    return Array.from(meses).sort().reverse();
+  }, [ordensFiltradasTodas, referencia]);
+  const mesResumoEfetivo = mesResumo && mesesResumo.includes(mesResumo) ? mesResumo : referencia.slice(0, 7);
+  const resumoMensal = useMemo(
+    () =>
+      resumoDiarioMes(
+        ordensFiltradasTodas,
+        mesResumoEfetivo,
+        referencia,
+        resumoFrentes.map((r) => r.frente),
+        metas,
+        primeiraEntradaPorFrente,
+        horaCorte
+      ),
+    [ordensFiltradasTodas, mesResumoEfetivo, referencia, resumoFrentes, metas, primeiraEntradaPorFrente, horaCorte]
+  );
+
   // Diferente do resumo por frente (que é de todas as ordens do filtro), o
   // resumo detalhado no final do relatório segue só as ordens marcadas e
   // mostradas nos cards — mesmo critério das colunas "Ordens"/"Área
@@ -643,6 +670,7 @@ export default function OrdensCorteClient({
         porFrente,
         resumoDetalhadoPorFrente: resumoDetalhadoPorFrenteComSubtotal,
         resumoDetalhadoTotalGeral,
+        resumoMensal,
         nomeUsuario,
       });
     } finally {
@@ -1242,16 +1270,14 @@ export default function OrdensCorteClient({
           </div>
         )}
 
-        {resumoDetalhadoPorFrenteComSubtotal.length > 0 && (
-          <div className="mb-5 rounded-xl2 border border-line bg-card p-4 shadow-card">
-            <div className="mb-3 text-[13px] font-bold text-ink">Produção Total (t) por Frente</div>
-            <GraficoBarras
-              dados={resumoDetalhadoPorFrenteComSubtotal.map((g) => ({
-                label: g.frente,
-                valor: g.subtotal.producaoTotalT,
-              }))}
-            />
-          </div>
+        {resumoFrentes.length > 0 && (
+          <ResumoMensalTabela
+            resumo={resumoMensal}
+            meses={mesesResumo}
+            onMes={setMesResumo}
+            referencia={referencia}
+            rotuloHora={rotuloHora}
+          />
         )}
 
         <p className="mb-2 mt-6 text-center text-[11.5px] text-muted">
@@ -1348,30 +1374,132 @@ function StatusBadge({ status }: { status: StatusOrdem }) {
   );
 }
 
-function GraficoBarras({ dados }: { dados: { label: string; valor: number }[] }) {
-  const max = Math.max(1, ...dados.map((d) => d.valor));
-  const linha = 30;
-  const altura = dados.length * linha + 8;
-  const larguraMaxBarra = 380;
-  const colunaLabel = 220;
+const MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const DIAS_SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
+function rotuloMes(mes: string): string {
+  const [a, m] = mes.split("-").map(Number);
+  return `${MESES_PT[m - 1]} de ${a}`;
+}
+
+/** Barra fina com o quanto da meta foi alcançado (passa de 100% sem estourar a célula). */
+function BarraMeta({ real, meta }: { real: number; meta: number }) {
+  if (!(meta > 0)) return <div className="mt-0.5 h-1" />;
+  const pct = (real / meta) * 100;
+  const cor = pct >= 100 ? "bg-good-500" : pct >= 80 ? "bg-amber-500" : "bg-alert-500";
   return (
-    <svg viewBox={`0 0 700 ${altura}`} className="w-full" style={{ height: altura }}>
-      {dados.map((d, i) => {
-        const y = i * linha;
-        const largura = (d.valor / max) * larguraMaxBarra;
-        return (
-          <g key={d.label}>
-            <text x={colunaLabel - 8} y={y + 16} textAnchor="end" fontSize={11} className="fill-ink">
-              {d.label}
-            </text>
-            <rect x={colunaLabel} y={y + 5} width={Math.max(largura, 1)} height={18} rx={3} className="fill-navy-700" />
-            <text x={colunaLabel + largura + 6} y={y + 18} fontSize={11} fontWeight={600} className="fill-ink tabular">
-              {fmtT(d.valor)} t
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+    <div className="mt-0.5 flex items-center gap-1" title={`Meta ${fmtT(meta)} t · ${pct.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`}>
+      <div className="h-1 flex-1 overflow-hidden rounded-full bg-line">
+        <div className={`h-full rounded-full ${cor}`} style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
+      <span className="w-7 text-right text-[9.5px] font-semibold leading-none text-muted">
+        {pct.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%
+      </span>
+    </div>
+  );
+}
+
+function ResumoMensalTabela({
+  resumo,
+  meses,
+  onMes,
+  referencia,
+  rotuloHora,
+}: {
+  resumo: ResumoMensal;
+  meses: string[];
+  onMes: (mes: string) => void;
+  referencia: string;
+  rotuloHora: string;
+}) {
+  return (
+    <div className="mb-5 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
+        <div>
+          <div className="text-[13px] font-bold text-ink">Resumo Diário por Frente — {rotuloMes(resumo.mes)}</div>
+          <div className="text-[11px] text-muted">
+            Toneladas (t) por dia e barra do alcançado sobre a meta diária da frente. O dia {fmtDateBR(referencia).slice(0, 5)}{" "}
+            vale até {rotuloHora}; os dias seguintes ficam em branco.
+          </div>
+        </div>
+        <select
+          value={resumo.mes}
+          onChange={(e) => onMes(e.target.value)}
+          className="rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] font-medium text-ink shadow-card"
+          aria-label="Mês do resumo diário"
+        >
+          {meses.map((m) => (
+            <option key={m} value={m}>
+              {rotuloMes(m)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <table className="w-full text-[12.5px]">
+        <thead>
+          <tr className="border-b border-line bg-navy-900 text-left text-white">
+            <th className="px-4 py-2 font-semibold">Data</th>
+            {resumo.frentes.map((f) => (
+              <th key={f} className="whitespace-nowrap px-3 py-2 text-right text-[11.5px] font-semibold">
+                {f} (t)
+              </th>
+            ))}
+            <th className="whitespace-nowrap px-4 py-2 text-right text-[11.5px] font-semibold">Total (t)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {resumo.dias.map((d, i) => {
+            const dow = new Date(`${d.data}T00:00:00Z`).getUTCDay();
+            const hoje = d.data === referencia;
+            return (
+              <tr
+                key={d.data}
+                className={`border-b border-line/60 ${hoje ? "bg-brand-50" : i % 2 === 1 ? "bg-surface" : "bg-card"}`}
+              >
+                <td className="whitespace-nowrap px-4 py-1 text-ink">
+                  {fmtDateBR(d.data).slice(0, 5)} <span className="text-[10.5px] text-muted">{DIAS_SEMANA[dow]}</span>
+                </td>
+                {resumo.frentes.map((f) => {
+                  const c = d.frentes[f];
+                  return (
+                    <td key={f} className="min-w-[96px] px-3 py-1 text-right tabular text-ink">
+                      {d.futuro ? "" : c.t > 0 ? fmtT(c.t) : "–"}
+                      {!d.futuro && <BarraMeta real={c.t} meta={c.meta} />}
+                    </td>
+                  );
+                })}
+                <td className="min-w-[96px] px-4 py-1 text-right tabular font-semibold text-ink">
+                  {d.futuro ? "" : d.totalT > 0 ? fmtT(d.totalT) : "–"}
+                  {!d.futuro && <BarraMeta real={d.totalT} meta={d.totalMeta} />}
+                </td>
+              </tr>
+            );
+          })}
+          <tr className="bg-navy-950 font-bold text-white">
+            <td className="px-4 py-2">Total do mês</td>
+            {resumo.frentes.map((f) => (
+              <td key={f} className="px-3 py-2 text-right tabular">
+                {fmtT(resumo.totais[f].t)}
+                {resumo.totais[f].meta > 0 && (
+                  <div className="text-[10px] font-medium text-white/70">
+                    Meta {fmtT(resumo.totais[f].meta)} ·{" "}
+                    {((resumo.totais[f].t / resumo.totais[f].meta) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%
+                  </div>
+                )}
+              </td>
+            ))}
+            <td className="px-4 py-2 text-right tabular">
+              {fmtT(resumo.totalT)}
+              {resumo.totalMeta > 0 && (
+                <div className="text-[10px] font-medium text-white/70">
+                  Meta {fmtT(resumo.totalMeta)} · {((resumo.totalT / resumo.totalMeta) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%
+                </div>
+              )}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 

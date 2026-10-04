@@ -404,3 +404,85 @@ export function resumoPorFrente(
     }))
     .sort((a, b) => a.frente.localeCompare(b.frente));
 }
+
+export interface CelulaResumoMensal {
+  /** toneladas da frente no dia (até o horário de corte, no dia da referência) */
+  t: number;
+  /** meta da frente no dia; 0 quando não há meta (antes da 1ª entrada da frente ou sem meta vigente) */
+  meta: number;
+}
+
+export interface DiaResumoMensal {
+  data: string;
+  /** depois da data de referência: o dia ainda não aconteceu, fica em branco */
+  futuro: boolean;
+  frentes: Record<string, CelulaResumoMensal>;
+  totalT: number;
+  totalMeta: number;
+}
+
+export interface ResumoMensal {
+  mes: string;
+  frentes: string[];
+  dias: DiaResumoMensal[];
+  /** acumulado do mês até a referência, por frente */
+  totais: Record<string, CelulaResumoMensal>;
+  totalT: number;
+  totalMeta: number;
+}
+
+/**
+ * Uma linha por dia do mês (todos os dias, até os que ainda não chegaram) e
+ * uma coluna por frente, com a tonelada do dia e a meta do dia da frente. Os
+ * dias passados valem o dia inteiro; o dia da referência vale até o horário
+ * de corte (`toneladasAte6h` já vem assim da tela) com a meta proporcional
+ * hora/24; os seguintes ficam em branco.
+ */
+export function resumoDiarioMes(
+  ordens: OrdemCorte[],
+  mes: string,
+  referencia: string,
+  frentes: string[],
+  metas: MetaFrente[],
+  primeiraEntradaPorFrente: Record<string, string>,
+  horaCorte: number
+): ResumoMensal {
+  const porDia = new Map<string, number>();
+  for (const o of ordens) {
+    for (const e of o.entradas) {
+      if (e.data.slice(0, 7) !== mes) continue;
+      const t = e.data === referencia ? e.toneladasAte6h : e.toneladas;
+      const k = `${o.frente}|${e.data}`;
+      porDia.set(k, (porDia.get(k) ?? 0) + t);
+    }
+  }
+
+  const inicio = `${mes}-01`;
+  const fim = endOfMonth(inicio);
+  const totais: Record<string, CelulaResumoMensal> = Object.fromEntries(frentes.map((f) => [f, { t: 0, meta: 0 }]));
+  const dias: DiaResumoMensal[] = [];
+  for (let d = inicio; d <= fim; d = addDays(d, 1)) {
+    const futuro = d > referencia;
+    const celulas: Record<string, CelulaResumoMensal> = {};
+    let totalT = 0;
+    let totalMeta = 0;
+    for (const f of frentes) {
+      const primeira = primeiraEntradaPorFrente[f];
+      let meta = primeira !== undefined && d >= primeira && !futuro ? metaDoDia(metas, f, d) : 0;
+      if (d === referencia) meta = (meta * horaCorte) / 24;
+      const t = futuro ? 0 : round2(porDia.get(`${f}|${d}`) ?? 0);
+      celulas[f] = { t, meta: round2(meta) };
+      totalT += t;
+      totalMeta += meta;
+      if (!futuro) {
+        totais[f].t += t;
+        totais[f].meta += meta;
+      }
+    }
+    dias.push({ data: d, futuro, frentes: celulas, totalT: round2(totalT), totalMeta: round2(totalMeta) });
+  }
+  for (const f of frentes) totais[f] = { t: round2(totais[f].t), meta: round2(totais[f].meta) };
+  const totalT = round2(dias.reduce((s, x) => s + x.totalT, 0));
+  const totalMeta = round2(dias.reduce((s, x) => s + x.totalMeta, 0));
+  return { mes, frentes, dias, totais, totalT, totalMeta };
+}
