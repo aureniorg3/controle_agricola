@@ -160,7 +160,7 @@ export default function RodadasCadClient({ perfil }: { perfil: PerfilUsuario }) 
                 <th className="px-3 py-2 font-semibold">Início</th>
                 <th className="px-3 py-2 font-semibold">Fim</th>
                 <th className="px-3 py-2 text-right font-semibold">Semanas</th>
-                <th className="px-3 py-2 text-right font-semibold">Boletins</th>
+                <th className="px-3 py-2 text-right font-semibold">Nº Boletins</th>
                 <th className="w-40 px-2 py-2 text-right font-semibold">Ações</th>
               </tr>
             </thead>
