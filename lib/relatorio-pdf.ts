@@ -820,6 +820,12 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       const meta = col <= nFrentes ? dia.frentes[rm.frentes[col - 1]].meta : dia.totalMeta;
       if (!(meta > 0)) return;
       const p = (real / meta) * 100;
+      // meta do dia, sem casas decimais e em cinza suave, à esquerda do valor
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.5);
+      doc.setTextColor(150, 158, 168);
+      doc.text(Math.round(meta).toLocaleString("pt-BR"), data.cell.x + data.cell.width * 0.28, data.cell.y + 2.7, { align: "right" });
+      doc.setTextColor(...INK);
       const larg = data.cell.width - 3.2;
       const y = data.cell.y + data.cell.height - 1.5;
       doc.setFillColor(...LINE);

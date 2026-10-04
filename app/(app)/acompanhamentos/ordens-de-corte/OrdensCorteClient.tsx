@@ -545,6 +545,8 @@ export default function OrdensCorteClient({
     for (const o of ordensFiltradasTodas) for (const e of o.entradas) if (e.toneladas > 0 && e.data <= referencia) meses.add(e.data.slice(0, 7));
     return Array.from(meses).sort().reverse();
   }, [ordensFiltradasTodas, referencia]);
+  // frentes escondidas só do resumo diário (o filtro de cima continua valendo para a tela toda)
+  const [frentesMensalOcultas, setFrentesMensalOcultas] = useState<string[]>([]);
   const mesResumoEfetivo = mesResumo && mesesResumo.includes(mesResumo) ? mesResumo : referencia.slice(0, 7);
   const resumoMensal = useMemo(
     () =>
@@ -552,12 +554,12 @@ export default function OrdensCorteClient({
         ordensFiltradasTodas,
         mesResumoEfetivo,
         referencia,
-        resumoFrentes.map((r) => r.frente),
+        resumoFrentes.map((r) => r.frente).filter((f) => !frentesMensalOcultas.includes(f)),
         metas,
         primeiraEntradaPorFrente,
         horaCorte
       ),
-    [ordensFiltradasTodas, mesResumoEfetivo, referencia, resumoFrentes, metas, primeiraEntradaPorFrente, horaCorte]
+    [ordensFiltradasTodas, mesResumoEfetivo, referencia, resumoFrentes, metas, primeiraEntradaPorFrente, horaCorte, frentesMensalOcultas]
   );
 
   // Diferente do resumo por frente (que é de todas as ordens do filtro), o
@@ -1275,6 +1277,11 @@ export default function OrdensCorteClient({
             resumo={resumoMensal}
             meses={mesesResumo}
             onMes={setMesResumo}
+            todasFrentes={resumoFrentes.map((r) => r.frente)}
+            ocultas={frentesMensalOcultas}
+            onAlternarFrente={(f) =>
+              setFrentesMensalOcultas((o) => (o.includes(f) ? o.filter((x) => x !== f) : [...o, f]))
+            }
             referencia={referencia}
             rotuloHora={rotuloHora}
           />
@@ -1399,16 +1406,37 @@ function BarraMeta({ real, meta }: { real: number; meta: number }) {
   );
 }
 
+/** Meta do dia (sem casas decimais, cor suave, sem negrito) antes da tonelada realizada. */
+function ValorComMeta({ t, meta, futuro }: { t: number; meta: number; futuro: boolean }) {
+  if (futuro) return null;
+  return (
+    <div className="flex items-baseline justify-end gap-2">
+      {meta > 0 && (
+        <span className="text-[11px] font-normal text-muted/80">
+          {Math.round(meta).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}
+        </span>
+      )}
+      <span>{t > 0 ? fmtT(t) : "–"}</span>
+    </div>
+  );
+}
+
 function ResumoMensalTabela({
   resumo,
   meses,
   onMes,
+  todasFrentes,
+  ocultas,
+  onAlternarFrente,
   referencia,
   rotuloHora,
 }: {
   resumo: ResumoMensal;
   meses: string[];
   onMes: (mes: string) => void;
+  todasFrentes: string[];
+  ocultas: string[];
+  onAlternarFrente: (frente: string) => void;
   referencia: string;
   rotuloHora: string;
 }) {
@@ -1434,6 +1462,25 @@ function ResumoMensalTabela({
             </option>
           ))}
         </select>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-line bg-surface px-4 py-2">
+        <span className="mr-1 text-[11px] font-semibold text-muted">Frentes:</span>
+        {todasFrentes.map((f) => {
+          const ativa = !ocultas.includes(f);
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => onAlternarFrente(f)}
+              aria-pressed={ativa}
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
+                ativa ? "border-navy-900 bg-navy-900 text-white" : "border-line bg-card text-muted"
+              }`}
+            >
+              {f}
+            </button>
+          );
+        })}
       </div>
       <table className="w-full text-[12.5px]">
         <thead>
@@ -1463,13 +1510,13 @@ function ResumoMensalTabela({
                   const c = d.frentes[f];
                   return (
                     <td key={f} className="min-w-[96px] px-3 py-1 text-right tabular text-ink">
-                      {d.futuro ? "" : c.t > 0 ? fmtT(c.t) : "–"}
+                      <ValorComMeta t={c.t} meta={c.meta} futuro={d.futuro} />
                       {!d.futuro && <BarraMeta real={c.t} meta={c.meta} />}
                     </td>
                   );
                 })}
                 <td className="min-w-[96px] px-4 py-1 text-right tabular font-semibold text-ink">
-                  {d.futuro ? "" : d.totalT > 0 ? fmtT(d.totalT) : "–"}
+                  <ValorComMeta t={d.totalT} meta={d.totalMeta} futuro={d.futuro} />
                   {!d.futuro && <BarraMeta real={d.totalT} meta={d.totalMeta} />}
                 </td>
               </tr>
