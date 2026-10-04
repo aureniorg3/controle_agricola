@@ -531,7 +531,8 @@ export interface ResumoRodadas {
 const JOINS = `
   FROM rod_itm i
   JOIN rod_bol b ON b.bol = i.bol
-  LEFT JOIN cad_itm rg ON rg.cad = 'regiao' AND rg.cod = b.reg
+  LEFT JOIN cad_itm rg ON rg.cad = 'regiao'
+    AND (rg.cod = b.reg OR (rg.cod ~ '^[0-9]+$' AND b.reg ~ '^[0-9]+$' AND ltrim(rg.cod, '0') = ltrim(b.reg, '0')))
   LEFT JOIN LATERAL (
     SELECT nm FROM cad_itm WHERE cad = 'fazendas' AND (cod = b.faz OR cod LIKE b.faz || '-%') ORDER BY cod LIMIT 1
   ) fz ON true

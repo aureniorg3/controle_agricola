@@ -109,6 +109,7 @@ const SECTIONS: Section[] = [
         icon: IconConfig,
         children: CADASTROS.map((c) => ({ label: c.label, href: `/configuracoes/cadastros/${c.slug}` })),
       },
+      { label: "Validações", href: "/configuracoes/validacoes", icon: IconAlerta },
     ],
   },
 ];
