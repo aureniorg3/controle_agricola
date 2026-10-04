@@ -1,18 +1,41 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { IconBusca } from "@/components/icons";
 import { fmtDateBR, fmtHa, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { RodadaCad } from "@/lib/rodadas";
 import type { PerfilUsuario } from "@/lib/types";
 
-const INPUT =
-  "w-full rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface";
+const INPUT_BASE =
+  "rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface";
+const INPUT = `w-full ${INPUT_BASE}`;
 const SOMENTE_LEITURA = "w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink";
 const ROTULO = "mb-1 block text-[11.5px] font-semibold text-muted";
+const BOTAO_BUSCA =
+  "flex h-[32px] w-[30px] flex-shrink-0 items-center justify-center rounded-md border border-line bg-surface text-muted hover:bg-card hover:text-navy-800 disabled:opacity-40";
 const LIMITE_REC = 150;
 
 type Cad = "regiao" | "fazendas" | "ocorrencias" | "presenca-infestacao" | "nivel-infestacao" | "prioridade";
+type Campo = "rod" | "sem" | "reg" | "faz" | "pre" | "niv" | "pri";
+
+/** Cadastro consultado por cada campo com código */
+const CAD_DO_CAMPO: Partial<Record<Campo, Cad>> = {
+  reg: "regiao",
+  faz: "fazendas",
+  pre: "presenca-infestacao",
+  niv: "nivel-infestacao",
+  pri: "prioridade",
+};
+const TITULO_CAMPO: Record<Campo, string> = {
+  rod: "Rodada",
+  sem: "Semana",
+  reg: "Região",
+  faz: "Fazenda",
+  pre: "Presença",
+  niv: "Nível de Infestação",
+  pri: "Prioridade",
+};
 
 /** Resultado de uma consulta de código: nm = descrição; null = não cadastrado; vazio = o cadastro ainda não tem itens. */
 type Consulta = { nm: string | null; vazio: boolean };
@@ -20,7 +43,7 @@ interface Talhao {
   tlh: string;
   area: number | null;
 }
-interface OcorrenciaSel {
+interface ItemLista {
   cod: string;
   nm: string;
 }
@@ -48,11 +71,12 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
   const [pre, setPre] = useState("");
   const [niv, setNiv] = useState("");
   const [pri, setPri] = useState("");
-  const [ocorrencias, setOcorrencias] = useState<OcorrenciaSel[]>([]);
+  const [ocorrencias, setOcorrencias] = useState<ItemLista[]>([]);
   const [ocoDigitada, setOcoDigitada] = useState("");
   const [ocoErro, setOcoErro] = useState<string | null>(null);
   const [listaAberta, setListaAberta] = useState(false);
-  const [listaOco, setListaOco] = useState<OcorrenciaSel[] | null>(null);
+  const [listaOco, setListaOco] = useState<ItemLista[] | null>(null);
+  const [seletor, setSeletor] = useState<Campo | null>(null);
   const [rec, setRec] = useState("");
   const [talhoes, setTalhoes] = useState<Talhao[]>([]);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
@@ -86,6 +110,14 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
       el.focus();
       el.select?.();
     }
+  }
+  /** foca o campo seguinte ao de nome `campo` (depois de escolher no seletor) */
+  function focarDepoisDe(campo: string) {
+    setTimeout(() => {
+      const navs = navegaveis();
+      const i = navs.findIndex((n) => n.dataset.campo === campo);
+      if (i >= 0) focar(Math.min(i + 1, navs.length - 1));
+    }, 60);
   }
 
   async function chamar(cad: Cad, cod: string): Promise<{ cadastroComItens: boolean; item: { cod: string; nm: string } | null } | null> {
@@ -125,6 +157,17 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
   const descricao = (cad: Cad, cod: string): Consulta | null => consultas[`${cad}|${cod.trim()}`] ?? null;
   const nomeDe = (cad: Cad, cod: string) => descricao(cad, cod)?.nm ?? "";
 
+  const valorDoCampo: Record<Campo, string> = { rod, sem, reg, faz, pre, niv, pri };
+  const gravarCampo: Record<Campo, (v: string) => void> = {
+    rod: setRod,
+    sem: setSem,
+    reg: setReg,
+    faz: setFaz,
+    pre: setPre,
+    niv: setNiv,
+    pri: setPri,
+  };
+
   async function adicionarOcorrencia(texto: string) {
     const valor = texto.trim();
     if (!valor) return;
@@ -147,18 +190,53 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     try {
       const res = await fetch("/api/rodadas/apontamento?lista=ocorrencias", { cache: "no-store" });
       const j = await res.json();
-      setListaOco(res.ok ? (j.itens as { cod: string; nm: string }[]) : []);
+      setListaOco(res.ok ? (j.itens as ItemLista[]) : []);
     } catch {
       setListaOco([]);
     }
   }
 
-  function alternarOcorrencia(o: OcorrenciaSel) {
+  function alternarOcorrencia(o: ItemLista) {
     setOcorrencias((l) => (l.some((x) => x.cod === o.cod) ? l.filter((x) => x.cod !== o.cod) : [...l, o]));
   }
 
   const rodadaSel = useMemo(() => rodadas.find((r) => String(r.rod) === rod.trim()), [rodadas, rod]);
   const semanaInfo = rodadaSel ? rodadaSel.semanas.find((s) => String(s.sem) === sem.trim()) : undefined;
+
+  // itens do seletor "ver e escolher" de cada campo
+  async function buscarNoSeletor(campo: Campo, q: string): Promise<ItemLista[]> {
+    const termo = q.trim().toLowerCase();
+    if (campo === "rod") {
+      return rodadas
+        .filter((r) => !termo || String(r.rod).includes(termo))
+        .map((r) => ({ cod: String(r.rod), nm: `${fmtDateBR(r.ini)} a ${fmtDateBR(r.semanas[r.semanas.length - 1]?.fim ?? r.ini)}` }));
+    }
+    if (campo === "sem") {
+      return (rodadaSel?.semanas ?? [])
+        .filter((s) => !termo || String(s.sem).includes(termo))
+        .map((s) => ({ cod: String(s.sem), nm: `${fmtDateBR(s.ini)} a ${fmtDateBR(s.fim)}` }));
+    }
+    const cad = CAD_DO_CAMPO[campo];
+    if (!cad) return [];
+    try {
+      const res = await fetch(`/api/cadastros/${cad}?q=${encodeURIComponent(q.trim())}&pg=1`, { cache: "no-store" });
+      const j = await res.json();
+      return res.ok ? (j.itens as { cod: string; nm: string }[]).map((i) => ({ cod: i.cod, nm: i.nm })) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function escolherNoSeletor(campo: Campo, item: ItemLista) {
+    gravarCampo[campo](item.cod);
+    const cad = CAD_DO_CAMPO[campo];
+    if (cad) {
+      setConsultas((c) => ({ ...c, [`${cad}|${item.cod}`]: { nm: item.nm, vazio: false } }));
+      if (cad === "fazendas") carregarTalhoes(item.cod);
+    }
+    setSeletor(null);
+    focarDepoisDe(campo);
+  }
 
   const areaMarcada = useMemo(
     () => talhoes.filter((t) => marcados.has(t.tlh)).reduce((s, t) => s + (t.area ?? 0), 0),
@@ -229,7 +307,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
       setAviso(`Boletim ${j.bol} gravado (semana ${j.sem}).`);
       limpar(true);
       await carregarBoletim();
-      setTimeout(() => focar(3), 50); // volta para a Fazenda
+      setTimeout(() => focarDepoisDe("reg"), 50); // volta para a Fazenda
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível gravar o boletim.");
     } finally {
@@ -245,6 +323,14 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     }
     const alvo = e.target as HTMLInputElement;
     if (!alvo.dataset?.nav) return;
+
+    // F4: abre a lista para ver e escolher (padrão de ERP)
+    if (e.key === "F4") {
+      e.preventDefault();
+      if (alvo.dataset.campo === "oco") abrirLista();
+      else if (alvo.dataset.campo && alvo.dataset.campo in TITULO_CAMPO) setSeletor(alvo.dataset.campo as Campo);
+      return;
+    }
 
     // Backspace no campo de ocorrência vazio remove a última escolhida
     if (e.key === "Backspace" && alvo.dataset.campo === "oco" && alvo.value === "") {
@@ -267,37 +353,54 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     else gravar(); // Enter no último campo grava
   }
 
-  function codigoComDescricao(cad: Cad, valor: string, onChange: (v: string) => void, campo: string, pilula = false) {
-    const c = descricao(cad, valor);
+  /** Campo de código com botão de busca (e F4). `largura` é a largura do código. */
+  function campoCodigo(campo: Campo, largura: string, extra?: { cad?: Cad; pilula?: boolean; descricaoAoLado?: boolean }) {
+    const cad = extra?.cad ?? CAD_DO_CAMPO[campo];
+    const valor = valorDoCampo[campo];
+    const c = cad ? descricao(cad, valor) : null;
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         <input
           value={valor}
-          onChange={(e) => onChange(e.target.value)}
-          onBlur={() => consultar(cad, valor)}
+          onChange={(e) => gravarCampo[campo](e.target.value)}
+          onBlur={() => cad && consultar(cad, valor)}
           onFocus={(e) => e.target.select()}
           data-nav
           data-cad={cad}
           data-campo={campo}
+          inputMode={campo === "rod" || campo === "sem" ? "numeric" : undefined}
           disabled={!podeGravar}
-          className={`${INPUT} w-[72px] flex-shrink-0 text-center`}
-          aria-label={campo}
+          className={`${INPUT_BASE} ${largura} flex-shrink-0 text-center`}
+          aria-label={TITULO_CAMPO[campo]}
         />
-        <span className="min-w-0 truncate text-[12.5px]">
-          {valor.trim() && c ? (
-            c.nm ? (
-              pilula ? (
-                <span className={`rounded-full border px-2 py-0.5 text-[11.5px] font-semibold ${corPorDescricao(c.nm)}`}>{c.nm}</span>
+        <button
+          type="button"
+          tabIndex={-1}
+          disabled={!podeGravar}
+          onClick={() => setSeletor(campo)}
+          className={BOTAO_BUSCA}
+          aria-label={`Escolher ${TITULO_CAMPO[campo]} (F4)`}
+          title="Ver e escolher (F4)"
+        >
+          <IconBusca size={14} />
+        </button>
+        {extra?.descricaoAoLado && (
+          <span className="min-w-0 basis-full truncate text-[12.5px] lg:basis-auto">
+            {valor.trim() && c ? (
+              c.nm ? (
+                extra.pilula ? (
+                  <span className={`rounded-full border px-2 py-0.5 text-[11.5px] font-semibold ${corPorDescricao(c.nm)}`}>{c.nm}</span>
+                ) : (
+                  <span className="text-ink">{c.nm}</span>
+                )
+              ) : c.vazio ? (
+                <span className="text-muted">cadastro vazio</span>
               ) : (
-                <span className="text-ink">{c.nm}</span>
+                <span className="font-semibold text-alert-600">não cadastrado</span>
               )
-            ) : c.vazio ? (
-              <span className="text-muted">cadastro vazio</span>
-            ) : (
-              <span className="font-semibold text-alert-600">não cadastrado</span>
-            )
-          ) : null}
-        </span>
+            ) : null}
+          </span>
+        )}
       </div>
     );
   }
@@ -307,7 +410,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
+      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-4 py-3 md:px-6">
         <nav className="min-w-0 flex-1 text-[13px] text-muted">
           <span className="text-[11px] uppercase tracking-wide">Rodadas de Campo</span>
           <div className="truncate text-[15px] font-bold text-ink">Apontamento</div>
@@ -319,80 +422,34 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-5">
         <div ref={formRef} onKeyDown={aoTeclar} className="space-y-4">
-          <section className="rounded-xl2 border border-line bg-card p-4 shadow-card">
+          <section className="rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
             <h2 className="mb-3 text-[14px] font-bold text-ink">Boletim de rodada de campo</h2>
 
-            {/* Boletim · Data · Rodada · Semana */}
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-[130px_170px_130px_1fr]">
-              <div>
+            {/* Linha 1: Boletim · Data · Rodada · Semana · Região · Desc. Região */}
+            <div className="grid grid-cols-6 gap-3 lg:grid-cols-[96px_132px_132px_112px_132px_minmax(0,1fr)]">
+              <div className="col-span-3 lg:col-span-1">
                 <label className={ROTULO}>Boletim</label>
                 <input value={boletim ?? ""} readOnly tabIndex={-1} className={`${SOMENTE_LEITURA} text-center font-bold`} aria-label="Boletim (automático)" />
               </div>
-              <div>
+              <div className="col-span-3 lg:col-span-1">
                 <label className={ROTULO}>Data (lançamento)</label>
                 <input type="date" value={dt} readOnly tabIndex={-1} className={SOMENTE_LEITURA} aria-label="Data do lançamento (automática)" />
               </div>
-              <div>
+              <div className="col-span-2 lg:col-span-1">
                 <label className={ROTULO}>Rodada</label>
-                <input
-                  value={rod}
-                  onChange={(e) => setRod(e.target.value)}
-                  onFocus={(e) => e.target.select()}
-                  data-nav
-                  inputMode="numeric"
-                  disabled={!podeGravar}
-                  className={`${INPUT} text-center`}
-                />
+                {campoCodigo("rod", "w-[60px]")}
               </div>
-              <div>
+              <div className="col-span-2 lg:col-span-1">
                 <label className={ROTULO}>Semana</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    value={sem}
-                    onChange={(e) => setSem(e.target.value)}
-                    onFocus={(e) => e.target.select()}
-                    data-nav
-                    inputMode="numeric"
-                    disabled={!podeGravar}
-                    className={`${INPUT} w-[72px] text-center`}
-                    aria-label="Semana"
-                  />
-                  <span className="min-w-0 truncate text-[12px]">
-                    {rod.trim() === "" ? (
-                      <span className="text-muted">Informe a rodada.</span>
-                    ) : !rodadaSel ? (
-                      <span className="font-semibold text-alert-600">Rodada {rod} não cadastrada.</span>
-                    ) : sem.trim() === "" ? (
-                      <span className="text-muted">Informe a semana (1 a {rodadaSel.semanas.length}).</span>
-                    ) : !semanaInfo ? (
-                      <span className="font-semibold text-alert-600">Semana {sem} não existe nesta rodada.</span>
-                    ) : (
-                      <span className="text-ink">{`${fmtDateBR(semanaInfo.ini)} a ${fmtDateBR(semanaInfo.fim)}`}</span>
-                    )}
-                  </span>
-                </div>
+                {campoCodigo("sem", "w-[48px]")}
               </div>
-            </div>
-
-            {/* Região · Desc. Região · Fazenda · Descrição Fazenda */}
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[100px_1fr_100px_1.4fr]">
-              <div>
+              <div className="col-span-2 lg:col-span-1">
                 <label className={ROTULO}>Região</label>
-                <input
-                  value={reg}
-                  onChange={(e) => setReg(e.target.value)}
-                  onBlur={() => consultar("regiao", reg)}
-                  onFocus={(e) => e.target.select()}
-                  data-nav
-                  data-cad="regiao"
-                  data-campo="reg"
-                  disabled={!podeGravar}
-                  className={`${INPUT} text-center`}
-                />
+                {campoCodigo("reg", "w-[60px]")}
               </div>
-              <div>
+              <div className="col-span-6 lg:col-span-1">
                 <label className={ROTULO}>Desc. Região</label>
                 <input
                   value={regiaoNm || (reg.trim() && descricao("regiao", reg)?.vazio ? "(cadastro vazio)" : "")}
@@ -402,21 +459,33 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                   aria-label="Descrição da região"
                 />
               </div>
-              <div>
+            </div>
+            <p className="mt-1.5 min-h-[16px] text-[12px]">
+              {rod.trim() === "" ? (
+                <span className="text-muted">Informe a rodada e depois a semana.</span>
+              ) : !rodadaSel ? (
+                <span className="font-semibold text-alert-600">Rodada {rod} não cadastrada.</span>
+              ) : sem.trim() === "" ? (
+                <span className="text-muted">Informe a semana (1 a {rodadaSel.semanas.length}).</span>
+              ) : !semanaInfo ? (
+                <span className="font-semibold text-alert-600">Semana {sem} não existe nesta rodada.</span>
+              ) : (
+                <span className="text-ink">
+                  <b>Semana {sem}</b> · {fmtDateBR(semanaInfo.ini)} a {fmtDateBR(semanaInfo.fim)}
+                </span>
+              )}
+              {reg.trim() && descricao("regiao", reg) && !descricao("regiao", reg)?.nm && !descricao("regiao", reg)?.vazio && (
+                <span className="ml-3 font-semibold text-alert-600">Região {reg} não cadastrada.</span>
+              )}
+            </p>
+
+            {/* Linha 2: Fazenda · Descrição · Presença · Nível · Prioridade */}
+            <div className="mt-2 grid grid-cols-3 gap-3 lg:grid-cols-[132px_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+              <div className="col-span-1">
                 <label className={ROTULO}>Fazenda</label>
-                <input
-                  value={faz}
-                  onChange={(e) => setFaz(e.target.value)}
-                  onBlur={() => consultar("fazendas", faz)}
-                  onFocus={(e) => e.target.select()}
-                  data-nav
-                  data-cad="fazendas"
-                  data-campo="faz"
-                  disabled={!podeGravar}
-                  className={`${INPUT} text-center`}
-                />
+                {campoCodigo("faz", "w-[58px] lg:w-[72px]")}
               </div>
-              <div>
+              <div className="col-span-2 lg:col-span-1">
                 <label className={ROTULO}>Descrição Fazenda</label>
                 <input
                   value={fazendaNm || (faz.trim() && descricao("fazendas", faz)?.vazio ? "(cadastro vazio)" : "")}
@@ -425,28 +494,23 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                   className={SOMENTE_LEITURA}
                   aria-label="Descrição da fazenda"
                 />
+                {faz.trim() && descricao("fazendas", faz) && !descricao("fazendas", faz)?.nm && !descricao("fazendas", faz)?.vazio && (
+                  <p className="mt-1 text-[12px] font-semibold text-alert-600">Fazenda {faz} não cadastrada.</p>
+                )}
               </div>
-            </div>
-            {faz.trim() && descricao("fazendas", faz) && !descricao("fazendas", faz)?.nm && !descricao("fazendas", faz)?.vazio && (
-              <p className="mt-1 text-[12px] font-semibold text-alert-600">Fazenda {faz} não cadastrada.</p>
-            )}
-            {reg.trim() && descricao("regiao", reg) && !descricao("regiao", reg)?.nm && !descricao("regiao", reg)?.vazio && (
-              <p className="mt-1 text-[12px] font-semibold text-alert-600">Região {reg} não cadastrada.</p>
-            )}
-
-            {/* Presença · Nível · Prioridade */}
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
               <div>
                 <label className={ROTULO}>Presença</label>
-                {codigoComDescricao("presenca-infestacao", pre, setPre, "pre")}
+                {campoCodigo("pre", "w-[44px]", { descricaoAoLado: true })}
               </div>
               <div>
-                <label className={ROTULO}>Nível de Infestação</label>
-                {codigoComDescricao("nivel-infestacao", niv, setNiv, "niv", true)}
+                <label className={ROTULO}>
+                  Nível<span className="hidden lg:inline"> de Infestação</span>
+                </label>
+                {campoCodigo("niv", "w-[44px]", { descricaoAoLado: true, pilula: true })}
               </div>
               <div>
                 <label className={ROTULO}>Prioridade</label>
-                {codigoComDescricao("prioridade", pri, setPri, "pri", true)}
+                {campoCodigo("pri", "w-[44px]", { descricaoAoLado: true, pilula: true })}
               </div>
             </div>
 
@@ -482,7 +546,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                   data-campo="oco"
                   disabled={!podeGravar}
                   placeholder={ocorrencias.length ? "Outro código…" : "Código da ocorrência"}
-                  className="min-w-[150px] flex-1 border-0 bg-transparent px-1 py-1 text-[13px] text-ink focus:outline-none"
+                  className="min-w-[130px] flex-1 border-0 bg-transparent px-1 py-1 text-[13px] text-ink focus:outline-none"
                   aria-label="Ocorrência"
                 />
                 {podeGravar && (
@@ -490,8 +554,10 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                     type="button"
                     tabIndex={-1}
                     onClick={abrirLista}
-                    className="rounded-md border border-line bg-surface px-2.5 py-1 text-[12px] font-semibold text-navy-800 hover:bg-card"
+                    className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[12px] font-semibold text-navy-800 hover:bg-card"
+                    title="Ver e escolher (F4)"
                   >
+                    <IconBusca size={13} />
                     Escolher da lista
                   </button>
                 )}
@@ -520,7 +586,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
             </div>
           </section>
 
-          <section className="rounded-xl2 border border-line bg-card p-4 shadow-card">
+          <section className="rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <h2 className="text-[14px] font-bold text-ink">
                 Talhões{fazendaNm ? ` · ${faz.trim().split("-")[0]} ${fazendaNm}` : ""}
@@ -592,13 +658,23 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
               </button>
             </div>
             <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
-              Enter ou Tab passa para o próximo campo. Digite só o código — a descrição vem do cadastro. Na ocorrência, digite
-              o código e Enter para incluir cada uma (Backspace remove a última). Marque os talhões com a barra de espaço.
-              Para gravar: F2, o botão Gravar ou Enter no último campo. O número do boletim é sempre o último + 1.
+              Enter ou Tab passa para o próximo campo. Digite só o código — a descrição vem do cadastro — ou use a lupa (ou F4)
+              para ver a lista e escolher. Na ocorrência, digite o código e Enter para incluir cada uma (Backspace remove a
+              última). Marque os talhões com a barra de espaço. Para gravar: F2, o botão Gravar ou Enter no último campo. O
+              número do boletim é sempre o último + 1.
             </p>
           </section>
         </div>
       </div>
+
+      {seletor && (
+        <Seletor
+          titulo={TITULO_CAMPO[seletor]}
+          buscar={(q) => buscarNoSeletor(seletor, q)}
+          onEscolher={(item) => escolherNoSeletor(seletor, item)}
+          onFechar={() => setSeletor(null)}
+        />
+      )}
 
       {listaAberta && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
@@ -637,6 +713,108 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** "Ver e escolher": lista com filtro (código ou descrição); ↑ ↓ e Enter escolhem, Esc fecha. */
+function Seletor({
+  titulo,
+  buscar,
+  onEscolher,
+  onFechar,
+}: {
+  titulo: string;
+  buscar: (q: string) => Promise<ItemLista[]>;
+  onEscolher: (item: ItemLista) => void;
+  onFechar: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [itens, setItens] = useState<ItemLista[] | null>(null);
+  const [ativo, setAtivo] = useState(0);
+  const buscarRef = useRef(buscar);
+  buscarRef.current = buscar;
+
+  useEffect(() => {
+    let vivo = true;
+    const t = setTimeout(
+      async () => {
+        const r = await buscarRef.current(q);
+        if (vivo) {
+          setItens(r);
+          setAtivo(0);
+        }
+      },
+      q ? 250 : 0
+    );
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [q]);
+
+  function aoTeclar(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onFechar();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setAtivo((a) => Math.min(a + 1, (itens?.length ?? 1) - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setAtivo((a) => Math.max(a - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      const item = itens?.[ativo];
+      if (item) onEscolher(item);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy-950/50 sm:items-center sm:px-4" onKeyDown={aoTeclar}>
+      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-xl2 bg-card p-4 shadow-pop sm:rounded-xl2 sm:p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-[15px] font-bold text-ink">Escolher · {titulo}</h3>
+          <button type="button" onClick={onFechar} aria-label="Fechar" className="px-1 text-[20px] leading-none text-muted">
+            ×
+          </button>
+        </div>
+        <input
+          autoFocus
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Filtrar por código ou descrição…"
+          className={INPUT}
+          aria-label="Filtrar"
+        />
+        <div className="mt-2 min-h-[120px] flex-1 overflow-y-auto rounded-md border border-line">
+          {itens === null ? (
+            <p className="px-3 py-4 text-[12.5px] text-muted">Carregando…</p>
+          ) : itens.length === 0 ? (
+            <p className="px-3 py-4 text-[12.5px] text-muted">Nenhum item encontrado.</p>
+          ) : (
+            <ul>
+              {itens.map((it, i) => (
+                <li key={it.cod}>
+                  <button
+                    type="button"
+                    onClick={() => onEscolher(it)}
+                    onMouseEnter={() => setAtivo(i)}
+                    className={`flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] ${
+                      i === ativo ? "bg-brand-50 text-brand-800" : "text-ink hover:bg-surface"
+                    }`}
+                  >
+                    <span className="w-14 flex-shrink-0 font-semibold tabular">{it.cod}</span>
+                    <span className="min-w-0 truncate">{it.nm}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <p className="mt-2 text-[11px] text-muted">↑ ↓ para percorrer · Enter escolhe · Esc fecha</p>
+      </div>
     </div>
   );
 }
