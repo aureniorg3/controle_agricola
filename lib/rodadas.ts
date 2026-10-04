@@ -37,6 +37,9 @@ export interface LinhaResumoRodada {
   reg: string;
   regNm: string;
   resp: string;
+  /** de onde veio o boletim: Importação (planilha) ou Apontamento (lançado no sistema) */
+  origem: string;
+  lancadoPor: string;
   faz: string;
   fazNm: string;
   tlh: string;

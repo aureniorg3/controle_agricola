@@ -22,6 +22,7 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
   const [rod, setRod] = useState("");
   const [reg, setReg] = useState("");
   const [sem, setSem] = useState("");
+  const [ori, setOri] = useState("");
   const [busca, setBusca] = useState("");
   const [termo, setTermo] = useState("");
   const [pagina, setPagina] = useState(1);
@@ -44,6 +45,7 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
         if (rod) p.set("rod", rod);
         if (reg) p.set("reg", reg);
         if (sem) p.set("sem", sem);
+        if (ori) p.set("ori", ori);
         if (termo) p.set("q", termo);
         if (comOpcoes || !opcoes) p.set("opcoes", "1");
         const res = await fetch(`/api/rodadas/resumo?${p}`, { cache: "no-store" });
@@ -62,7 +64,7 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pagina, rod, reg, sem, termo]
+    [pagina, rod, reg, sem, ori, termo]
   );
 
   useEffect(() => {
@@ -142,6 +144,11 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
                 </option>
               ))}
             </select>
+            <select value={ori} onChange={(e) => mudar(() => setOri(e.target.value))} className={FILTRO} aria-label="Origem">
+              <option value="">Todas as origens</option>
+              <option value="apontamento">Apontamento</option>
+              <option value="importacao">Importação</option>
+            </select>
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
@@ -169,6 +176,9 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
                   <th className="px-3 py-2 font-semibold">Nível</th>
                   <th className="px-3 py-2 font-semibold">Prioridade</th>
                   <th className="px-3 py-2 font-semibold">Recomendação / Diagnóstico</th>
+                  <th className="px-3 py-2 font-semibold">Responsável</th>
+                  <th className="px-3 py-2 font-semibold">Origem</th>
+                  <th className="px-3 py-2 font-semibold">Lançado por</th>
                   <th className="px-3 py-2 font-semibold">Atividade</th>
                   <th className="px-3 py-2 text-center font-semibold">Executado</th>
                 </tr>
@@ -189,13 +199,16 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
                     <td className="px-3 py-1 text-ink">{l.nivel}</td>
                     <td className="px-3 py-1 text-ink">{l.prioridade}</td>
                     <td className="min-w-[240px] px-3 py-1 text-ink">{l.rec}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-ink">{l.resp}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-ink">{l.origem}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-ink">{l.lancadoPor}</td>
                     <td className="min-w-[160px] px-3 py-1 text-ink">{l.atividade}</td>
                     <td className="px-3 py-1 text-center text-ink">{l.executado}</td>
                   </tr>
                 ))}
                 {!carregando && linhas.length === 0 && (
                   <tr>
-                    <td colSpan={15} className="px-4 py-10 text-center text-muted">
+                    <td colSpan={18} className="px-4 py-10 text-center text-muted">
                       {podeGravar
                         ? 'Nenhum levantamento ainda. Use "Importar" para carregar a planilha ou lance pelo Apontamento.'
                         : "Nenhum levantamento ainda."}

@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const num = (v: string | null) => (v && /^\d+$/.test(v) ? Number(v) : undefined);
   const pagina = Math.max(1, num(p.get("pg")) ?? 1);
   const resumo = await resumoRodadas(
-    { rod: num(p.get("rod")), sem: num(p.get("sem")), reg: p.get("reg") || undefined, faz: p.get("faz") || undefined, q: p.get("q") || undefined },
+    { rod: num(p.get("rod")), sem: num(p.get("sem")), reg: p.get("reg") || undefined, faz: p.get("faz") || undefined, ori: p.get("ori") || undefined, q: p.get("q") || undefined },
     pagina,
     TAMANHO
   );

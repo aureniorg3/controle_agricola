@@ -518,6 +518,8 @@ export interface FiltroResumoRodadas {
   reg?: string;
   sem?: number;
   faz?: string;
+  /** importacao | apontamento */
+  ori?: string;
   q?: string;
 }
 
@@ -553,6 +555,7 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
   if (f.reg) add("b.reg = ?", f.reg);
   if (f.sem) add("b.sem = ?", f.sem);
   if (f.faz) add("b.faz = ?", f.faz);
+  if (f.ori === "importacao" || f.ori === "apontamento") add("b.ori = ?", f.ori);
   if (f.q && f.q.trim()) {
     params.push(`%${f.q.trim().replace(/[%_\\]/g, (c) => `\\${c}`)}%`);
     const pl = params.length;
@@ -569,11 +572,11 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
     params
   );
   const { rows } = await pool.query<{
-    bol: number; rod: number; dt: string; sem: number; reg: string; reg_nm: string | null; resp: string; faz: string;
+    bol: number; rod: number; dt: string; sem: number; reg: string; reg_nm: string | null; resp: string; ori: string; usr: string; faz: string;
     faz_nm: string | null; tlh: string; area: number | null; oco: string; pre: string | null; niv: string | null;
     pri: string | null; rec: string; ati: string | null; exe: string | null;
   }>(
-    `SELECT b.bol, b.rod, b.dt, b.sem, b.reg, rg.nm AS reg_nm, b.resp, b.faz, fz.nm AS faz_nm, i.tlh, i.area::float AS area,
+    `SELECT b.bol, b.rod, b.dt, b.sem, b.reg, rg.nm AS reg_nm, b.resp, b.ori, b.usr, b.faz, fz.nm AS faz_nm, i.tlh, i.area::float AS area,
             COALESCE(
       NULLIF((SELECT string_agg(c.nm, ', ' ORDER BY u.ord)
                 FROM unnest(string_to_array(i.oco, ',')) WITH ORDINALITY AS u(cod, ord)
@@ -598,6 +601,8 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
       reg: r.reg,
       regNm: r.reg_nm ?? "",
       resp: r.resp,
+      origem: r.ori === "apontamento" ? "Apontamento" : "Importação",
+      lancadoPor: r.usr,
       faz: r.faz,
       fazNm: r.faz_nm ?? "",
       tlh: r.tlh,
