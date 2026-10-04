@@ -642,9 +642,8 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   // Cards de ordem em grade de 3 colunas, agrupados por frente — mesmo
   // conteúdo e mesmo layout dos cards da tela.
   // -------------------------------------------------------------------
-  doc.addPage();
-  cabecalhoPagina(`Ordens · ${dados.periodLabel}`);
-  let cursorY = 22;
+  // Seguem logo abaixo do resumo por frente, na mesma página, se couber.
+  let cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
 
   function garantirEspaco(altura: number) {
     if (cursorY + altura > limiteY) {
@@ -699,9 +698,14 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   // Resumo detalhado por ordem/fazenda (uma linha por fazenda, subtotal
   // por frente e total geral) + gráfico de barras de produção por frente.
   // -------------------------------------------------------------------
-  doc.addPage();
-  cabecalhoPagina("Resumo detalhado por ordem e fazenda");
-  cursorY = 22;
+  garantirEspaco(36);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(...NAVY);
+  doc.text("Resumo detalhado por ordem e fazenda", MARGEM, cursorY + 3);
+  doc.setTextColor(...INK);
+  cursorY += 6;
+  const paginaIniDetalhado = doc.getNumberOfPages();
 
   const corpoDetalhado: (string | number)[][] = [];
   const linhasSubtotal = new Set<number>();
@@ -743,7 +747,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     startY: cursorY,
     head: [["Frente", "Ordem", "Fazenda", "Fundo Agrícola", "Área Colhida (ha)", "Produção Acumulada (t)", "TCH Parcial (t/ha)"]],
     body: corpoDetalhado,
-    styles: { fontSize: 7, cellPadding: 1.6 },
+    styles: { fontSize: 6.8, cellPadding: 1.1 },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold" },
     columnStyles: { 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
     didParseCell: (data) => {
@@ -760,9 +764,11 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       }
     },
     margin: { top: 22, left: MARGEM, right: MARGEM, bottom: RODAPE_ALTURA },
-    didDrawPage: () => cabecalhoPagina("Resumo detalhado por ordem e fazenda"),
+    // páginas novas ganham o cabeçalho; a primeira já é a página dos cards
+    didDrawPage: (d) => {
+      if (d.pageNumber > paginaIniDetalhado) cabecalhoPagina("Resumo detalhado por ordem e fazenda");
+    },
   });
-  cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
   // -------------------------------------------------------------------
   // Resumo diário do mês: dias em linha, frentes em coluna, com a barra do
@@ -790,11 +796,19 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   const colunasMensal: Record<number, { halign: "right" }> = {};
   for (let c = 1; c <= nFrentes + 1; c++) colunasMensal[c] = { halign: "right" };
   const barraCor = (p: number): [number, number, number] => (p >= 100 ? [93, 158, 72] : p >= 80 ? [215, 123, 56] : [190, 49, 50]);
+  // sempre numa página só: a altura de cada linha se ajusta ao que cabe
+  // (31 dias + total + cabeçalho), no máximo a altura confortável de 5,4 mm
+  const ALTURA_CAB_MENSAL = 5.6;
+  const alturaLinhaMensal = Math.min(5.4, (limiteY - 22 - ALTURA_CAB_MENSAL - 1.5) / corpoMensal.length);
+  const ALTURA_TEXTO_MENSAL = 2.65; // fonte 6,5 pt com o espaçamento padrão do autotable
+  const topoMensal = 0.7;
+  const baseMensal = Math.max(0.6, alturaLinhaMensal - topoMensal - ALTURA_TEXTO_MENSAL);
   autoTable(doc, {
     startY: 22,
     head: [["Data", ...rm.frentes, "Total (t)"]],
     body: corpoMensal,
-    styles: { fontSize: 6.5, cellPadding: { top: 0.7, bottom: 1.9, left: 1.6, right: 1.6 } },
+    pageBreak: "avoid",
+    styles: { fontSize: 6.5, cellPadding: { top: topoMensal, bottom: baseMensal, left: 1.6, right: 1.6 } },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold", cellPadding: 1.4 },
     columnStyles: colunasMensal,
     didParseCell: (data) => {
@@ -803,7 +817,6 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
         data.cell.styles.fillColor = NAVY;
         data.cell.styles.textColor = [255, 255, 255];
         data.cell.styles.fontStyle = "bold";
-        data.cell.styles.cellPadding = 1.4;
       } else if (data.row.index % 2 === 1) {
         data.cell.styles.fillColor = ALT_ROW;
       }

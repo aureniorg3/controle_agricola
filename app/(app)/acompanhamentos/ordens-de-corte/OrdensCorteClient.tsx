@@ -1207,23 +1207,23 @@ export default function OrdensCorteClient({
             Selecionada" no resumo por frente), uma linha por fazenda dentro
             de cada ordem, igual ao relatório impresso de referência. */}
         {resumoDetalhado.length > 0 && (
-          <div className="mb-5 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
-            <div className="border-b border-line px-4 py-2.5">
-              <div className="text-[13px] font-bold text-ink">Resumo Detalhado por Ordem e Fazenda</div>
-              <div className="text-[11px] text-muted">
+          <div className="mb-4 max-w-5xl overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
+            <div className="border-b border-line px-2.5 py-0.5">
+              <div className="text-[12.5px] font-bold text-ink">Resumo Detalhado por Ordem e Fazenda</div>
+              <div className="text-[10.5px] text-muted">
                 Área colhida, produção total e TCH parcial das ordens marcadas e mostradas nos cards, por fazenda.
               </div>
             </div>
-            <table className="w-full text-[12.5px]">
+            <table className="w-full text-[11.5px] leading-tight">
               <thead>
                 <tr className="border-b border-line bg-navy-900 text-left text-white">
-                  <th className="px-4 py-2 font-semibold">Frente</th>
-                  <th className="px-3 py-2 font-semibold">Ordem</th>
-                  <th className="px-3 py-2 font-semibold">Fazenda</th>
-                  <th className="px-3 py-2 font-semibold">Fundo Agrícola</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right text-[11.5px] font-semibold">Área Colhida (ha)</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right text-[11.5px] font-semibold">Produção Acumulada (t)</th>
-                  <th className="whitespace-nowrap px-4 py-2 text-right text-[11.5px] font-semibold">TCH Parcial (t/ha)</th>
+                  <th className="px-3 py-1 font-semibold">Frente</th>
+                  <th className="px-2.5 py-1 font-semibold">Ordem</th>
+                  <th className="px-2.5 py-1 font-semibold">Fazenda</th>
+                  <th className="px-2.5 py-1 font-semibold">Fundo Agrícola</th>
+                  <th className="whitespace-nowrap px-2.5 py-1 text-right text-[10.5px] font-semibold">Área Colhida (ha)</th>
+                  <th className="whitespace-nowrap px-2.5 py-1 text-right text-[10.5px] font-semibold">Produção Acumulada (t)</th>
+                  <th className="whitespace-nowrap px-3 py-1 text-right text-[10.5px] font-semibold">TCH Parcial (t/ha)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1234,38 +1234,38 @@ export default function OrdensCorteClient({
                         key={`${l.ordem}-${l.fazendaCodigo}`}
                         className={`border-b border-line/60 ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}
                       >
-                        <td className="px-4 py-1.5 text-ink">{i === 0 ? l.frente : ""}</td>
-                        <td className="px-3 py-1.5 text-ink">{l.ordem}</td>
-                        <td className="px-3 py-1.5 text-muted">{l.fazendaCodigo}</td>
-                        <td className="px-3 py-1.5 text-ink">{l.fazendaNome}</td>
-                        <td className="px-3 py-1.5 text-right tabular text-ink">
+                        <td className="px-3 py-0.5 text-ink">{i === 0 ? l.frente : ""}</td>
+                        <td className="px-2.5 py-0.5 text-ink">{l.ordem}</td>
+                        <td className="px-2.5 py-0.5 text-muted">{l.fazendaCodigo}</td>
+                        <td className="px-2.5 py-0.5 text-ink">{l.fazendaNome}</td>
+                        <td className="px-2.5 py-0.5 text-right tabular text-ink">
                           {l.areaColhidaHa > 0 ? fmtHa(l.areaColhidaHa) : "–"}
                         </td>
-                        <td className="px-3 py-1.5 text-right tabular text-ink">
+                        <td className="px-2.5 py-0.5 text-right tabular text-ink">
                           {l.producaoTotalT > 0 ? fmtT(l.producaoTotalT) : "–"}
                         </td>
-                        <td className="px-4 py-1.5 text-right tabular font-medium text-ink">
+                        <td className="px-3 py-0.5 text-right tabular font-medium text-ink">
                           {l.tchRealParcial > 0 ? fmtTch(l.tchRealParcial) : "–"}
                         </td>
                       </tr>
                     ))}
                     <tr className="bg-navy-900 font-semibold text-white">
-                      <td className="px-4 py-1.5" colSpan={4}>
+                      <td className="px-3 py-0.5" colSpan={4}>
                         {grupo.frente} Total
                       </td>
-                      <td className="px-3 py-1.5 text-right tabular">{fmtHa(grupo.subtotal.areaColhidaHa)}</td>
-                      <td className="px-3 py-1.5 text-right tabular">{fmtT(grupo.subtotal.producaoTotalT)}</td>
-                      <td className="px-4 py-1.5 text-right tabular">{fmtTch(grupo.subtotal.tchRealParcial)}</td>
+                      <td className="px-2.5 py-0.5 text-right tabular">{fmtHa(grupo.subtotal.areaColhidaHa)}</td>
+                      <td className="px-2.5 py-0.5 text-right tabular">{fmtT(grupo.subtotal.producaoTotalT)}</td>
+                      <td className="px-3 py-0.5 text-right tabular">{fmtTch(grupo.subtotal.tchRealParcial)}</td>
                     </tr>
                   </Fragment>
                 ))}
                 <tr className="bg-navy-950 font-bold text-white">
-                  <td className="px-4 py-2" colSpan={4}>
+                  <td className="px-3 py-1" colSpan={4}>
                     Total Geral
                   </td>
-                  <td className="px-3 py-2 text-right tabular">{fmtHa(resumoDetalhadoTotalGeral.areaColhidaHa)}</td>
-                  <td className="px-3 py-2 text-right tabular">{fmtT(resumoDetalhadoTotalGeral.producaoTotalT)}</td>
-                  <td className="px-4 py-2 text-right tabular">{fmtTch(resumoDetalhadoTotalGeral.tchRealParcial)}</td>
+                  <td className="px-2.5 py-1 text-right tabular">{fmtHa(resumoDetalhadoTotalGeral.areaColhidaHa)}</td>
+                  <td className="px-2.5 py-1 text-right tabular">{fmtT(resumoDetalhadoTotalGeral.producaoTotalT)}</td>
+                  <td className="px-3 py-1 text-right tabular">{fmtTch(resumoDetalhadoTotalGeral.tchRealParcial)}</td>
                 </tr>
               </tbody>
             </table>
