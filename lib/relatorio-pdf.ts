@@ -12,7 +12,7 @@ import {
   startOfWeekMonday,
 } from "./period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev } from "./format";
-import type { HistoricoTchOrdem, OrdemCorte, Periodo } from "./types";
+import type { HistoricoTchOrdem, OrdemCorte, Periodo, TalhaoOrdem } from "./types";
 
 const EMPRESA = "CRV Industrial";
 const MARGEM = 10;
@@ -203,9 +203,25 @@ function montarCardOrdem(
 
   const nTalhoes = ordem.talhoes.length;
   const alturaLinhaTalhao = 3.3;
+  // ordem com mais de uma fazenda: talhões agrupados por fazenda, cada grupo com a sua faixa
+  // (o número do talhão se repete entre fazendas e sem a faixa não dá para saber de qual é)
+  const gruposFazenda: { fazendaCodigo: string; fazendaNome: string; talhoes: TalhaoOrdem[] }[] = [];
+  for (const t of ordem.talhoes) {
+    let g = gruposFazenda.find((x) => x.fazendaCodigo === t.fazendaCodigo);
+    if (!g) {
+      g = { fazendaCodigo: t.fazendaCodigo, fazendaNome: t.fazendaNome, talhoes: [] };
+      gruposFazenda.push(g);
+    }
+    g.talhoes.push(t);
+  }
+  const variasFazendas = gruposFazenda.length > 1;
+  const linhasTalhoes: ({ faixa: string } | { talhao: TalhaoOrdem })[] = gruposFazenda.flatMap((g) => [
+    ...(variasFazendas ? [{ faixa: `${g.fazendaCodigo} · ${g.fazendaNome}` }] : []),
+    ...g.talhoes.map((t) => ({ talhao: t })),
+  ]);
   const alturaCabecalho = 3.6 + linhasFazenda.length * 3 + 1.5;
   const alturaEsq =
-    3 + (nTalhoes > 0 ? 4 + nTalhoes * alturaLinhaTalhao + 3.8 + 2 : 4) + alturaBlocoTch;
+    3 + (nTalhoes > 0 ? 4 + linhasTalhoes.length * alturaLinhaTalhao + 3.8 + 2 : 4) + alturaBlocoTch;
   const alturaDir = 9.5 + 2 + 5.5 + 2 + 11.5 + 2 + 10.5 + 2 + 4.6;
   const altura = pad + alturaCabecalho + Math.max(alturaEsq, alturaDir) + pad;
 
@@ -293,11 +309,28 @@ function montarCardOrdem(
       doc.setFont("helvetica", "normal");
       doc.setFontSize(6);
       doc.setTextColor(...INK);
-      ordem.talhoes.forEach((t, i) => {
-        if (i % 2 === 1) {
+      let seq = 0;
+      linhasTalhoes.forEach((l) => {
+        if ("faixa" in l) {
+          doc.setFillColor(226, 232, 242);
+          doc.rect(xi, ey - 2.5, larguraEsq, alturaLinhaTalhao, "F");
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(5.4);
+          doc.setTextColor(...NAVY);
+          doc.text((doc.splitTextToSize(l.faixa, larguraEsq - 2) as string[])[0], xi + 1, ey);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(6);
+          doc.setTextColor(...INK);
+          seq = 0;
+          ey += alturaLinhaTalhao;
+          return;
+        }
+        const t = l.talhao;
+        if (seq % 2 === 1) {
           doc.setFillColor(...ALT_ROW);
           doc.rect(xi, ey - 2.5, larguraEsq, alturaLinhaTalhao, "F");
         }
+        seq++;
         desenharLinhaCard(
           doc,
           colsX,
