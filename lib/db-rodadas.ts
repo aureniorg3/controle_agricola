@@ -138,6 +138,10 @@ export interface ItemApontamento {
   pri: string;
   tlh: string;
   rec: string;
+  /** atividade corretiva (texto) */
+  ati: string;
+  /** executada: SIM ou NÃO (vazio = ainda sem informação) */
+  exe: string;
 }
 
 export interface BoletimApontamento {
@@ -147,6 +151,15 @@ export interface BoletimApontamento {
   resp: string;
   faz: string;
   itens: ItemApontamento[];
+}
+
+/** S/SIM/1 -> SIM; N/NÃO/NAO/2 -> NÃO; vazio -> ""; qualquer outra coisa -> null. */
+export function normalizarSimNao(v: string): string | null {
+  const t = v.trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (!t) return "";
+  if (["S", "SIM", "1"].includes(t)) return "SIM";
+  if (["N", "NAO", "2"].includes(t)) return "NÃO";
+  return null;
 }
 
 async function validarCodigo(
@@ -190,7 +203,7 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
 
   const itens = b.itens.filter((i) => i.oco.trim() || i.tlh.trim() || i.rec.trim());
   if (itens.length === 0) return { erro: "Lance pelo menos uma ocorrência." };
-  const validados: { oco: string; pre: string; niv: string; pri: string; tlh: string; rec: string }[] = [];
+  const validados: { oco: string; pre: string; niv: string; pri: string; tlh: string; rec: string; ati: string; exe: string }[] = [];
   for (let n = 0; n < itens.length; n++) {
     const i = itens[n];
     const oco = await validarCodigo("ocorrencias", `Ocorrência (linha ${n + 1})`, i.oco, true);
@@ -201,7 +214,18 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
     if ("erro" in niv) return niv;
     const pri = await validarCodigo("prioridade", `Prioridade (linha ${n + 1})`, i.pri, false);
     if ("erro" in pri) return pri;
-    validados.push({ oco: oco.cod, pre: pre.cod, niv: niv.cod, pri: pri.cod, tlh: i.tlh.trim(), rec: i.rec.replace(/\s+/g, " ").trim() });
+    const exe = normalizarSimNao(i.exe);
+    if (exe === null) return { erro: `Executado (linha ${n + 1}): informe SIM ou NÃO.` };
+    validados.push({
+      oco: oco.cod,
+      pre: pre.cod,
+      niv: niv.cod,
+      pri: pri.cod,
+      tlh: i.tlh.trim(),
+      rec: i.rec.replace(/\s+/g, " ").trim(),
+      ati: i.ati.replace(/\s+/g, " ").trim(),
+      exe,
+    });
   }
 
   const client = await pool.connect();
@@ -217,8 +241,19 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
     for (let n = 0; n < validados.length; n++) {
       const v = validados[n];
       await client.query(
-        `INSERT INTO rod_itm (bol, seq, oco, pre, niv, pri, tlh, rec) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [bol, n + 1, v.oco, v.pre, v.niv, v.pri, v.tlh, v.rec]
+        `INSERT INTO rod_itm (bol, seq, oco, pre, niv, pri, tlh, rec, ext) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+        [
+          bol,
+          n + 1,
+          v.oco,
+          v.pre,
+          v.niv,
+          v.pri,
+          v.tlh,
+          v.rec,
+          // mesmas chaves das colunas da planilha importada, para o Resumo mostrar tudo junto
+          JSON.stringify({ ...(v.ati ? { ATIVIDADE: v.ati } : {}), ...(v.exe ? { "FEITO - SIM/NÃO": v.exe } : {}) }),
+        ]
       );
     }
     await client.query("COMMIT");
@@ -462,10 +497,11 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
   const { rows } = await pool.query<{
     bol: number; rod: number; dt: string; sem: number; reg: string; reg_nm: string | null; resp: string; faz: string;
     faz_nm: string | null; tlh: string; area: number | null; oco: string; pre: string | null; niv: string | null;
-    pri: string | null; rec: string;
+    pri: string | null; rec: string; ati: string | null; exe: string | null;
   }>(
     `SELECT b.bol, b.rod, b.dt, b.sem, b.reg, rg.nm AS reg_nm, b.resp, b.faz, fz.nm AS faz_nm, i.tlh, i.area::float AS area,
-            COALESCE(NULLIF(co.nm, ''), i.oco_txt) AS oco, pr.nm AS pre, nv.nm AS niv, pi.nm AS pri, i.rec
+            COALESCE(NULLIF(co.nm, ''), i.oco_txt) AS oco, pr.nm AS pre, nv.nm AS niv, pi.nm AS pri, i.rec,
+            i.ext->>'ATIVIDADE' AS ati, i.ext->>'FEITO - SIM/NÃO' AS exe
        ${JOINS} ${where}
       ORDER BY b.rod, b.dt, NULLIF(regexp_replace(b.reg, '\\D', '', 'g'), '')::int NULLS LAST, b.reg, b.sem,
                NULLIF(regexp_replace(b.faz, '\\D', '', 'g'), '')::bigint NULLS LAST, b.faz, b.bol, i.seq
@@ -493,6 +529,8 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
       nivel: r.niv ?? "",
       prioridade: r.pri ?? "",
       rec: r.rec,
+      atividade: r.ati ?? "",
+      executado: r.exe ?? "",
     })),
   };
 }

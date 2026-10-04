@@ -46,6 +46,8 @@ export interface LinhaResumoRodada {
   nivel: string;
   prioridade: string;
   rec: string;
+  atividade: string;
+  executado: string;
 }
 
 export const SEMANAS_POR_RODADA = 8;

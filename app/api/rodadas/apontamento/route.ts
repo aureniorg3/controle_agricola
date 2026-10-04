@@ -47,6 +47,8 @@ export async function POST(req: NextRequest) {
         pri: texto(i.pri),
         tlh: texto(i.tlh),
         rec: texto(i.rec),
+        ati: texto(i.ati),
+        exe: texto(i.exe),
       }))
     : [];
   const r = await gravarBoletim(

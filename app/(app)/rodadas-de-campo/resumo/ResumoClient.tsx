@@ -169,6 +169,8 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
                   <th className="px-3 py-2 font-semibold">Nível</th>
                   <th className="px-3 py-2 font-semibold">Prioridade</th>
                   <th className="px-3 py-2 font-semibold">Recomendação / Diagnóstico</th>
+                  <th className="px-3 py-2 font-semibold">Atividade</th>
+                  <th className="px-3 py-2 text-center font-semibold">Executado</th>
                 </tr>
               </thead>
               <tbody>
@@ -187,11 +189,13 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
                     <td className="px-3 py-1 text-ink">{l.nivel}</td>
                     <td className="px-3 py-1 text-ink">{l.prioridade}</td>
                     <td className="min-w-[240px] px-3 py-1 text-ink">{l.rec}</td>
+                    <td className="min-w-[160px] px-3 py-1 text-ink">{l.atividade}</td>
+                    <td className="px-3 py-1 text-center text-ink">{l.executado}</td>
                   </tr>
                 ))}
                 {!carregando && linhas.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="px-4 py-10 text-center text-muted">
+                    <td colSpan={15} className="px-4 py-10 text-center text-muted">
                       {podeGravar
                         ? 'Nenhum levantamento ainda. Use "Importar" para carregar a planilha ou lance pelo Apontamento.'
                         : "Nenhum levantamento ainda."}

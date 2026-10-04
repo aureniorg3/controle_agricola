@@ -19,9 +19,20 @@ interface Linha {
   pri: string;
   tlh: string;
   rec: string;
+  ati: string;
+  exe: string;
 }
 
-const LINHA_VAZIA: Linha = { oco: "", pre: "", niv: "", pri: "", tlh: "", rec: "" };
+const LINHA_VAZIA: Linha = { oco: "", pre: "", niv: "", pri: "", tlh: "", rec: "", ati: "", exe: "" };
+
+/** Cor sugerida pela descrição do nível/prioridade (verde = baixo, âmbar = médio, vermelho = alto). */
+function corPorDescricao(nm: string): string {
+  const t = nm.toLowerCase();
+  if (/alt|grave|urgent|cr[ií]tic|\b3\b/.test(t)) return "bg-alert-50 text-alert-700 border-alert-500/40";
+  if (/m[eé]d|\b2\b/.test(t)) return "bg-amber-50 text-amber-700 border-amber-500/40";
+  if (/baix|leve|\b1\b/.test(t)) return "bg-good-50 text-good-700 border-good-500/40";
+  return "bg-surface text-ink border-line";
+}
 
 /** Resultado de uma consulta de código: nm = descrição; null = não cadastrado; vazio = o cadastro ainda não tem itens. */
 type Consulta = { nm: string | null; vazio: boolean };
@@ -180,7 +191,13 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     if (!valor) return null;
     const c = consultas[`${cad}|${valor}`];
     if (!c) return null;
-    if (c.nm) return <span className="text-ink">{c.nm}</span>;
+    if (c.nm) {
+      return cad === "nivel-infestacao" || cad === "prioridade" ? (
+        <span className={`rounded-full border px-2 py-0.5 text-[11.5px] font-semibold ${corPorDescricao(c.nm)}`}>{c.nm}</span>
+      ) : (
+        <span className="text-ink">{c.nm}</span>
+      );
+    }
     return c.vazio ? (
       <span className="text-muted">cadastro vazio</span>
     ) : (
@@ -225,9 +242,10 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div ref={formRef} onKeyDown={aoTeclar} className="rounded-xl2 border border-line bg-card p-4 shadow-card">
+        <div ref={formRef} onKeyDown={aoTeclar} className="space-y-4">
+        <section className="rounded-xl2 border border-line bg-card p-4 shadow-card">
           <div className="mb-3 flex flex-wrap items-center gap-3">
-            <h2 className="text-[14px] font-bold text-ink">Boletim de rodada de campo</h2>
+            <h2 className="text-[14px] font-bold text-ink">Identificação</h2>
             <span className="rounded-full bg-brand-50 px-3 py-0.5 text-[12px] font-bold text-brand-800">
               Boletim {boletim ?? "…"} (automático)
             </span>
@@ -288,9 +306,12 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
               </span>
             )}
           </p>
+        </section>
 
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[980px] text-[12.5px]">
+        <section className="rounded-xl2 border border-line bg-card p-4 shadow-card">
+          <h2 className="text-[14px] font-bold text-ink">Ocorrências observadas</h2>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[1300px] text-[12.5px]">
               <thead>
                 <tr className="border-b border-line bg-navy-900 text-left text-white">
                   <th className="w-8 px-2 py-2 text-right font-semibold">#</th>
@@ -300,6 +321,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                   <th className="px-2 py-2 font-semibold">Prioridade</th>
                   <th className="w-36 px-2 py-2 font-semibold">Talhão(es)</th>
                   <th className="px-2 py-2 font-semibold">Recomendação / Diagnóstico</th>
+                  <th className="px-2 py-2 font-semibold">Atividade corretiva</th>
+                  <th className="w-28 px-2 py-2 font-semibold">Executado</th>
                 </tr>
               </thead>
               <tbody>
@@ -343,6 +366,41 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                         className={INPUT}
                       />
                     </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        value={l.ati}
+                        onChange={(e) => atualizarLinha(i, "ati", e.target.value)}
+                        onFocus={(e) => e.target.select()}
+                        data-nav
+                        data-linha={i}
+                        data-campo="ati"
+                        disabled={!podeGravar}
+                        placeholder="Ex.: Folha larga - drone"
+                        className={INPUT}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={l.exe}
+                          onChange={(e) => atualizarLinha(i, "exe", e.target.value)}
+                          onBlur={() => {
+                            const t = l.exe.trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                            if (["S", "SIM", "1"].includes(t)) atualizarLinha(i, "exe", "SIM");
+                            else if (["N", "NAO", "2"].includes(t)) atualizarLinha(i, "exe", "NÃO");
+                          }}
+                          onFocus={(e) => e.target.select()}
+                          data-nav
+                          data-linha={i}
+                          data-campo="exe"
+                          disabled={!podeGravar}
+                          placeholder="S / N"
+                          maxLength={3}
+                          className={`${INPUT} w-[64px] text-center`}
+                          aria-label="Executado"
+                        />
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -379,10 +437,11 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
             </button>
           </div>
           <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
-            Enter ou Tab passa para o próximo campo. Digite só o código — a descrição vem do cadastro. Para gravar: F2, o
+            Enter ou Tab passa para o próximo campo. Digite só o código — a descrição vem do cadastro (Executado: S ou N). Para gravar: F2, o
             botão Gravar, ou Enter numa Ocorrência vazia de uma linha nova. Enter no último campo abre uma nova linha. O
             número do boletim é sempre o último + 1.
           </p>
+        </section>
         </div>
       </div>
     </div>
