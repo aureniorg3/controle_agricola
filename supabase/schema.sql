@@ -109,6 +109,8 @@ create table if not exists pes_viag (
   tlh text not null default '',
   ton numeric not null default 0,
   hsd text not null default '',
+  -- tara (kg); viagem com tara zerada não entra nas entradas diárias
+  tara numeric,
   primary key (dt, ord_num, ctl)
 );
 

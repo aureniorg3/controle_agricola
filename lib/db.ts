@@ -294,6 +294,8 @@ function prepararBanco(pool: Pool): Promise<void> {
            PRIMARY KEY (dt, ord_num, ctl)
          )`
       );
+      // tara (kg) do Relatório de Pesagem: viagem com tara zerada não entra nas entradas
+      await pool.query("ALTER TABLE pes_viag ADD COLUMN IF NOT EXISTS tara numeric");
       await pool.query(
         `CREATE TABLE IF NOT EXISTS cad_itm (
            cad text NOT NULL, cod text NOT NULL, nm text NOT NULL DEFAULT '',
@@ -650,7 +652,7 @@ export async function listNumerosOrdens(): Promise<string[]> {
  * novas e quantas substituíram uma já existente.
  */
 export async function upsertViagens(
-  viagens: { data: string; ordem: string; controle: string; fazendaCodigo: string; talhao: string; toneladas: number; hora: string }[]
+  viagens: { data: string; ordem: string; controle: string; fazendaCodigo: string; talhao: string; toneladas: number; hora: string; tara: number }[]
 ): Promise<{ novas: number; substituidas: number }> {
   const pool = getPool();
   await prepararBanco(pool);
@@ -670,10 +672,10 @@ export async function upsertViagens(
       );
       substituidas += rows[0].n;
       await client.query(
-        `INSERT INTO pes_viag (dt, ord_num, ctl, faz_cod, tlh, ton, hsd)
-         SELECT * FROM unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::text[])
+        `INSERT INTO pes_viag (dt, ord_num, ctl, faz_cod, tlh, ton, hsd, tara)
+         SELECT * FROM unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::numeric[])
          ON CONFLICT (dt, ord_num, ctl) DO UPDATE SET
-           faz_cod = EXCLUDED.faz_cod, tlh = EXCLUDED.tlh, ton = EXCLUDED.ton, hsd = EXCLUDED.hsd`,
+           faz_cod = EXCLUDED.faz_cod, tlh = EXCLUDED.tlh, ton = EXCLUDED.ton, hsd = EXCLUDED.hsd, tara = EXCLUDED.tara`,
         [
           dts,
           ords,
@@ -682,6 +684,7 @@ export async function upsertViagens(
           lote.map((v) => v.talhao),
           lote.map((v) => v.toneladas),
           lote.map((v) => v.hora),
+          lote.map((v) => v.tara),
         ]
       );
     }
@@ -720,6 +723,7 @@ export async function reconstruirEntradas(): Promise<void> {
               ROUND(COALESCE(SUM(v.ton) FILTER (WHERE v.hsd <> '' AND v.hsd < '18:00'), 0), 2),
               COUNT(*)::int
          FROM pes_viag v JOIN ord o ON o.num = v.ord_num
+        WHERE v.tara IS NULL OR v.tara > 0
         GROUP BY v.ord_num, v.dt, v.faz_cod, v.tlh`
     );
     await client.query("UPDATE app_met SET ult_imp = now(), ult_atu = now() WHERE id = true");

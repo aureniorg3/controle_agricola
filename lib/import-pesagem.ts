@@ -318,6 +318,8 @@ export interface ViagemPesagem {
   toneladas: number;
   /** "Hora Saída Indústria" (HH:MM) — base dos cortes de 06:00, 12:00 e 18:00 */
   hora: string;
+  /** "Peso Tara" em kg — com tara zerada a viagem não é contabilizada nas entradas */
+  tara: number;
 }
 
 export interface EntradaAgregada {
@@ -413,6 +415,7 @@ export async function lerViagensPesagem(
       talhao: texto(l[14]),
       toneladas: numeroBR(l[19]) / 1000, // Peso Líquido, em kg
       hora: texto(l[31]), // "HH:MM" — já é texto
+      tara: numeroBR(l[18]), // Peso Tara, em kg
     });
   });
 
@@ -441,6 +444,12 @@ export async function lerViagensPesagem(
         `Há viagens fora do período informado no cabeçalho do relatório (${cab.inicio} a ${cab.fim}) — confira o arquivo.`
       );
     }
+  }
+  const semTara = viagens.filter((v) => !(v.tara > 0)).length;
+  if (semTara > 0) {
+    avisos.push(
+      `${semTara} viagem(ns) com tara zerada foram guardadas, mas não entram nas entradas de cana (valem quando a tara for lançada e o relatório for importado de novo).`
+    );
   }
   if (repetidasNoArquivo > 0) {
     avisos.push(
