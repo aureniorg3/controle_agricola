@@ -1484,7 +1484,7 @@ function ResumoMensalTabela({
             <th className="px-4 py-2 font-semibold">Data</th>
             {resumo.frentes.map((f) => (
               <th key={f} className="whitespace-nowrap px-3 py-2 text-right text-[11.5px] font-semibold">
-                {f} (t)
+                {f}
               </th>
             ))}
             <th className="whitespace-nowrap px-4 py-2 text-right text-[11.5px] font-semibold">Total (t)</th>
@@ -1500,7 +1500,7 @@ function ResumoMensalTabela({
                 className={`border-b border-line/60 ${hoje ? "bg-brand-50" : i % 2 === 1 ? "bg-surface" : "bg-card"}`}
               >
                 <td className="whitespace-nowrap px-4 py-1 text-ink">
-                  {fmtDateBR(d.data).slice(0, 5)} <span className="text-[10.5px] text-muted">{DIAS_SEMANA[dow]}</span>
+                  {fmtDateBR(d.data).slice(0, 6) + d.data.slice(2, 4)} <span className="text-[10.5px] text-muted">{DIAS_SEMANA[dow]}</span>
                 </td>
                 {resumo.frentes.map((f) => {
                   const c = d.frentes[f];

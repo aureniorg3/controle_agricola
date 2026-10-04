@@ -777,7 +777,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   const corpoMensal: string[][] = rm.dias.map((d) => {
     const dow = new Date(`${d.data}T00:00:00Z`).getUTCDay();
     return [
-      `${fmtDateBR(d.data).slice(0, 5)} ${["dom", "seg", "ter", "qua", "qui", "sex", "sáb"][dow]}`,
+      `${fmtDateBR(d.data).slice(0, 6) + d.data.slice(2, 4)} ${["dom", "seg", "ter", "qua", "qui", "sex", "sáb"][dow]}`,
       ...rm.frentes.map((f) => (d.futuro ? "" : d.frentes[f].t > 0 ? fmtT(d.frentes[f].t) : "–")),
       d.futuro ? "" : d.totalT > 0 ? fmtT(d.totalT) : "–",
     ];
@@ -792,7 +792,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   const barraCor = (p: number): [number, number, number] => (p >= 100 ? [93, 158, 72] : p >= 80 ? [215, 123, 56] : [190, 49, 50]);
   autoTable(doc, {
     startY: 22,
-    head: [["Data", ...rm.frentes.map((f) => `${f} (t)`), "Total (t)"]],
+    head: [["Data", ...rm.frentes, "Total (t)"]],
     body: corpoMensal,
     styles: { fontSize: 6.5, cellPadding: { top: 0.7, bottom: 1.9, left: 1.6, right: 1.6 } },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold", cellPadding: 1.4 },
