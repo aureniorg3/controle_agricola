@@ -7,6 +7,7 @@ import { fmtHa, fmtT, fmtTch } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { BaseSafraFazenda } from "@/lib/db";
 import type { PerfilUsuario, SafraAgregado } from "@/lib/types";
+import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const FILTRO =
   "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
@@ -24,9 +25,9 @@ export default function HistoricoSafrasClient({
   const router = useRouter();
   const podeGravar = podeEditar(perfil);
   const [importarAberto, setImportarAberto] = useState(false);
-  const [safraFiltro, setSafraFiltro] = useState("todas");
-  const [busca, setBusca] = useState("");
-  const [verTudo, setVerTudo] = useState(false);
+  const [safraFiltro, setSafraFiltro] = usarPersistido("historico.safra", "todas", ehTexto);
+  const [busca, setBusca] = usarPersistido("historico.busca", "", ehTexto);
+  const [verTudo, setVerTudo] = usarPersistido("historico.verTudo", false, ehBooleano);
 
   const filtradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();

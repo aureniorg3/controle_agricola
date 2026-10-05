@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ResultadoValidacoes, ResultadoVerificacao, Severidade } from "@/lib/validacoes";
+import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const ROTULO_SEVERIDADE: Record<Severidade, string> = { erro: "Erro", atencao: "Atenção", info: "Informação" };
 const COR_SEVERIDADE: Record<Severidade, string> = {
@@ -15,8 +16,8 @@ export default function ValidacoesClient() {
   const [dados, setDados] = useState<ResultadoValidacoes | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
-  const [soDivergencias, setSoDivergencias] = useState(true);
-  const [modulo, setModulo] = useState("");
+  const [soDivergencias, setSoDivergencias] = usarPersistido("validacoes.soDivergencias", true, ehBooleano);
+  const [modulo, setModulo] = usarPersistido("validacoes.modulo", "", ehTexto);
   const [abertas, setAbertas] = useState<Set<string>>(new Set());
 
   const executar = useCallback(async () => {

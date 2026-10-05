@@ -13,6 +13,7 @@ import { fmtDateBR, fmtT } from "@/lib/format";
 import { gerarConferenciaPdf, gerarConferenciaXlsx } from "@/lib/relatorio-conferencia";
 import { podeEditar } from "@/lib/permissoes";
 import type { ConferenciaLinha, EquiptoFrente, OrdemConferencia, PerfilUsuario } from "@/lib/types";
+import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const FILTRO =
   "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
@@ -47,11 +48,11 @@ export default function ConferenciaClient({
   const conferidas = useMemo(() => conferirLinhas(linhas, equiptos, ordens), [linhas, equiptos, ordens]);
 
   // vazio = sem limite — assim um arquivo recém-importado aparece sem mexer no filtro
-  const [de, setDe] = useState("");
-  const [ate, setAte] = useState("");
-  const [frenteFiltro, setFrenteFiltro] = useState("todas");
-  const [statusFiltro, setStatusFiltro] = useState<"todos" | "divergencias" | StatusConferencia>("todos");
-  const [busca, setBusca] = useState("");
+  const [de, setDe] = usarPersistido("conferencia.de", "", ehTexto);
+  const [ate, setAte] = usarPersistido("conferencia.ate", "", ehTexto);
+  const [frenteFiltro, setFrenteFiltro] = usarPersistido("conferencia.frente", "todas", ehTexto);
+  const [statusFiltro, setStatusFiltro] = usarPersistido<"todos" | "divergencias" | StatusConferencia>("conferencia.status", "todos", ehTexto as (v: unknown) => v is "todos" | "divergencias" | StatusConferencia);
+  const [busca, setBusca] = usarPersistido("conferencia.busca", "", ehTexto);
 
   const frentes = useMemo(
     () =>

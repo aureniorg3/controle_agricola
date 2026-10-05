@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import IrParaUltimaTela from "./IrParaUltimaTela";
 
 export default function RootPage() {
-  redirect("/acompanhamentos/ordens-de-corte");
+  return <IrParaUltimaTela />;
 }

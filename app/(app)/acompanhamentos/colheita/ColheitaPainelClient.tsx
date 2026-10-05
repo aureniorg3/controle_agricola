@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { fmtHa, fmtT, fmtTch } from "@/lib/format";
 import type { SafraAgregado, SafraVariedadeCorte } from "@/lib/types";
+import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 type Dimensao = "fazenda" | "proprietario" | "municipio" | "variedade" | "corte";
 
@@ -43,9 +44,9 @@ export default function ColheitaPainelClient({
   dimensoes: Record<Dimensao, SafraAgregado[]>;
   variedadeCorte: SafraVariedadeCorte[];
 }) {
-  const [dim, setDim] = useState<Dimensao>("fazenda");
-  const [busca, setBusca] = useState("");
-  const [verTudo, setVerTudo] = useState(false);
+  const [dim, setDim] = usarPersistido<Dimensao>("colheita.dimensao", "fazenda", ehTexto as (v: unknown) => v is Dimensao);
+  const [busca, setBusca] = usarPersistido("colheita.busca", "", ehTexto);
+  const [verTudo, setVerTudo] = usarPersistido("colheita.verTudo", false, ehBooleano);
 
   const anos = useMemo(() => safras.map((s) => s.safra).sort((a, b) => a - b), [safras]);
   const ultima = anos[anos.length - 1];

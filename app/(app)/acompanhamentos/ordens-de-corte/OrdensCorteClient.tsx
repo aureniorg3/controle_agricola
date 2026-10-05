@@ -42,6 +42,7 @@ import {
   IconTch,
 } from "@/components/icons";
 import { ehAdmin, podeEditar } from "@/lib/permissoes";
+import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const PERIODOS: { key: Periodo; label: string }[] = [
   { key: "dia", label: "Dia" },
@@ -247,7 +248,9 @@ export default function OrdensCorteClient({
 }) {
   const podeGravar = podeEditar(perfil);
   const [ordensBrutas, setOrdens] = useState<OrdemCorte[]>(initialOrdens);
-  const [referencia, setReferencia] = useState<string>(() =>
+  const [referencia, setReferencia] = usarPersistido<string>(
+    "ordens.referencia",
+    () =>
     ultimaDataComMovimento(
       producao
         ? initialOrdens.map((o) => ({
@@ -256,9 +259,11 @@ export default function OrdensCorteClient({
           }))
         : initialOrdens
     )
+    ,
+    ehDataIso
   );
   // horário de corte do "dia atual": 06:00, 12:00, 18:00 ou 00:00 (dia completo)
-  const [horaCorte, setHoraCorte] = useState<HoraCorte>(6);
+  const [horaCorte, setHoraCorte] = usarPersistido<HoraCorte>("ordens.horaCorte", 6, ehUmDe([6, 12, 18, 24] as const));
   const rotuloHora = rotuloHoraCorte(horaCorte);
   const cortesIntermediarios = useMemo(
     () => ordensBrutas.some((o) => o.entradas.some((e) => e.toneladasAte12h > 0 || e.toneladasAte18h > 0)),
@@ -282,12 +287,12 @@ export default function OrdensCorteClient({
   const [inserirNumero, setInserirNumero] = useState("");
   const [inserirErro, setInserirErro] = useState<string | null>(null);
   const [inserindo, setInserindo] = useState(false);
-  const [period, setPeriod] = useState<Periodo>("dia");
+  const [period, setPeriod] = usarPersistido<Periodo>("ordens.periodo", "dia", ehUmDe(["dia", "semana", "mes", "safra"] as const));
   // frentes mostradas e a ordem delas (salvo neste navegador)
   const [frentesCfg, setFrentesCfg] = useState<{ ordem: string[]; ocultas: string[] }>({ ordem: [], ocultas: [] });
   const [frentesCfgCarregada, setFrentesCfgCarregada] = useState(false);
-  const [statusFiltro, setStatusFiltro] = useState<"todas" | StatusOrdem>("todas");
-  const [busca, setBusca] = useState("");
+  const [statusFiltro, setStatusFiltro] = usarPersistido<"todas" | StatusOrdem>("ordens.status", "todas", ehUmDe(["todas", "Aberta", "Encerrada"] as const));
+  const [busca, setBusca] = usarPersistido("ordens.busca", "", ehTexto);
   const [importarAberto, setImportarAberto] = useState(false);
   const [areaColhidaAlvo, setAreaColhidaAlvo] = useState<OrdemCorte | null>(null);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(null);
@@ -538,7 +543,7 @@ export default function OrdensCorteClient({
   // Resumo diário do mês: uma linha por dia e uma coluna por frente, com a
   // barra do que foi alcançado da meta. O mês é o da referência, mas dá para
   // escolher qualquer mês anterior com entrada.
-  const [mesResumo, setMesResumo] = useState<string | null>(null);
+  const [mesResumo, setMesResumo] = usarPersistido<string | null>("ordens.mesResumo", null, (v): v is string | null => v === null || typeof v === "string");
   const mesesResumo = useMemo(() => {
     const mesRef = referencia.slice(0, 7);
     const meses = new Set<string>([mesRef]);

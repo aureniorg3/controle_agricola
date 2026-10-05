@@ -7,6 +7,7 @@ import { frenteDoEquipamento } from "@/lib/conferencia";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { EquiptoFrente, PerfilUsuario } from "@/lib/types";
+import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2 text-[13px] text-ink focus:border-brand-600 focus:outline-none";
@@ -30,8 +31,8 @@ export default function EquiptoFrenteClient({
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [filtroFrente, setFiltroFrente] = useState("todas");
-  const [filtroEqp, setFiltroEqp] = useState("");
+  const [filtroFrente, setFiltroFrente] = usarPersistido("equipto.frente", "todas", ehTexto);
+  const [filtroEqp, setFiltroEqp] = usarPersistido("equipto.eqp", "", ehTexto);
 
   const hoje = todayISO();
   const codigosConhecidos = useMemo(

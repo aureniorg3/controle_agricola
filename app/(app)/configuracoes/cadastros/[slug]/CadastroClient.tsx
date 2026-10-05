@@ -11,6 +11,7 @@ import {
 } from "@/lib/cadastros-spec";
 import { podeEditar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
+import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2 text-[13px] text-ink focus:border-brand-600 focus:outline-none";
@@ -37,7 +38,7 @@ export default function CadastroClient({
   const spec = specPorSlug(slug) as CadastroSpec;
   const podeGravar = podeEditar(perfil);
 
-  const [busca, setBusca] = useState("");
+  const [busca, setBusca] = usarPersistido(`cadastro.${slug}.busca`, "", ehTexto);
   const [termo, setTermo] = useState("");
   const [pagina, setPagina] = useState(1);
   const [itens, setItens] = useState<Item[]>([]);

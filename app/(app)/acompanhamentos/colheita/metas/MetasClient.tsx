@@ -8,6 +8,7 @@ import { fmtDateBR, fmtT, todayISO } from "@/lib/format";
 import { metaDoDia } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
 import type { MetaFrente, PerfilUsuario } from "@/lib/types";
+import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2 text-[13px] text-ink focus:border-brand-600 focus:outline-none";
@@ -28,7 +29,7 @@ export default function MetasClient({
   const [vigencia, setVigencia] = useState(todayISO());
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [filtroFrente, setFiltroFrente] = useState("todas");
+  const [filtroFrente, setFiltroFrente] = usarPersistido("metas.frente", "todas", ehTexto);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [importarAberto, setImportarAberto] = useState(false);
 

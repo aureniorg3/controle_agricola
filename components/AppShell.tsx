@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
 import { IconMenu } from "./icons";
 import Sidebar from "./Sidebar";
 
@@ -18,6 +19,17 @@ interface UsuarioLogado {
  */
 export default function AppShell({ usuario, children }: { usuario?: UsuarioLogado; children: ReactNode }) {
   const [mobileAberto, setMobileAberto] = useState(false);
+  const pathname = usePathname();
+
+  // lembra a última tela aberta, para o sistema voltar nela ao entrar de novo
+  useEffect(() => {
+    if (!pathname || pathname === "/" || pathname === "/login" || pathname === "/trocar-senha") return;
+    try {
+      localStorage.setItem("ca_ultima_tela", pathname);
+    } catch {
+      /* sem armazenamento: abre na tela padrão */
+    }
+  }, [pathname]);
 
   return (
     <div className="app-shell-root flex h-screen w-full overflow-hidden bg-surface">

@@ -7,6 +7,7 @@ import { fmtDateBR, fmtHa } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { LinhaResumoRodada } from "@/lib/rodadas";
 import type { PerfilUsuario } from "@/lib/types";
+import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const FILTRO =
   "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
@@ -19,11 +20,11 @@ interface Opcoes {
 
 export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
   const podeGravar = podeEditar(perfil);
-  const [rod, setRod] = useState("");
-  const [reg, setReg] = useState("");
-  const [sem, setSem] = useState("");
-  const [ori, setOri] = useState("");
-  const [busca, setBusca] = useState("");
+  const [rod, setRod] = usarPersistido("rodadas.resumo.rod", "", ehTexto);
+  const [reg, setReg] = usarPersistido("rodadas.resumo.reg", "", ehTexto);
+  const [sem, setSem] = usarPersistido("rodadas.resumo.sem", "", ehTexto);
+  const [ori, setOri] = usarPersistido("rodadas.resumo.origem", "", ehTexto);
+  const [busca, setBusca] = usarPersistido("rodadas.resumo.busca", "", ehTexto);
   const [termo, setTermo] = useState("");
   const [pagina, setPagina] = useState(1);
   const [linhas, setLinhas] = useState<LinhaResumoRodada[]>([]);
