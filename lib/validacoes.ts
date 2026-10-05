@@ -353,7 +353,8 @@ export const VERIFICACOES: Verificacao[] = [
     descricao: "Linhas importadas da planilha trazem a ocorrência como texto livre, sem ligação com o Cadastro de Ocorrências.",
     acao: "Padronize no Cadastro de Ocorrências as descrições mais frequentes. Os novos lançamentos já usam o código.",
     sql: `SELECT i.oco_txt AS "Ocorrência (texto)", COUNT(*)::int AS "Linhas"
-            FROM rod_itm i WHERE i.oco = '' AND i.oco_txt <> '' GROUP BY i.oco_txt ORDER BY COUNT(*) DESC, i.oco_txt`,
+            FROM rod_itm i JOIN rod_bol b ON b.bol = i.bol
+           WHERE b.ori = 'importacao' AND i.oco = '' AND i.oco_txt <> '' GROUP BY i.oco_txt ORDER BY COUNT(*) DESC, i.oco_txt`,
   },
   {
     id: "boletim-ocorrencia-codigo-inexistente",

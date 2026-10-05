@@ -194,6 +194,8 @@ export interface BoletimApontamento {
   pri: string;
   /** códigos das ocorrências (uma ou mais) */
   ocos: string[];
+  /** "Outros": ocorrência descrita em texto livre (até 100 caracteres) */
+  outros?: string;
   /** texto livre, até 150 caracteres */
   rec: string;
   talhoes: TalhaoApontamento[];
@@ -272,6 +274,7 @@ interface BoletimValidado {
   niv: string;
   pri: string;
   ocos: string[];
+  outros: string;
   rec: string;
   talhoes: TalhaoApontamento[];
   resp: string;
@@ -300,7 +303,9 @@ async function validarBoletim(b: BoletimApontamento): Promise<BoletimValidado | 
   const pri = await validarCodigo("prioridade", "Prioridade", b.pri, false);
   if ("erro" in pri) return pri;
 
-  if (b.ocos.length === 0) return { erro: "Informe pelo menos uma ocorrência." };
+  const outros = (b.outros ?? "").replace(/\s+/g, " ").trim();
+  if (b.ocos.length === 0 && !outros) return { erro: "Informe pelo menos uma ocorrência (marque na lista ou use Outros)." };
+  if (outros.length > 100) return { erro: "O texto de Outros passa de 100 caracteres." };
   const ocos: string[] = [];
   for (const o of b.ocos) {
     const v = await validarCodigo("ocorrencias", "Ocorrência", o, true);
@@ -315,7 +320,7 @@ async function validarBoletim(b: BoletimApontamento): Promise<BoletimValidado | 
   if (talhoes.length === 0) return { erro: "Marque pelo menos um talhão." };
 
   const resp = (await responsavelDaRegiao(reg.cod))?.nm ?? "";
-  return { sem, reg: reg.cod, faz: faz.cod, pre: pre.cod, niv: niv.cod, pri: pri.cod, ocos, rec, talhoes, resp };
+  return { sem, reg: reg.cod, faz: faz.cod, pre: pre.cod, niv: niv.cod, pri: pri.cod, ocos, outros, rec, talhoes, resp };
 }
 
 // ---------------------------------------------------------------------------
@@ -411,8 +416,8 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
     for (let n = 0; n < v.talhoes.length; n++) {
       const t = v.talhoes[n];
       await client.query(
-        `INSERT INTO rod_itm (bol, seq, oco, pre, niv, pri, tlh, area, rec) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [bol, n + 1, v.ocos.join(","), v.pre, v.niv, v.pri, t.tlh.trim(), t.area, v.rec]
+        `INSERT INTO rod_itm (bol, seq, oco, oco_txt, pre, niv, pri, tlh, area, rec) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [bol, n + 1, v.ocos.join(","), v.outros, v.pre, v.niv, v.pri, t.tlh.trim(), t.area, v.rec]
       );
     }
     await registrarLog(client, bol, "inclusao", usuario, null, await lerBoletim(client, bol));
@@ -445,8 +450,8 @@ export async function atualizarBoletim(bol: number, b: BoletimApontamento, usuar
     for (let n = 0; n < v.talhoes.length; n++) {
       const t = v.talhoes[n];
       await client.query(
-        `INSERT INTO rod_itm (bol, seq, oco, pre, niv, pri, tlh, area, rec) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [bol, n + 1, v.ocos.join(","), v.pre, v.niv, v.pri, t.tlh.trim(), t.area, v.rec]
+        `INSERT INTO rod_itm (bol, seq, oco, oco_txt, pre, niv, pri, tlh, area, rec) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [bol, n + 1, v.ocos.join(","), v.outros, v.pre, v.niv, v.pri, t.tlh.trim(), t.area, v.rec]
       );
     }
     await registrarLog(client, bol, "alteracao", usuario, antes, await lerBoletim(client, bol));
@@ -500,7 +505,7 @@ const ROTULO_ACAO: Record<string, string> = { inclusao: "Inclusão", alteracao: 
 function descrever(b: BoletimCompleto | null): string {
   if (!b) return "";
   const tlhs = b.itens.map((i) => i.tlh).join(", ");
-  const oco = b.itens[0]?.oco || b.itens[0]?.ocoTxt || "";
+  const oco = [b.itens[0]?.oco, b.itens[0]?.ocoTxt ? `Outros: ${b.itens[0].ocoTxt}` : ""].filter(Boolean).join(" + ");
   return `Rodada ${b.rod}, semana ${b.sem}, região ${b.reg}, fazenda ${b.faz}, talhões ${tlhs || "—"}, ocorrência(s) ${oco || "—"}, prioridade ${b.itens[0]?.pri || "—"}, nível ${b.itens[0]?.niv || "—"}, presença ${b.itens[0]?.pre || "—"}`;
 }
 
@@ -753,7 +758,7 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
     params.push(f.q.trim());
     const pe = params.length;
     cond.push(
-      `(COALESCE(       NULLIF((SELECT string_agg(c.nm, ', ' ORDER BY u.ord)                 FROM unnest(string_to_array(i.oco, ',')) WITH ORDINALITY AS u(cod, ord)                 JOIN cad_itm c ON c.cad = 'ocorrencias' AND c.cod = trim(u.cod)), ''),       i.oco_txt) ILIKE $${pl} OR i.rec ILIKE $${pl} OR fz.nm ILIKE $${pl} OR b.faz ILIKE $${pl} OR i.tlh ILIKE $${pl} OR b.resp ILIKE $${pl} OR b.bol::text = $${pe})`
+      `(concat_ws(', ', NULLIF((SELECT string_agg(c.nm, ', ' ORDER BY u.ord)                 FROM unnest(string_to_array(i.oco, ',')) WITH ORDINALITY AS u(cod, ord)                 JOIN cad_itm c ON c.cad = 'ocorrencias' AND c.cod = trim(u.cod)), ''), NULLIF(i.oco_txt, '')) ILIKE $${pl} OR i.rec ILIKE $${pl} OR fz.nm ILIKE $${pl} OR b.faz ILIKE $${pl} OR i.tlh ILIKE $${pl} OR b.resp ILIKE $${pl} OR b.bol::text = $${pe})`
     );
   }
   const where = cond.length ? `WHERE ${cond.join(" AND ")}` : "";
@@ -768,11 +773,9 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
     pri: string | null; rec: string; ati: string | null; exe: string | null;
   }>(
     `SELECT b.bol, b.rod, b.dt, b.sem, b.reg, rg.nm AS reg_nm, b.resp, b.ori, b.usr, b.faz, fz.nm AS faz_nm, i.tlh, i.area::float AS area,
-            COALESCE(
-      NULLIF((SELECT string_agg(c.nm, ', ' ORDER BY u.ord)
+            concat_ws(', ', NULLIF((SELECT string_agg(c.nm, ', ' ORDER BY u.ord)
                 FROM unnest(string_to_array(i.oco, ',')) WITH ORDINALITY AS u(cod, ord)
-                JOIN cad_itm c ON c.cad = 'ocorrencias' AND c.cod = trim(u.cod)), ''),
-      i.oco_txt) AS oco, pr.nm AS pre, nv.nm AS niv, pi.nm AS pri, i.rec,
+                JOIN cad_itm c ON c.cad = 'ocorrencias' AND c.cod = trim(u.cod)), ''), NULLIF(i.oco_txt, '')) AS oco, pr.nm AS pre, nv.nm AS niv, pi.nm AS pri, i.rec,
             i.ext->>'ATIVIDADE' AS ati, i.ext->>'FEITO - SIM/NÃO' AS exe
        ${JOINS} ${where}
       ORDER BY b.rod, b.dt, NULLIF(regexp_replace(b.reg, '\\D', '', 'g'), '')::int NULLS LAST, b.reg, b.sem,

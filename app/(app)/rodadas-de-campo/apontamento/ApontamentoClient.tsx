@@ -101,8 +101,9 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
   const [ocorrencias, setOcorrencias] = useState<ItemLista[]>([]);
   const [ocoDigitada, setOcoDigitada] = useState("");
   const [ocoErro, setOcoErro] = useState<string | null>(null);
-  const [listaAberta, setListaAberta] = useState(false);
   const [listaOco, setListaOco] = useState<ItemLista[] | null>(null);
+  const [outrosAtivo, setOutrosAtivo] = useState(false);
+  const [outrosTxt, setOutrosTxt] = useState("");
   const [seletor, setSeletor] = useState<Campo | null>(null);
   const [rec, setRec] = useState("");
   const [talhoes, setTalhoes] = useState<Talhao[]>([]);
@@ -125,6 +126,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
   }, []);
 
   useEffect(() => {
+    carregarListaOcorrencias();
     carregarBoletim();
     fetch("/api/rodadas/cadastro", { cache: "no-store" })
       .then((r) => r.json())
@@ -216,9 +218,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     setOcoDigitada("");
   }
 
-  async function abrirLista() {
-    setListaAberta(true);
-    if (listaOco) return;
+  async function carregarListaOcorrencias() {
     try {
       const res = await fetch("/api/rodadas/apontamento?lista=ocorrencias", { cache: "no-store" });
       const j = await res.json();
@@ -328,6 +328,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
       sel.push({ cod: r?.item?.cod ?? cod, nm: r?.item?.nm ?? "" });
     }
     setOcorrencias(sel);
+    setOutrosAtivo(!!primeiro?.ocoTxt);
+    setOutrosTxt(primeiro?.ocoTxt ?? "");
     // talhões da fazenda e, marcados, os do boletim
     const base = b.faz.split("-")[0];
     let lista: Talhao[] = [];
@@ -382,6 +384,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     setOcorrencias([]);
     setOcoDigitada("");
     setOcoErro(null);
+    setOutrosAtivo(false);
+    setOutrosTxt("");
     setRec("");
     setTalhoes([]);
     setMarcados(new Set());
@@ -402,7 +406,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     if (!rodadaSel) return setErro(`A rodada ${rod} não está cadastrada.`);
     if (!sem.trim()) return setErro("Informe a semana.");
     if (!semanaInfo) return setErro(`A semana ${sem} não existe na rodada ${rod}.`);
-    if (ocorrencias.length === 0) return setErro("Informe pelo menos uma ocorrência.");
+    if (ocorrencias.length === 0 && !(outrosAtivo && outrosTxt.trim())) return setErro("Marque pelo menos uma ocorrência (ou use Outros e descreva).");
+    if (outrosAtivo && !outrosTxt.trim()) return setErro("Descreva a ocorrência em Outros ou desmarque a opção.");
     if (marcados.size === 0) return setErro("Marque pelo menos um talhão.");
     setSalvando(true);
     try {
@@ -420,6 +425,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
           niv,
           pri,
           ocos: ocorrencias.map((o) => o.cod),
+          outros: outrosAtivo ? outrosTxt.trim() : "",
           rec,
           talhoes: talhoes.filter((t) => marcados.has(t.tlh)),
         }),
@@ -456,8 +462,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     // F4: abre a lista para ver e escolher (padrão de ERP)
     if (e.key === "F4") {
       e.preventDefault();
-      if (alvo.dataset.campo === "oco") abrirLista();
-      else if (alvo.dataset.campo && alvo.dataset.campo in TITULO_CAMPO) setSeletor(alvo.dataset.campo as Campo);
+      if (alvo.dataset.campo && alvo.dataset.campo in TITULO_CAMPO) setSeletor(alvo.dataset.campo as Campo);
       return;
     }
 
@@ -719,55 +724,76 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
               </div>
             </div>
 
-            {/* Ocorrência (uma ou mais) */}
+            {/* Ocorrência: todas na tela, em colunas; marque as que se aplicam */}
             <div className="mt-3">
-              <label className={ROTULO}>Ocorrência (uma ou mais — digite o código e Enter)</label>
-              <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-card px-2 py-1.5">
-                {ocorrencias.map((o) => (
-                  <span key={o.cod} className="flex items-center gap-1 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-0.5 text-[12px] font-semibold text-brand-800">
-                    {o.cod}
-                    {o.nm ? ` · ${o.nm}` : ""}
-                    {podeGravar && (
-                      <button
-                        type="button"
-                        tabIndex={-1}
-                        onClick={() => alternarOcorrencia(o)}
-                        aria-label={`Remover ${o.nm || o.cod}`}
-                        className="ml-0.5 text-[14px] leading-none text-brand-700 hover:text-alert-600"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </span>
-                ))}
-                <input
-                  value={ocoDigitada}
-                  onChange={(e) => {
-                    setOcoDigitada(e.target.value);
-                    setOcoErro(null);
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  data-nav
-                  data-campo="oco"
-                  disabled={!podeGravar}
-                  placeholder={ocorrencias.length ? "Outro código…" : "Código da ocorrência"}
-                  className="min-w-[130px] flex-1 border-0 bg-transparent px-1 py-1 text-[13px] text-ink focus:outline-none"
-                  aria-label="Ocorrência"
-                />
-                {podeGravar && (
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onClick={abrirLista}
-                    className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[12px] font-semibold text-navy-800 hover:bg-card"
-                    title="Ver e escolher (F4)"
-                  >
-                    <IconBusca size={13} />
-                    Escolher da lista
-                  </button>
-                )}
+              <div className="mb-1 flex flex-wrap items-end justify-between gap-2">
+                <label className={ROTULO}>Ocorrência (marque uma ou mais)</label>
+                <div className="mb-1 flex items-center gap-1.5">
+                  <span className="text-[11px] text-muted">Atalho — código + Enter:</span>
+                  <input
+                    value={ocoDigitada}
+                    onChange={(e) => {
+                      setOcoDigitada(e.target.value);
+                      setOcoErro(null);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    data-nav
+                    data-campo="oco"
+                    disabled={!podeGravar}
+                    className={`${INPUT_BASE} w-[72px] text-center`}
+                    aria-label="Ocorrência (código)"
+                  />
+                </div>
               </div>
-              {ocoErro && <p className="mt-1 text-[12px] font-semibold text-alert-600">{ocoErro}</p>}
+              {ocoErro && <p className="mb-1 text-[12px] font-semibold text-alert-600">{ocoErro}</p>}
+              <div className="rounded-md border border-line bg-card p-2.5">
+                {listaOco === null ? (
+                  <p className="text-[12.5px] text-muted">Carregando ocorrências…</p>
+                ) : listaOco.length === 0 ? (
+                  <p className="text-[12.5px] text-muted">Nenhuma ocorrência cadastrada (Rodadas de Campo → Cadastro de Ocorrências). Use Outros.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-4">
+                    {listaOco.map((o) => {
+                      const on = ocorrencias.some((x) => x.cod === o.cod);
+                      return (
+                        <label
+                          key={o.cod}
+                          className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-[12.5px] ${
+                            on ? "bg-brand-50 font-semibold text-brand-800" : "text-ink hover:bg-surface"
+                          }`}
+                        >
+                          <input type="checkbox" tabIndex={-1} checked={on} disabled={!podeGravar} onChange={() => alternarOcorrencia(o)} />
+                          <span className="w-7 flex-shrink-0 tabular text-muted">{o.cod}</span>
+                          <span className="min-w-0 truncate">{o.nm}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">
+                  <label
+                    className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-[12.5px] ${
+                      outrosAtivo ? "bg-brand-50 font-semibold text-brand-800" : "text-ink hover:bg-surface"
+                    }`}
+                  >
+                    <input type="checkbox" tabIndex={-1} checked={outrosAtivo} disabled={!podeGravar} onChange={() => setOutrosAtivo((v) => !v)} />
+                    Outros
+                  </label>
+                  <input
+                    value={outrosTxt}
+                    onChange={(e) => setOutrosTxt(e.target.value.slice(0, 100))}
+                    onFocus={(e) => e.target.select()}
+                    maxLength={100}
+                    data-nav={outrosAtivo ? true : undefined}
+                    data-campo="outros"
+                    disabled={!podeGravar || !outrosAtivo}
+                    placeholder="Descreva a ocorrência (até 100 caracteres)"
+                    className={`${INPUT_BASE} min-w-[220px] flex-1 disabled:opacity-50`}
+                    aria-label="Outros — descrição da ocorrência"
+                  />
+                  {outrosAtivo && <span className="text-[11px] tabular text-muted">{outrosTxt.length}/100</span>}
+                </div>
+              </div>
             </div>
 
             {/* Recomendação / Diagnóstico */}
@@ -883,8 +909,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
             </div>
             <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
               Enter ou Tab passa para o próximo campo. Digite só o código — a descrição vem do cadastro — ou use a lupa (ou F4)
-              para ver a lista e escolher. Na ocorrência, digite o código e Enter para incluir cada uma (Backspace remove a
-              última). Marque os talhões com a barra de espaço. Para gravar: F2, o botão Gravar ou Enter no último campo. O
+              para ver a lista e escolher. As ocorrências ficam todas na tela: clique nas que se aplicam (ou digite o código + Enter no atalho); use
+              Outros para descrever uma que não está na lista. Marque os talhões com a barra de espaço. Para gravar: F2, o botão Gravar ou Enter no último campo. O
               número do boletim é sempre o último + 1.
             </p>
           </section>
@@ -900,44 +926,6 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
           onEscolher={(item) => escolherNoSeletor(seletor, item)}
           onFechar={() => setSeletor(null)}
         />
-      )}
-
-      {listaAberta && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
-          <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl2 bg-card p-5 shadow-pop">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-ink">Ocorrências</h3>
-              <button type="button" onClick={() => setListaAberta(false)} aria-label="Fechar" className="text-[18px] leading-none text-muted">
-                ×
-              </button>
-            </div>
-            {listaOco === null ? (
-              <p className="text-[12.5px] text-muted">Carregando…</p>
-            ) : listaOco.length === 0 ? (
-              <p className="text-[12.5px] text-muted">Nenhuma ocorrência cadastrada. Use o Cadastro de Ocorrências.</p>
-            ) : (
-              <ul className="space-y-0.5">
-                {listaOco.map((o) => {
-                  const on = ocorrencias.some((x) => x.cod === o.cod);
-                  return (
-                    <li key={o.cod}>
-                      <label className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] hover:bg-surface">
-                        <input type="checkbox" checked={on} onChange={() => alternarOcorrencia(o)} />
-                        <span className="w-9 flex-shrink-0 font-semibold tabular text-muted">{o.cod}</span>
-                        <span className="text-ink">{o.nm}</span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <div className="mt-4 flex justify-end">
-              <button type="button" onClick={() => setListaAberta(false)} className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white">
-                Concluir ({ocorrencias.length})
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

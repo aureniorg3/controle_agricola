@@ -78,7 +78,7 @@ function lerBoletim(body: Record<string, unknown> | null): { erro: string } | { 
       }))
     : [];
   return {
-    b: { rod, dt, sem, reg: texto(body?.reg), faz: texto(body?.faz), pre: texto(body?.pre), niv: texto(body?.niv), pri: texto(body?.pri), ocos, rec: texto(body?.rec), talhoes },
+    b: { rod, dt, sem, reg: texto(body?.reg), faz: texto(body?.faz), pre: texto(body?.pre), niv: texto(body?.niv), pri: texto(body?.pri), ocos, outros: texto(body?.outros).slice(0, 200), rec: texto(body?.rec), talhoes },
   };
 }
 
