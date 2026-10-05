@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { insertUsuario, listUsuarios, usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { getPool, insertUsuario, listUsuarios, usuarioDaRequisicao } from "@/lib/db";
 import { ehAdmin } from "@/lib/permissoes";
 import { PerfilUsuario, Usuario } from "@/lib/types";
 
@@ -61,5 +62,13 @@ export async function POST(req: NextRequest) {
   }
 
   const { usuario: criado, senhaProvisoria } = resultado;
+  await auditar(getPool(), {
+    usuario: usuario.nome,
+    modulo: "Configurações",
+    entidade: "Usuário",
+    chave: `${criado.usuario} · ${criado.nome} ${criado.sobrenome}`.trim(),
+    acao: "inclusao",
+    depois: { perfil: criado.perfil, email: criado.email, ativo: criado.ativo },
+  });
   return NextResponse.json({ usuario: semSenha(criado), senhaProvisoria }, { status: 201 });
 }

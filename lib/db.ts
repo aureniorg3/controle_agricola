@@ -18,6 +18,7 @@ import {
   TalhaoOrdem,
   Usuario,
 } from "./types";
+import { auditar, dataBR } from "./auditar";
 import { gerarSenhaProvisoria, hashSenha, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
 
 // `numeric` volta como string por padrão no driver `pg` (pra não perder
@@ -868,42 +869,65 @@ export async function listOrdensVisiveis(): Promise<string[]> {
   return rows.map((r) => r.ordem_numero);
 }
 
-export async function adicionarOrdemVisivel(numero: string): Promise<true | { erro: string }> {
+export async function adicionarOrdemVisivel(numero: string, usuario = ""): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
   const { rows } = await pool.query("SELECT 1 FROM ord WHERE num = $1", [numero]);
   if (rows.length === 0) {
     return { erro: `Ordem ${numero} não encontrada na última importação.` };
   }
-  await pool.query("INSERT INTO ord_vis (ord_num) VALUES ($1) ON CONFLICT (ord_num) DO NOTHING", [numero]);
+  const { rowCount } = await pool.query("INSERT INTO ord_vis (ord_num, usr) VALUES ($1, $2) ON CONFLICT (ord_num) DO NOTHING", [numero, usuario]);
+  if ((rowCount ?? 0) > 0) await auditar(pool, { usuario, modulo: "Colheita", entidade: "Ordem inserida na tela", chave: `Ordem ${numero}`, acao: "inclusao", depois: { ordem: numero } });
   return true;
 }
 
-export async function removerOrdemVisivel(numero: string): Promise<void> {
+export async function removerOrdemVisivel(numero: string, usuario = ""): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
-  await pool.query("DELETE FROM ord_vis WHERE ord_num = $1", [numero]);
+  const { rowCount } = await pool.query("DELETE FROM ord_vis WHERE ord_num = $1", [numero]);
+  if ((rowCount ?? 0) > 0) await auditar(pool, { usuario, modulo: "Colheita", entidade: "Ordem inserida na tela", chave: `Ordem ${numero}`, acao: "exclusao", antes: { ordem: numero } });
 }
 
 export async function listMetas(): Promise<MetaFrente[]> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows } = await pool.query<{ id: string; frente: string; meta_dia_t: number; vigencia: string }>(
-    "SELECT id, frt AS frente, met_dia_t AS meta_dia_t, vig AS vigencia FROM met_frt ORDER BY frt, vig"
+  const { rows } = await pool.query<{ id: string; frente: string; meta_dia_t: number; vigencia: string; usr: string; atu_usr: string; atu: string | null }>(
+    `SELECT id, frt AS frente, met_dia_t AS meta_dia_t, vig AS vigencia, usr, atu_usr,
+            to_char(atu_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') AS atu FROM met_frt ORDER BY frt, vig`
   );
-  return rows.map((r) => ({ id: r.id, frente: r.frente, metaDiaT: r.meta_dia_t, vigencia: r.vigencia }));
+  return rows.map((r) => ({
+    id: r.id,
+    frente: r.frente,
+    metaDiaT: r.meta_dia_t,
+    vigencia: r.vigencia,
+    lancadoPor: r.usr,
+    alteradoPor: r.atu_usr,
+    alteradoEm: r.atu ?? undefined,
+  }));
 }
 
 /** Uma meta por (frente, vigência): cadastrar de novo na mesma data
  * substitui o valor. */
-export async function salvarMeta(frente: string, metaDiaT: number, vigencia: string): Promise<void> {
+export async function salvarMeta(frente: string, metaDiaT: number, vigencia: string, usuario = ""): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
+  const { rows: antes } = await pool.query<{ met_dia_t: number }>("SELECT met_dia_t::float AS met_dia_t FROM met_frt WHERE frt = $1 AND vig = $2", [frente, vigencia]);
   await pool.query(
-    `INSERT INTO met_frt (id, frt, met_dia_t, vig) VALUES ($1,$2,$3,$4)
-     ON CONFLICT (frt, vig) DO UPDATE SET met_dia_t = EXCLUDED.met_dia_t`,
-    [randomUUID(), frente, metaDiaT, vigencia]
+    `INSERT INTO met_frt (id, frt, met_dia_t, vig, usr, atu_usr) VALUES ($1,$2,$3,$4,$5,$5)
+     ON CONFLICT (frt, vig) DO UPDATE SET met_dia_t = EXCLUDED.met_dia_t, atu_usr = EXCLUDED.atu_usr, atu_em = now()`,
+    [randomUUID(), frente, metaDiaT, vigencia, usuario]
   );
+  if (antes.length === 0 || antes[0].met_dia_t !== metaDiaT) {
+    await auditar(pool, {
+      usuario,
+      modulo: "Colheita",
+      entidade: "Meta",
+      chave: `${frente} · ${dataBR(vigencia)}`,
+      acao: antes.length === 0 ? "inclusao" : "alteracao",
+      antes: antes.length ? { "meta (t/dia)": antes[0].met_dia_t } : undefined,
+      depois: { "meta (t/dia)": metaDiaT },
+    });
+  }
 }
 
 /** Edita uma meta já lançada (frente, valor e/ou data). Recusa se a nova
@@ -912,11 +936,12 @@ export async function atualizarMeta(
   id: string,
   frente: string,
   metaDiaT: number,
-  vigencia: string
+  vigencia: string,
+  usuario = ""
 ): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows: existe } = await pool.query("SELECT 1 FROM met_frt WHERE id = $1", [id]);
+  const { rows: existe } = await pool.query<{ frt: string; met_dia_t: number; vig: string }>("SELECT frt, met_dia_t::float AS met_dia_t, vig FROM met_frt WHERE id = $1", [id]);
   if (existe.length === 0) return { erro: "Meta não encontrada." };
   const { rows: conflito } = await pool.query("SELECT 1 FROM met_frt WHERE frt = $1 AND vig = $2 AND id <> $3", [
     frente,
@@ -924,14 +949,34 @@ export async function atualizarMeta(
     id,
   ]);
   if (conflito.length > 0) return { erro: "Já existe uma meta dessa frente nessa data. Edite aquela ou escolha outra data." };
-  await pool.query("UPDATE met_frt SET frt = $1, met_dia_t = $2, vig = $3 WHERE id = $4", [frente, metaDiaT, vigencia, id]);
+  await pool.query("UPDATE met_frt SET frt = $1, met_dia_t = $2, vig = $3, atu_usr = $5, atu_em = now() WHERE id = $4", [frente, metaDiaT, vigencia, id, usuario]);
+  await auditar(pool, {
+    usuario,
+    modulo: "Colheita",
+    entidade: "Meta",
+    chave: `${frente} · ${dataBR(vigencia)}`,
+    acao: "alteracao",
+    antes: { frente: existe[0].frt, "meta (t/dia)": existe[0].met_dia_t, vigência: dataBR(existe[0].vig) },
+    depois: { frente, "meta (t/dia)": metaDiaT, vigência: dataBR(vigencia) },
+  });
   return true;
 }
 
-export async function excluirMeta(id: string): Promise<void> {
+export async function excluirMeta(id: string, usuario = ""): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
+  const { rows } = await pool.query<{ frt: string; met_dia_t: number; vig: string }>("SELECT frt, met_dia_t::float AS met_dia_t, vig FROM met_frt WHERE id = $1", [id]);
   await pool.query("DELETE FROM met_frt WHERE id = $1", [id]);
+  if (rows.length) {
+    await auditar(pool, {
+      usuario,
+      modulo: "Colheita",
+      entidade: "Meta",
+      chave: `${rows[0].frt} · ${dataBR(rows[0].vig)}`,
+      acao: "exclusao",
+      antes: { "meta (t/dia)": rows[0].met_dia_t },
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1023,14 +1068,30 @@ export async function salvarCorrecaoConferencia(
   eqp: string,
   frente: string,
   fazendaCodigo: string,
-  frenteCorreta: string | null
+  frenteCorreta: string | null,
+  usuario = ""
 ): Promise<boolean> {
   const pool = getPool();
   await prepararBanco(pool);
+  const { rows: antes } = await pool.query<{ frt_cor: string | null }>(
+    "SELECT frt_cor FROM conf_pes WHERE dt = $1 AND eqp = $2 AND frt = $3 AND faz_cod = $4",
+    [data, eqp, frente, fazendaCodigo]
+  );
   const { rowCount } = await pool.query(
     "UPDATE conf_pes SET frt_cor = $1 WHERE dt = $2 AND eqp = $3 AND frt = $4 AND faz_cod = $5",
     [frenteCorreta, data, eqp, frente, fazendaCodigo]
   );
+  if ((rowCount ?? 0) > 0 && (antes[0]?.frt_cor ?? null) !== frenteCorreta) {
+    await auditar(pool, {
+      usuario,
+      modulo: "Colheita",
+      entidade: "Correção da conferência de pesagem",
+      chave: `${dataBR(data)} · equipamento ${eqp} · fazenda ${fazendaCodigo}`,
+      acao: "alteracao",
+      antes: { "frente correta": antes[0]?.frt_cor ?? "" },
+      depois: { "frente correta": frenteCorreta ?? "" },
+    });
+  }
   return (rowCount ?? 0) > 0;
 }
 
@@ -1065,33 +1126,55 @@ export async function listOrdensParaConferencia(): Promise<OrdemConferencia[]> {
 export async function listEquiptoFrente(): Promise<EquiptoFrente[]> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows } = await pool.query<{ id: string; eqp: string; frente: string; vigencia: string }>(
-    "SELECT id, eqp, frt AS frente, vig AS vigencia FROM eqp_frt ORDER BY eqp, vig"
+  const { rows } = await pool.query<{ id: string; eqp: string; frente: string; vigencia: string; usr: string; atu_usr: string; atu: string | null }>(
+    `SELECT id, eqp, frt AS frente, vig AS vigencia, usr, atu_usr,
+            to_char(atu_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') AS atu FROM eqp_frt ORDER BY eqp, vig`
   );
-  return rows.map((r) => ({ id: r.id, eqp: r.eqp, frente: r.frente, vigencia: r.vigencia }));
+  return rows.map((r) => ({
+    id: r.id,
+    eqp: r.eqp,
+    frente: r.frente,
+    vigencia: r.vigencia,
+    lancadoPor: r.usr,
+    alteradoPor: r.atu_usr,
+    alteradoEm: r.atu ?? undefined,
+  }));
 }
 
 /** Um lançamento por (equipamento, vigência): lançar de novo na mesma data
  * substitui a frente. */
-export async function salvarEquiptoFrente(eqp: string, frente: string, vigencia: string): Promise<void> {
+export async function salvarEquiptoFrente(eqp: string, frente: string, vigencia: string, usuario = ""): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
+  const { rows: antes } = await pool.query<{ frt: string }>("SELECT frt FROM eqp_frt WHERE eqp = $1 AND vig = $2", [eqp, vigencia]);
   await pool.query(
-    `INSERT INTO eqp_frt (id, eqp, frt, vig) VALUES ($1,$2,$3,$4)
-     ON CONFLICT (eqp, vig) DO UPDATE SET frt = EXCLUDED.frt`,
-    [randomUUID(), eqp, frente, vigencia]
+    `INSERT INTO eqp_frt (id, eqp, frt, vig, usr, atu_usr) VALUES ($1,$2,$3,$4,$5,$5)
+     ON CONFLICT (eqp, vig) DO UPDATE SET frt = EXCLUDED.frt, atu_usr = EXCLUDED.atu_usr, atu_em = now()`,
+    [randomUUID(), eqp, frente, vigencia, usuario]
   );
+  if (antes.length === 0 || antes[0].frt !== frente) {
+    await auditar(pool, {
+      usuario,
+      modulo: "Colheita",
+      entidade: "Equipto Frente",
+      chave: `Equipamento ${eqp} · ${dataBR(vigencia)}`,
+      acao: antes.length === 0 ? "inclusao" : "alteracao",
+      antes: antes.length ? { frente: antes[0].frt } : undefined,
+      depois: { frente },
+    });
+  }
 }
 
 export async function atualizarEquiptoFrente(
   id: string,
   eqp: string,
   frente: string,
-  vigencia: string
+  vigencia: string,
+  usuario = ""
 ): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows: existe } = await pool.query("SELECT 1 FROM eqp_frt WHERE id = $1", [id]);
+  const { rows: existe } = await pool.query<{ eqp: string; frt: string; vig: string }>("SELECT eqp, frt, vig FROM eqp_frt WHERE id = $1", [id]);
   if (existe.length === 0) return { erro: "Lançamento não encontrado." };
   const { rows: conflito } = await pool.query("SELECT 1 FROM eqp_frt WHERE eqp = $1 AND vig = $2 AND id <> $3", [
     eqp,
@@ -1101,14 +1184,34 @@ export async function atualizarEquiptoFrente(
   if (conflito.length > 0) {
     return { erro: "Esse equipamento já tem um lançamento nessa data. Edite aquele ou escolha outra data." };
   }
-  await pool.query("UPDATE eqp_frt SET eqp = $1, frt = $2, vig = $3 WHERE id = $4", [eqp, frente, vigencia, id]);
+  await pool.query("UPDATE eqp_frt SET eqp = $1, frt = $2, vig = $3, atu_usr = $5, atu_em = now() WHERE id = $4", [eqp, frente, vigencia, id, usuario]);
+  await auditar(pool, {
+    usuario,
+    modulo: "Colheita",
+    entidade: "Equipto Frente",
+    chave: `Equipamento ${eqp} · ${dataBR(vigencia)}`,
+    acao: "alteracao",
+    antes: { equipamento: existe[0].eqp, frente: existe[0].frt, vigência: dataBR(existe[0].vig) },
+    depois: { equipamento: eqp, frente, vigência: dataBR(vigencia) },
+  });
   return true;
 }
 
-export async function excluirEquiptoFrente(id: string): Promise<void> {
+export async function excluirEquiptoFrente(id: string, usuario = ""): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
+  const { rows } = await pool.query<{ eqp: string; frt: string; vig: string }>("SELECT eqp, frt, vig FROM eqp_frt WHERE id = $1", [id]);
   await pool.query("DELETE FROM eqp_frt WHERE id = $1", [id]);
+  if (rows.length) {
+    await auditar(pool, {
+      usuario,
+      modulo: "Colheita",
+      entidade: "Equipto Frente",
+      chave: `Equipamento ${rows[0].eqp} · ${dataBR(rows[0].vig)}`,
+      acao: "exclusao",
+      antes: { frente: rows[0].frt },
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,6 +1222,9 @@ export interface ItemCadastro {
   cod: string;
   nm: string;
   dados: Record<string, string | number>;
+  lancadoPor?: string;
+  alteradoPor?: string;
+  alteradoEm?: string;
 }
 
 export async function listarCadastro(
@@ -1132,17 +1238,21 @@ export async function listarCadastro(
   const termo = `%${busca.trim().replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
   const filtro = "cad = $1 AND ($2 = '%%' OR cod ILIKE $2 OR nm ILIKE $2 OR dds::text ILIKE $2)";
   const { rows: cont } = await pool.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM cad_itm WHERE ${filtro}`, [cad, termo]);
-  const { rows } = await pool.query<{ cod: string; nm: string; dds: Record<string, string | number> }>(
-    `SELECT cod, nm, dds FROM cad_itm WHERE ${filtro}
+  const { rows } = await pool.query<{ cod: string; nm: string; dds: Record<string, string | number>; usr: string; atu_usr: string; atu: string | null }>(
+    `SELECT cod, nm, dds, usr, atu_usr, to_char(atu_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') AS atu
+       FROM cad_itm WHERE ${filtro}
       ORDER BY CASE WHEN cod ~ '^[0-9]+$' THEN lpad(cod, 15, '0') ELSE cod END
       LIMIT $3 OFFSET $4`,
     [cad, termo, tamanho, Math.max(0, (pagina - 1) * tamanho)]
   );
-  return { total: cont[0].n, itens: rows.map((r) => ({ cod: r.cod, nm: r.nm, dados: r.dds })) };
+  return {
+    total: cont[0].n,
+    itens: rows.map((r) => ({ cod: r.cod, nm: r.nm, dados: r.dds, lancadoPor: r.usr, alteradoPor: r.atu_usr, alteradoEm: r.atu ?? undefined })),
+  };
 }
 
 /** Grava os itens (novos entram, existentes são atualizados pelo código); o resto do cadastro fica como está. */
-export async function upsertCadastroLote(cad: string, itens: ItemCadastro[]): Promise<{ novos: number; atualizados: number }> {
+export async function upsertCadastroLote(cad: string, itens: ItemCadastro[], usuario = ""): Promise<{ novos: number; atualizados: number }> {
   const pool = getPool();
   await prepararBanco(pool);
   const client = await pool.connect();
@@ -1159,10 +1269,10 @@ export async function upsertCadastroLote(cad: string, itens: ItemCadastro[]): Pr
       );
       atualizados += rows[0].n;
       await client.query(
-        `INSERT INTO cad_itm (cad, cod, nm, dds)
-         SELECT $1, x.cod, x.nm, x.dds FROM jsonb_to_recordset($2::jsonb) AS x(cod text, nm text, dds jsonb)
-         ON CONFLICT (cad, cod) DO UPDATE SET nm = EXCLUDED.nm, dds = EXCLUDED.dds, atu_em = now()`,
-        [cad, json]
+        `INSERT INTO cad_itm (cad, cod, nm, dds, usr, atu_usr)
+         SELECT $1, x.cod, x.nm, x.dds, $3, $3 FROM jsonb_to_recordset($2::jsonb) AS x(cod text, nm text, dds jsonb)
+         ON CONFLICT (cad, cod) DO UPDATE SET nm = EXCLUDED.nm, dds = EXCLUDED.dds, atu_em = now(), atu_usr = EXCLUDED.atu_usr`,
+        [cad, json, usuario]
       );
     }
     await client.query("COMMIT");
@@ -1179,13 +1289,14 @@ export async function atualizarItemCadastro(
   cad: string,
   cod: string,
   nm: string,
-  dados: Record<string, string | number>
+  dados: Record<string, string | number>,
+  usuario = ""
 ): Promise<boolean> {
   const pool = getPool();
   await prepararBanco(pool);
   const { rowCount } = await pool.query(
-    "UPDATE cad_itm SET nm = $3, dds = dds || $4::jsonb, atu_em = now() WHERE cad = $1 AND cod = $2",
-    [cad, cod, nm, JSON.stringify(dados)]
+    "UPDATE cad_itm SET nm = $3, dds = dds || $4::jsonb, atu_em = now(), atu_usr = $5 WHERE cad = $1 AND cod = $2",
+    [cad, cod, nm, JSON.stringify(dados), usuario]
   );
   return (rowCount ?? 0) > 0;
 }
@@ -1220,7 +1331,13 @@ export async function listSafrasCadastro(): Promise<SafraCadastro[]> {
     ano_fim: string;
     prd_ini: string;
     prd_fim: string;
-  }>("SELECT id, tp, ano, ano_ini, ano_fim, prd_ini, prd_fim FROM saf_cad ORDER BY ano DESC, tp");
+    usr: string;
+    atu_usr: string;
+    atu: string | null;
+  }>(
+    `SELECT id, tp, ano, ano_ini, ano_fim, prd_ini, prd_fim, usr, atu_usr,
+            to_char(atu_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') AS atu FROM saf_cad ORDER BY ano DESC, tp`
+  );
   return rows.map((r) => ({
     id: r.id,
     tipo: r.tp,
@@ -1229,25 +1346,41 @@ export async function listSafrasCadastro(): Promise<SafraCadastro[]> {
     anoFim: r.ano_fim,
     producaoInicio: r.prd_ini,
     producaoFim: r.prd_fim,
+    lancadoPor: r.usr,
+    alteradoPor: r.atu_usr,
+    alteradoEm: r.atu ?? undefined,
   }));
 }
 
 /** Uma safra por (tipo, ano): cadastrar de novo substitui as datas. */
-export async function salvarSafraCadastro(d: DadosSafraCadastro): Promise<void> {
+export async function salvarSafraCadastro(d: DadosSafraCadastro, usuario = ""): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
+  const { rows: antes } = await pool.query("SELECT 1 FROM saf_cad WHERE tp = $1 AND ano = $2", [d.tipo, d.ano]);
   await pool.query(
-    `INSERT INTO saf_cad (id, tp, ano, ano_ini, ano_fim, prd_ini, prd_fim) VALUES ($1,$2,$3,$4,$5,$6,$7)
+    `INSERT INTO saf_cad (id, tp, ano, ano_ini, ano_fim, prd_ini, prd_fim, usr, atu_usr) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
      ON CONFLICT (tp, ano) DO UPDATE SET
-       ano_ini = EXCLUDED.ano_ini, ano_fim = EXCLUDED.ano_fim, prd_ini = EXCLUDED.prd_ini, prd_fim = EXCLUDED.prd_fim`,
-    [randomUUID(), d.tipo, d.ano, d.anoInicio, d.anoFim, d.producaoInicio, d.producaoFim]
+       ano_ini = EXCLUDED.ano_ini, ano_fim = EXCLUDED.ano_fim, prd_ini = EXCLUDED.prd_ini, prd_fim = EXCLUDED.prd_fim,
+       atu_usr = EXCLUDED.atu_usr, atu_em = now()`,
+    [randomUUID(), d.tipo, d.ano, d.anoInicio, d.anoFim, d.producaoInicio, d.producaoFim, usuario]
   );
+  await auditar(pool, {
+    usuario,
+    modulo: "Configurações",
+    entidade: "Cadastro de Safras",
+    chave: `${d.tipo} ${d.ano}`,
+    acao: antes.length ? "alteracao" : "inclusao",
+    depois: { "início da safra": dataBR(d.anoInicio), "fim da safra": dataBR(d.anoFim), "início da produção": dataBR(d.producaoInicio), "fim da produção": dataBR(d.producaoFim) },
+  });
 }
 
-export async function atualizarSafraCadastro(id: string, d: DadosSafraCadastro): Promise<true | { erro: string }> {
+export async function atualizarSafraCadastro(id: string, d: DadosSafraCadastro, usuario = ""): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows: existe } = await pool.query("SELECT 1 FROM saf_cad WHERE id = $1", [id]);
+  const { rows: existe } = await pool.query<{ tp: string; ano: number; ano_ini: string; ano_fim: string; prd_ini: string; prd_fim: string }>(
+    "SELECT tp, ano, ano_ini, ano_fim, prd_ini, prd_fim FROM saf_cad WHERE id = $1",
+    [id]
+  );
   if (existe.length === 0) return { erro: "Safra não encontrada." };
   const { rows: conflito } = await pool.query("SELECT 1 FROM saf_cad WHERE tp = $1 AND ano = $2 AND id <> $3", [
     d.tipo,
@@ -1256,16 +1389,30 @@ export async function atualizarSafraCadastro(id: string, d: DadosSafraCadastro):
   ]);
   if (conflito.length > 0) return { erro: `Já existe a safra ${d.tipo} ${d.ano}. Edite aquela ou escolha outro ano/tipo.` };
   await pool.query(
-    "UPDATE saf_cad SET tp = $1, ano = $2, ano_ini = $3, ano_fim = $4, prd_ini = $5, prd_fim = $6 WHERE id = $7",
-    [d.tipo, d.ano, d.anoInicio, d.anoFim, d.producaoInicio, d.producaoFim, id]
+    "UPDATE saf_cad SET tp = $1, ano = $2, ano_ini = $3, ano_fim = $4, prd_ini = $5, prd_fim = $6, atu_usr = $8, atu_em = now() WHERE id = $7",
+    [d.tipo, d.ano, d.anoInicio, d.anoFim, d.producaoInicio, d.producaoFim, id, usuario]
   );
+  const a = existe[0];
+  await auditar(pool, {
+    usuario,
+    modulo: "Configurações",
+    entidade: "Cadastro de Safras",
+    chave: `${d.tipo} ${d.ano}`,
+    acao: "alteracao",
+    antes: { safra: `${a.tp} ${a.ano}`, "início da safra": dataBR(a.ano_ini), "fim da safra": dataBR(a.ano_fim), "início da produção": dataBR(a.prd_ini), "fim da produção": dataBR(a.prd_fim) },
+    depois: { safra: `${d.tipo} ${d.ano}`, "início da safra": dataBR(d.anoInicio), "fim da safra": dataBR(d.anoFim), "início da produção": dataBR(d.producaoInicio), "fim da produção": dataBR(d.producaoFim) },
+  });
   return true;
 }
 
-export async function excluirSafraCadastro(id: string): Promise<void> {
+export async function excluirSafraCadastro(id: string, usuario = ""): Promise<void> {
   const pool = getPool();
   await prepararBanco(pool);
+  const { rows } = await pool.query<{ tp: string; ano: number }>("SELECT tp, ano FROM saf_cad WHERE id = $1", [id]);
   await pool.query("DELETE FROM saf_cad WHERE id = $1", [id]);
+  if (rows.length) {
+    await auditar(pool, { usuario, modulo: "Configurações", entidade: "Cadastro de Safras", chave: `${rows[0].tp} ${rows[0].ano}`, acao: "exclusao", antes: { safra: `${rows[0].tp} ${rows[0].ano}` } });
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,8 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Campo } from "@/components/ui";
 import { frenteDoEquipamento } from "@/lib/conferencia";
+import BotaoLog from "@/components/BotaoLog";
+import { fmtDataHora } from "@/components/AuditoriaModal";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { EquiptoFrente, PerfilUsuario } from "@/lib/types";
@@ -119,6 +121,7 @@ export default function EquiptoFrenteClient({
           <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Colheita</span>
           <div className="truncate text-[15px] font-bold text-ink">Equipto Frente</div>
         </nav>
+        <BotaoLog titulo="Log do Equipto Frente" filtro={{ modulo: "Colheita", entidade: "Equipto Frente" }} />
         {!podeGravar && (
           <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
             Somente leitura
@@ -228,6 +231,8 @@ export default function EquiptoFrenteClient({
                     <th className="px-3 py-2 font-semibold">Frente</th>
                     <th className="px-3 py-2 font-semibold">Data</th>
                     <th className="px-3 py-2 font-semibold">Status</th>
+                    <th className="px-3 py-2 font-semibold">Lançado por</th>
+                    <th className="px-3 py-2 font-semibold">Última alteração</th>
                     <th className="w-28 px-2 py-2 text-right font-semibold">Ações</th>
                   </tr>
                 </thead>
@@ -253,6 +258,8 @@ export default function EquiptoFrenteClient({
                           )}
                           {sit === "anterior" && <span className="text-[11px] text-muted">Substituída</span>}
                         </td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-muted">{l.lancadoPor || "—"}</td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-muted">{l.alteradoEm ? `${l.alteradoPor || "—"} · ${fmtDataHora(l.alteradoEm)}` : ""}</td>
                         <td className="px-2 py-1.5 text-right">
                           {podeGravar && (
                             <>

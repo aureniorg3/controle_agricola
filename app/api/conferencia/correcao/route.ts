@@ -23,7 +23,7 @@ export async function PATCH(req: NextRequest) {
   if (!DATA_REGEX.test(data) || !eqp || !frente || !fazendaCodigo) {
     return NextResponse.json({ error: "Linha da conferência inválida." }, { status: 400 });
   }
-  const ok = await salvarCorrecaoConferencia(data, eqp, frente, fazendaCodigo, corrigida || null);
+  const ok = await salvarCorrecaoConferencia(data, eqp, frente, fazendaCodigo, corrigida || null, usuario.nome);
   if (!ok) return NextResponse.json({ error: "Linha não encontrada (reimporte o arquivo?)." }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

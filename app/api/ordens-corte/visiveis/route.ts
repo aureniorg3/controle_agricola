@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (!numero) {
     return NextResponse.json({ error: "Informe o número da ordem." }, { status: 400 });
   }
-  const resultado = await adicionarOrdemVisivel(numero);
+  const resultado = await adicionarOrdemVisivel(numero, usuario.nome);
   if (resultado !== true) {
     return NextResponse.json({ error: resultado.erro }, { status: 404 });
   }
@@ -37,6 +37,6 @@ export async function DELETE(req: NextRequest) {
   if (!numero) {
     return NextResponse.json({ error: "Informe o número da ordem." }, { status: 400 });
   }
-  await removerOrdemVisivel(numero);
+  await removerOrdemVisivel(numero, usuario.nome);
   return NextResponse.json({ ok: true });
 }

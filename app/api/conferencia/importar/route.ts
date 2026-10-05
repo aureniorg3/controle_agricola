@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { substituirConferenciaDia, usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { getPool, substituirConferenciaDia, usuarioDaRequisicao } from "@/lib/db";
 import { parseConferenciaPesagem } from "@/lib/import-conferencia";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -73,6 +74,14 @@ export async function POST(req: NextRequest) {
         continue;
       }
       await substituirConferenciaDia(data, lido.linhas);
+      await auditar(getPool(), {
+        usuario: usuario.nome,
+        modulo: "Colheita",
+        entidade: "Conferência de pesagem",
+        chave: `Importação de ${fmtBR(data)} (${arquivo.name})`,
+        acao: "importacao",
+        depois: { linhas: lido.linhas.length },
+      });
       resultados.push({
         ...base,
         ok: true,

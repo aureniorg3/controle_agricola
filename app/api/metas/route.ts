@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   if (!DATA_REGEX.test(vigencia) || Number.isNaN(Date.parse(vigencia))) {
     return NextResponse.json({ error: "Informe uma data válida." }, { status: 400 });
   }
-  await salvarMeta(frente, metaDiaT, vigencia);
+  await salvarMeta(frente, metaDiaT, vigencia, usuario.nome);
   return NextResponse.json({ ok: true });
 }
 
@@ -52,7 +52,7 @@ export async function PATCH(req: NextRequest) {
   if (!DATA_REGEX.test(vigencia) || Number.isNaN(Date.parse(vigencia))) {
     return NextResponse.json({ error: "Informe uma data válida." }, { status: 400 });
   }
-  const resultado = await atualizarMeta(id, frente, metaDiaT, vigencia);
+  const resultado = await atualizarMeta(id, frente, metaDiaT, vigencia, usuario.nome);
   if (resultado !== true) return NextResponse.json({ error: resultado.erro }, { status: 409 });
   return NextResponse.json({ ok: true });
 }
@@ -70,6 +70,6 @@ export async function DELETE(req: NextRequest) {
     id = "";
   }
   if (!id) return NextResponse.json({ error: "Informe a meta." }, { status: 400 });
-  await excluirMeta(id);
+  await excluirMeta(id, usuario.nome);
   return NextResponse.json({ ok: true });
 }

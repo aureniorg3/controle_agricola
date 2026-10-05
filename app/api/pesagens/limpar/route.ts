@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { contarPesagens, limparPesagens, usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { contarPesagens, getPool, limparPesagens, usuarioDaRequisicao } from "@/lib/db";
 import { verificarSenha } from "@/lib/auth";
 import { ehAdmin } from "@/lib/permissoes";
 
@@ -36,5 +37,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Senha do administrador incorreta." }, { status: 403 });
   }
   const removidos = await limparPesagens(inicio, fim);
+  await auditar(getPool(), { usuario: usuario.nome, modulo: "Colheita", entidade: "Pesagens", chave: `${inicio} a ${fim}`, acao: "limpeza", antes: removidos });
   return NextResponse.json({ ok: true, ...removidos, inicio, fim });
 }

@@ -1,4 +1,4 @@
-import { auditar } from "./auditoria";
+import { auditar } from "./auditar";
 import { getPool, prepararBanco } from "./db";
 
 /** Apontamento diário da área colhida (por ordem, talhão e data), com usuário e log. */

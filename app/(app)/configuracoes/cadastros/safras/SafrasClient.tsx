@@ -3,6 +3,8 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Campo } from "@/components/ui";
+import BotaoLog from "@/components/BotaoLog";
+import { fmtDataHora } from "@/components/AuditoriaModal";
 import { fmtDateBR } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import { escolherSafraVigente } from "@/lib/safra-cadastro";
@@ -109,6 +111,7 @@ export default function SafrasClient({
           <span className="text-[11px] uppercase tracking-wide">Configurações · Cadastros</span>
           <div className="truncate text-[15px] font-bold text-ink">Safras</div>
         </nav>
+        <BotaoLog titulo="Log do cadastro de safras" filtro={{ modulo: "Configurações", entidade: "Cadastro de Safras" }} />
         {!podeGravar && (
           <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
             Somente leitura
@@ -220,6 +223,8 @@ export default function SafrasClient({
                     <th className="px-3 py-2 font-semibold">Produção · Início</th>
                     <th className="px-3 py-2 font-semibold">Produção · Final</th>
                     <th className="px-3 py-2 font-semibold">Status</th>
+                    <th className="px-3 py-2 font-semibold">Lançado por</th>
+                    <th className="px-3 py-2 font-semibold">Última alteração</th>
                     <th className="w-28 px-2 py-2 text-right font-semibold">Ações</th>
                   </tr>
                 </thead>
@@ -245,6 +250,8 @@ export default function SafrasClient({
                           <span className="text-[11px] text-muted">Encerrada</span>
                         )}
                       </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-muted">{s.lancadoPor || "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-muted">{s.alteradoEm ? `${s.alteradoPor || "—"} · ${fmtDataHora(s.alteradoEm)}` : ""}</td>
                       <td className="px-2 py-1.5 text-right">
                         {podeGravar && (
                           <>

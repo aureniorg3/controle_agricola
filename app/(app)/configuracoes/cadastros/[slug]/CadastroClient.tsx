@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Campo, ModalShell } from "@/components/ui";
+import BotaoLog from "@/components/BotaoLog";
+import { fmtDataHora } from "@/components/AuditoriaModal";
 import {
   CADASTROS_SPEC,
   specPorNomeArquivo,
@@ -22,6 +24,9 @@ interface Item {
   cod: string;
   nm: string;
   dados: DadosCadastro;
+  lancadoPor?: string;
+  alteradoPor?: string;
+  alteradoEm?: string;
 }
 
 const ALINHAR = { esquerda: "text-left", direita: "text-right", centro: "text-center" } as const;
@@ -99,6 +104,7 @@ export default function CadastroClient({
           <span className="text-[11px] uppercase tracking-wide">{categoria}</span>
           <div className="truncate text-[15px] font-bold text-ink">{spec.titulo}</div>
         </nav>
+        <BotaoLog titulo={`Log do cadastro de ${spec.titulo}`} filtro={{ modulo: "Cadastros", entidade: `Cadastro de ${spec.titulo}` }} />
         {!podeGravar && (
           <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
             Somente leitura
@@ -154,6 +160,8 @@ export default function CadastroClient({
                       {c.rotulo}
                     </th>
                   ))}
+                  <th className="whitespace-nowrap px-3 py-2 font-semibold">Lançado por</th>
+                  <th className="whitespace-nowrap px-3 py-2 font-semibold">Última alteração</th>
                   <th className="w-28 px-2 py-2 text-right font-semibold">Ações</th>
                 </tr>
               </thead>
@@ -165,6 +173,8 @@ export default function CadastroClient({
                         {String(i.dados[c.chave] ?? "")}
                       </td>
                     ))}
+                    <td className="whitespace-nowrap px-3 py-1.5 text-muted">{i.lancadoPor || "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-muted">{i.alteradoEm ? `${i.alteradoPor || "—"} · ${fmtDataHora(i.alteradoEm)}` : ""}</td>
                     <td className="px-2 py-1.5 text-right">
                       {podeGravar && (
                         <>
@@ -190,7 +200,7 @@ export default function CadastroClient({
                 ))}
                 {!carregando && itens.length === 0 && (
                   <tr>
-                    <td colSpan={spec.colunas.length + 1} className="px-4 py-10 text-center text-muted">
+                    <td colSpan={spec.colunas.length + 3} className="px-4 py-10 text-center text-muted">
                       {termo
                         ? "Nenhum registro encontrado para a busca."
                         : podeGravar

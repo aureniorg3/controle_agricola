@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   if (!body) return NextResponse.json({ error: "Requisição inválida." }, { status: 400 });
   const dados = validar(body);
   if (typeof dados === "string") return NextResponse.json({ error: dados }, { status: 400 });
-  await salvarSafraCadastro(dados);
+  await salvarSafraCadastro(dados, (await usuarioDaRequisicao(req))?.nome ?? "");
   return NextResponse.json({ ok: true });
 }
 
@@ -63,7 +63,7 @@ export async function PATCH(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Informe a safra." }, { status: 400 });
   const dados = validar(body);
   if (typeof dados === "string") return NextResponse.json({ error: dados }, { status: 400 });
-  const resultado = await atualizarSafraCadastro(id, dados);
+  const resultado = await atualizarSafraCadastro(id, dados, (await usuarioDaRequisicao(req))?.nome ?? "");
   if (resultado !== true) return NextResponse.json({ error: resultado.erro }, { status: 409 });
   return NextResponse.json({ ok: true });
 }
@@ -74,6 +74,6 @@ export async function DELETE(req: NextRequest) {
   const body = await lerCorpo(req);
   const id = body && typeof body.id === "string" ? body.id : "";
   if (!id) return NextResponse.json({ error: "Informe a safra." }, { status: 400 });
-  await excluirSafraCadastro(id);
+  await excluirSafraCadastro(id, (await usuarioDaRequisicao(req))?.nome ?? "");
   return NextResponse.json({ ok: true });
 }

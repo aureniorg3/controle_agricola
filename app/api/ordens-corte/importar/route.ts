@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auditar } from "@/lib/auditar";
 import {
+  getPool,
   listNumerosOrdens,
   listOrdens,
   reconstruirEntradas,
@@ -170,6 +172,20 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+
+  await auditar(getPool(), {
+    usuario: usuario.nome,
+    modulo: "Colheita",
+    entidade: "Importação de ordens e pesagem",
+    chave: [...arquivosOrdens, ...arquivosPesagem].map((a) => a.name).join(", "),
+    acao: "importacao",
+    depois: {
+      ordens: resOrdens ? resOrdens.ordens.length : 0,
+      viagens: resPesagem?.viagens.length ?? 0,
+      novas,
+      substituidas,
+    },
+  });
 
   // 3) entradas diárias refeitas a partir das viagens (histórico sem viagens fica intacto)
   await reconstruirEntradas();

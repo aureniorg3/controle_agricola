@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { auditar, dataBR } from "./auditar";
 import { getPool, prepararBanco } from "./db";
 import { gerarSemanas, segundaDaSemana, SEMANAS_POR_RODADA, somarDias, type LinhaResumoRodada, type RodadaCad, type SemanaRodada } from "./rodadas";
 import type { LinhaRodadaImportada } from "./rodadas-import";
@@ -83,24 +84,33 @@ export async function semanasDaRodada(rod: number): Promise<SemanaRodada[]> {
 }
 
 /** Cria a rodada e as 8 semanas (segunda a domingo) a partir da data informada. Refaz o calendário se a rodada já existir sem boletins. */
-export async function criarRodada(rod: number, inicio: string): Promise<true | { erro: string }> {
+export async function criarRodada(rod: number, inicio: string, usuario = ""): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
   const { rows: usos } = await pool.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM rod_bol WHERE rod = $1", [rod]);
   if (usos[0].n > 0) return { erro: `A rodada ${rod} já tem boletins lançados — o calendário não pode ser refeito.` };
   const semanas = gerarSemanas(inicio);
+  const { rows: ja } = await pool.query("SELECT 1 FROM rod_cad WHERE rod = $1", [rod]);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query("DELETE FROM rod_sem WHERE rod = $1", [rod]);
     await client.query(
-      `INSERT INTO rod_cad (rod, ini) VALUES ($1, $2)
-       ON CONFLICT (rod) DO UPDATE SET ini = EXCLUDED.ini`,
-      [rod, semanas[0].ini]
+      `INSERT INTO rod_cad (rod, ini, usr, atu_usr) VALUES ($1, $2, $3, $3)
+       ON CONFLICT (rod) DO UPDATE SET ini = EXCLUDED.ini, atu_usr = EXCLUDED.atu_usr, atu_em = now()`,
+      [rod, semanas[0].ini, usuario]
     );
     for (const s of semanas) {
       await client.query("INSERT INTO rod_sem (rod, sem, ini, fim) VALUES ($1,$2,$3,$4)", [rod, s.sem, s.ini, s.fim]);
     }
+    await auditar(client, {
+      usuario,
+      modulo: "Rodadas de Campo",
+      entidade: "Rodada",
+      chave: `Rodada ${rod}`,
+      acao: ja.length ? "alteracao" : "inclusao",
+      depois: { início: dataBR(semanas[0].ini), fim: dataBR(semanas[semanas.length - 1].fim), semanas: semanas.length },
+    });
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK");
@@ -112,7 +122,7 @@ export async function criarRodada(rod: number, inicio: string): Promise<true | {
 }
 
 /** Reconfigura as semanas da rodada (início e fim de cada uma). Pode ser feito mesmo com boletins lançados: eles guardam o número da semana. */
-export async function atualizarSemanas(rod: number, semanas: SemanaRodada[]): Promise<true | { erro: string }> {
+export async function atualizarSemanas(rod: number, semanas: SemanaRodada[], usuario = ""): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
   const { rows } = await pool.query("SELECT 1 FROM rod_cad WHERE rod = $1", [rod]);
@@ -134,6 +144,8 @@ export async function atualizarSemanas(rod: number, semanas: SemanaRodada[]): Pr
       return { erro: `Semana ${ordenadas[i].sem} começa antes do fim da semana ${ordenadas[i - 1].sem}.` };
     }
   }
+  const { rows: antesSem } = await pool.query<{ sem: number; ini: string; fim: string }>("SELECT sem, ini, fim FROM rod_sem WHERE rod = $1 ORDER BY sem", [rod]);
+  const descreve = (l: { sem: number; ini: string; fim: string }[]) => Object.fromEntries(l.map((s) => [`semana ${s.sem}`, `${dataBR(s.ini)} a ${dataBR(s.fim)}`]));
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -141,7 +153,16 @@ export async function atualizarSemanas(rod: number, semanas: SemanaRodada[]): Pr
     for (const s of ordenadas) {
       await client.query("INSERT INTO rod_sem (rod, sem, ini, fim) VALUES ($1,$2,$3,$4)", [rod, s.sem, s.ini, s.fim]);
     }
-    await client.query("UPDATE rod_cad SET ini = $2 WHERE rod = $1", [rod, ordenadas[0].ini]);
+    await client.query("UPDATE rod_cad SET ini = $2, atu_usr = $3, atu_em = now() WHERE rod = $1", [rod, ordenadas[0].ini, usuario]);
+    await auditar(client, {
+      usuario,
+      modulo: "Rodadas de Campo",
+      entidade: "Rodada",
+      chave: `Rodada ${rod}`,
+      acao: "alteracao",
+      antes: descreve(antesSem),
+      depois: descreve(ordenadas),
+    });
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK");
@@ -152,13 +173,14 @@ export async function atualizarSemanas(rod: number, semanas: SemanaRodada[]): Pr
   return true;
 }
 
-export async function excluirRodada(rod: number): Promise<true | { erro: string }> {
+export async function excluirRodada(rod: number, usuario = ""): Promise<true | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
   const { rows } = await pool.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM rod_bol WHERE rod = $1", [rod]);
   if (rows[0].n > 0) return { erro: `A rodada ${rod} tem ${rows[0].n} boletim(ns) lançado(s) e não pode ser excluída.` };
   await pool.query("DELETE FROM rod_sem WHERE rod = $1", [rod]);
   await pool.query("DELETE FROM rod_cad WHERE rod = $1", [rod]);
+  await auditar(pool, { usuario, modulo: "Rodadas de Campo", entidade: "Rodada", chave: `Rodada ${rod}`, acao: "exclusao", antes: { rodada: rod } });
   return true;
 }
 

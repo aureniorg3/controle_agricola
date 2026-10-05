@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { substituirSafra, usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { getPool, substituirSafra, usuarioDaRequisicao } from "@/lib/db";
 import { parseSafra } from "@/lib/import-safra";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -70,6 +71,14 @@ export async function POST(req: NextRequest) {
       }
       const linhas = lido.linhas.map((l) => ({ ...l, safra }));
       await substituirSafra(safra, linhas);
+      await auditar(getPool(), {
+        usuario: usuario.nome,
+        modulo: "Colheita",
+        entidade: "Histórico de Safras",
+        chave: `Safra ${safra} (${arquivo.name})`,
+        acao: "importacao",
+        depois: { linhas: linhas.length },
+      });
       resultados.push({
         ...base,
         ok: true,

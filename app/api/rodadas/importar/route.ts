@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { getPool, usuarioDaRequisicao } from "@/lib/db";
 import { importarRodadasCampo } from "@/lib/db-rodadas";
 import { lerRodadasCampo, type LinhaRodadaImportada } from "@/lib/rodadas-import";
 import { podeEditar } from "@/lib/permissoes";
@@ -52,6 +53,14 @@ export async function POST(req: NextRequest) {
   }
 
   const r = await importarRodadasCampo(linhas);
+  await auditar(getPool(), {
+    usuario: usuario.nome,
+    modulo: "Rodadas de Campo",
+    entidade: "Importação do levantamento",
+    chave: arquivos.map((a) => a.name).join(", "),
+    acao: "importacao",
+    depois: { linhas: lidas, boletins: r.boletins, "linhas gravadas": r.itens, "já existiam": r.jaImportados, "rodadas criadas": r.rodadasCriadas.join(", ") },
+  });
   if (r.jaImportados > 0) {
     avisos.push(`${r.jaImportados} boletim(ns) já existiam (mesma rodada, data, região, semana e fazenda) e foram mantidos como estavam.`);
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { getPool, usuarioDaRequisicao } from "@/lib/db";
 import { aplicarPadronizarOcorrencias, previaPadronizarOcorrencias } from "@/lib/db-rodadas";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -25,5 +26,6 @@ export async function POST(req: NextRequest) {
   }
   const r = await aplicarPadronizarOcorrencias();
   if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 409 });
+  await auditar(getPool(), { usuario: usuario.nome, modulo: "Rodadas de Campo", entidade: "Padronização das ocorrências importadas", chave: "Texto livre → Cadastro de Ocorrências", acao: "alteracao", depois: { linhas: r.linhas, "textos diferentes": r.textos } });
   return NextResponse.json({ ok: true, ...r });
 }

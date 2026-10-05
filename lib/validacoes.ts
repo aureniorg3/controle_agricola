@@ -108,6 +108,29 @@ export const VERIFICACOES: Verificacao[] = [
             FROM tlh t WHERE t.area_col_ha > t.area_ha + 0.005 ORDER BY t.ord_num, t.tlh`,
   },
   {
+    id: "area-colhida-dia-maior",
+    modulo: "Colheita",
+    titulo: "Área colhida apontada dia a dia maior que a área do talhão",
+    severidade: "erro",
+    descricao: "O saldo anterior mais os apontamentos diários do talhão passam da área total dele.",
+    acao: "Em Ordens de Corte → aba Apontamento · Área colhida, corrija os lançamentos do talhão.",
+    sql: `SELECT t.ord_num AS "Ordem", t.faz_cod AS "Fazenda", t.tlh AS "Talhão", t.area_ha::float AS "Área (ha)", ROUND(t.area_col_ha + c.s, 2)::float AS "Colhida acumulada (ha)"
+            FROM tlh t JOIN (SELECT ord_num, faz_cod, tlh, SUM(area) AS s FROM col_dia GROUP BY ord_num, faz_cod, tlh) c
+              ON c.ord_num = t.ord_num AND c.faz_cod = t.faz_cod AND c.tlh = t.tlh
+           WHERE t.area_col_ha + c.s > t.area_ha + 0.01 ORDER BY t.ord_num, t.tlh`,
+  },
+  {
+    id: "area-colhida-dia-ordem-inexistente",
+    modulo: "Colheita",
+    titulo: "Apontamentos de área colhida de talhão que não existe mais na ordem",
+    severidade: "atencao",
+    descricao: "Há área colhida apontada para um talhão que saiu da ordem (nova importação da Ordem de Colheita).",
+    acao: "Confira a ordem; se o talhão foi retirado de propósito, os apontamentos antigos podem ser ignorados.",
+    sql: `SELECT c.ord_num AS "Ordem", c.faz_cod AS "Fazenda", c.tlh AS "Talhão", COUNT(*)::int AS "Dias", ROUND(SUM(c.area), 2)::float AS "Área (ha)"
+            FROM col_dia c WHERE NOT EXISTS (SELECT 1 FROM tlh t WHERE t.ord_num = c.ord_num AND t.faz_cod = c.faz_cod AND t.tlh = c.tlh)
+           GROUP BY c.ord_num, c.faz_cod, c.tlh ORDER BY c.ord_num, c.tlh`,
+  },
+  {
     id: "diferenca-viagens-entradas",
     modulo: "Colheita",
     titulo: "Entradas diárias diferentes da soma das viagens",

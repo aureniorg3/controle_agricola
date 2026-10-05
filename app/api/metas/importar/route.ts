@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listMetas, listOrdens, salvarMeta, usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { getPool, listMetas, listOrdens, salvarMeta, usuarioDaRequisicao } from "@/lib/db";
 import { lerMetas, type MetaImportada } from "@/lib/metas-import";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -53,8 +54,17 @@ export async function POST(req: NextRequest) {
   for (const m of porChave.values()) {
     if (existentes.has(`${m.frente}|${m.vigencia}`)) atualizadas++;
     else novas++;
-    await salvarMeta(m.frente, m.metaDiaT, m.vigencia);
+    await salvarMeta(m.frente, m.metaDiaT, m.vigencia, usuario.nome);
   }
+
+  await auditar(getPool(), {
+    usuario: usuario.nome,
+    modulo: "Colheita",
+    entidade: "Metas",
+    chave: `Importação de ${arquivos.map((a) => a.name).join(", ")}`,
+    acao: "importacao",
+    depois: { lidas: porChave.size, novas, atualizadas },
+  });
 
   // frentes da planilha que não aparecem em nenhuma ordem importada (provável diferença de nome)
   const frentesOrdens = new Set((await listOrdens()).map((o) => o.frente));

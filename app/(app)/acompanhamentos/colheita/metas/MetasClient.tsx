@@ -3,6 +3,8 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Campo, ModalShell } from "@/components/ui";
+import BotaoLog from "@/components/BotaoLog";
+import { fmtDataHora } from "@/components/AuditoriaModal";
 import { IconImportar } from "@/components/icons";
 import { fmtDateBR, fmtT, todayISO } from "@/lib/format";
 import { metaDoDia } from "@/lib/period";
@@ -123,6 +125,7 @@ export default function MetasClient({
           <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Colheita</span>
           <div className="truncate text-[15px] font-bold text-ink">Metas</div>
         </nav>
+        <BotaoLog titulo="Log das metas" filtro={{ modulo: "Colheita", entidade: "Meta" }} />
         {!podeGravar && (
           <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
             Somente leitura
@@ -228,6 +231,8 @@ export default function MetasClient({
                     <th className="px-3 py-2 font-semibold">Data</th>
                     <th className="px-3 py-2 text-right font-semibold">Meta (t/dia)</th>
                     <th className="px-3 py-2 font-semibold">Status</th>
+                    <th className="px-3 py-2 font-semibold">Lançado por</th>
+                    <th className="px-3 py-2 font-semibold">Última alteração</th>
                     <th className="w-24 px-2 py-2 text-right font-semibold">Ações</th>
                   </tr>
                 </thead>
@@ -252,6 +257,8 @@ export default function MetasClient({
                           )}
                           {sit === "anterior" && <span className="text-[11px] text-muted">Substituída</span>}
                         </td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-muted">{m.lancadoPor || "—"}</td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-muted">{m.alteradoEm ? `${m.alteradoPor || "—"} · ${fmtDataHora(m.alteradoEm)}` : ""}</td>
                         <td className="px-2 py-1.5 text-right">
                           {podeGravar && (
                             <button

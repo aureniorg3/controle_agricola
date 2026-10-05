@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { upsertCadastroLote, usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { getPool, upsertCadastroLote, usuarioDaRequisicao } from "@/lib/db";
 import { specPorSlug } from "@/lib/cadastros-spec";
 import { lerCadastro } from "@/lib/cadastros-import";
 import { resolverReferencias } from "@/lib/cadastros-ref";
@@ -83,7 +84,15 @@ export async function POST(req: NextRequest) {
         }
         itens = validos;
       }
-      const { novos, atualizados } = await upsertCadastroLote(spec.slug, itens);
+      const { novos, atualizados } = await upsertCadastroLote(spec.slug, itens, usuario.nome);
+      await auditar(getPool(), {
+        usuario: usuario.nome,
+        modulo: "Cadastros",
+        entidade: `Cadastro de ${spec.titulo}`,
+        chave: `Importação de ${arquivo.name}`,
+        acao: "importacao",
+        depois: { lidos: itens.length, novos, atualizados },
+      });
       resultados.push({ ...base, ok: true, lidos: itens.length, novos, atualizados, avisos });
     } catch (e) {
       resultados.push({ ...base, erro: `Não foi possível ler o arquivo: ${e instanceof Error ? e.message : String(e)}` });

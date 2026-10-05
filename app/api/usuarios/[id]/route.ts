@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteUsuario, updateUsuario, usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { deleteUsuario, getPool, getUsuarioPorId, updateUsuario, usuarioDaRequisicao } from "@/lib/db";
 import { ehAdmin } from "@/lib/permissoes";
 import { PerfilUsuario, Usuario } from "@/lib/types";
 
@@ -58,6 +59,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if ("erro" in resultado) {
     return NextResponse.json({ error: resultado.erro }, { status: 409 });
   }
+  await auditar(getPool(), {
+    usuario: solicitante.nome,
+    modulo: "Configurações",
+    entidade: "Usuário",
+    chave: `${resultado.usuario} · ${resultado.nome} ${resultado.sobrenome}`.trim(),
+    acao: "alteracao",
+    depois: { perfil: resultado.perfil, ativo: resultado.ativo, "senha redefinida": body.senha ? "sim" : "não" },
+  });
   return NextResponse.json({ usuario: semSenha(resultado) });
 }
 
@@ -68,9 +77,18 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   const { id } = await params;
+  const alvo = await getUsuarioPorId(id);
   const resultado = await deleteUsuario(id, solicitante.id);
   if (resultado !== true) {
     return NextResponse.json({ error: resultado.erro }, { status: 409 });
   }
+  await auditar(getPool(), {
+    usuario: solicitante.nome,
+    modulo: "Configurações",
+    entidade: "Usuário",
+    chave: alvo ? `${alvo.usuario} · ${alvo.nome} ${alvo.sobrenome}`.trim() : id,
+    acao: "exclusao",
+    antes: alvo ? { perfil: alvo.perfil, email: alvo.email } : undefined,
+  });
   return NextResponse.json({ ok: true });
 }

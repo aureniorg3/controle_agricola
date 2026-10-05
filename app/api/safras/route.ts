@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { excluirSafra, usuarioDaRequisicao } from "@/lib/db";
+import { auditar } from "@/lib/auditar";
+import { excluirSafra, getPool, usuarioDaRequisicao } from "@/lib/db";
 import { podeEditar } from "@/lib/permissoes";
 
 export async function DELETE(req: NextRequest) {
@@ -16,5 +17,6 @@ export async function DELETE(req: NextRequest) {
   }
   if (!Number.isInteger(safra)) return NextResponse.json({ error: "Informe a safra." }, { status: 400 });
   await excluirSafra(safra);
+  await auditar(getPool(), { usuario: usuario.nome, modulo: "Colheita", entidade: "Histórico de Safras", chave: `Safra ${safra}`, acao: "exclusao", antes: { safra } });
   return NextResponse.json({ ok: true });
 }

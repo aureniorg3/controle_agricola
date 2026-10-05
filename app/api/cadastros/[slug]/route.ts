@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auditar } from "@/lib/auditar";
 import {
+  getPool,
   atualizarItemCadastro,
   excluirItemCadastro,
   listarCadastro,
@@ -55,7 +57,17 @@ export async function POST(req: NextRequest, ctx: Contexto) {
   if (!cod || cod === "|" || spec.chaves.some((k) => String(dados[k] ?? "").trim() === "")) {
     return NextResponse.json({ error: "Preencha o(s) campo(s) de código." }, { status: 400 });
   }
-  await upsertCadastroLote(slug, [{ cod, nm: spec.nome(dados), dados }]);
+  const anterior = (await listarCadastro(slug, cod, 1, 50)).itens.find((i) => i.cod === cod);
+  await upsertCadastroLote(slug, [{ cod, nm: spec.nome(dados), dados }], usuario.nome);
+  await auditar(getPool(), {
+    usuario: usuario.nome,
+    modulo: "Cadastros",
+    entidade: `Cadastro de ${spec.titulo}`,
+    chave: `${cod} · ${spec.nome(dados)}`,
+    acao: anterior ? "alteracao" : "inclusao",
+    antes: anterior?.dados,
+    depois: dados,
+  });
   return NextResponse.json({ ok: true, cod });
 }
 
@@ -81,7 +93,16 @@ export async function PATCH(req: NextRequest, ctx: Contexto) {
   const erroRef = await resolverReferencias(spec, dados);
   if (erroRef) return NextResponse.json({ error: erroRef }, { status: 400 });
   const nm = spec.nome({ ...existente.dados, ...dados });
-  await atualizarItemCadastro(slug, cod, nm, dados);
+  await atualizarItemCadastro(slug, cod, nm, dados, usuario.nome);
+  await auditar(getPool(), {
+    usuario: usuario.nome,
+    modulo: "Cadastros",
+    entidade: `Cadastro de ${spec.titulo}`,
+    chave: `${cod} · ${nm}`,
+    acao: "alteracao",
+    antes: existente.dados,
+    depois: { ...existente.dados, ...dados },
+  });
   return NextResponse.json({ ok: true });
 }
 
@@ -95,6 +116,15 @@ export async function DELETE(req: NextRequest, ctx: Contexto) {
   const body = await req.json().catch(() => null);
   const cod = typeof body?.cod === "string" ? body.cod : "";
   if (!cod) return NextResponse.json({ error: "Informe o item." }, { status: 400 });
+  const removido = (await listarCadastro(slug, cod, 1, 50)).itens.find((i) => i.cod === cod);
   await excluirItemCadastro(slug, cod);
+  await auditar(getPool(), {
+    usuario: usuario.nome,
+    modulo: "Cadastros",
+    entidade: `Cadastro de ${specPorSlug(slug)?.titulo ?? slug}`,
+    chave: `${cod}${removido ? ` · ${removido.nm}` : ""}`,
+    acao: "exclusao",
+    antes: removido?.dados,
+  });
   return NextResponse.json({ ok: true });
 }

@@ -107,6 +107,10 @@ export interface Database {
  * até a próxima meta cadastrada pra mesma frente. */
 export interface MetaFrente {
   id: string;
+  /** quem lançou e quem alterou por último */
+  lancadoPor?: string;
+  alteradoPor?: string;
+  alteradoEm?: string;
   frente: string;
   metaDiaT: number;
   /** YYYY-MM-DD — primeiro dia em que esta meta vale. */
@@ -131,6 +135,9 @@ export interface ConferenciaLinha {
 /** Em qual frente um equipamento está a partir de uma data (vale até o
  * próximo lançamento do mesmo equipamento). */
 export interface EquiptoFrente {
+  lancadoPor?: string;
+  alteradoPor?: string;
+  alteradoEm?: string;
   id: string;
   eqp: string;
   frente: string;
@@ -158,6 +165,9 @@ export interface SafraCadastro {
   anoFim: string;
   producaoInicio: string;
   producaoFim: string;
+  lancadoPor?: string;
+  alteradoPor?: string;
+  alteradoEm?: string;
 }
 
 /** Uma linha (talhão) do relatório "Rendimentos e Estimativas de Talhões" de uma safra. */
