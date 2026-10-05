@@ -420,14 +420,33 @@ export default function OrdensCorteClient({
     setFrentesCfg({ ordem: [], ocultas: [] });
   }
 
+  // Cards automáticos: toda ordem aberta; a encerrada só enquanto teve entrada de cana no dia atual ou no dia anterior
+  // (relativos à data escolhida). Sem entrada nesses dois dias, o card da ordem encerrada some.
+  const ordensAuto = useMemo(() => {
+    const diaAnterior = addDays(referencia, -1);
+    const set = new Set<string>();
+    for (const o of ordens) {
+      if (o.status === "Aberta") set.add(o.numero);
+      else if (o.entradas.some((e) => (e.data === referencia || e.data === diaAnterior) && e.toneladas > 0)) set.add(o.numero);
+    }
+    return set;
+  }, [ordens, referencia]);
+
+  // + as que o usuário inseriu à mão para ver algum detalhe (Inserir Ordem)
   const ordensDisponiveis = useMemo(
-    () => ordens.filter((o) => !ordensVisiveis.has(o.numero)).sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true })),
-    [ordens, ordensVisiveis]
+    () =>
+      ordens
+        .filter((o) => !ordensAuto.has(o.numero) && !ordensVisiveis.has(o.numero))
+        .sort((a, b) => a.numero.localeCompare(b.numero, undefined, { numeric: true })),
+    [ordens, ordensAuto, ordensVisiveis]
   );
 
   const safraLabel = ordens[0]?.safraLabel ?? "2026/27";
 
-  const ordensSelecionadas = useMemo(() => ordens.filter((o) => ordensVisiveis.has(o.numero)), [ordens, ordensVisiveis]);
+  const ordensSelecionadas = useMemo(
+    () => ordens.filter((o) => ordensAuto.has(o.numero) || ordensVisiveis.has(o.numero)),
+    [ordens, ordensAuto, ordensVisiveis]
+  );
 
   const filtroFrenteStatusBusca = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -880,7 +899,8 @@ export default function OrdensCorteClient({
             </form>
             {inserirErro && <span className="text-[12.5px] font-medium text-alert-600">{inserirErro}</span>}
             <span className="ml-auto text-[12px] font-medium text-muted">
-              {ordensVisiveis.size} de {ordens.length} ordem(ns) importada(s) selecionada(s)
+              Cards automáticos: ordens abertas e encerradas com entrada de cana no dia atual ou anterior ({ordensAuto.size}). Inseridas à
+              mão: {[...ordensVisiveis].filter((n) => !ordensAuto.has(n)).length}.
             </span>
           </div>
         )}
@@ -1160,10 +1180,10 @@ export default function OrdensCorteClient({
                   "Peça para um usuário com nível Gravação ou Administrador importar as planilhas."
                 )}
               </>
-            ) : ordensVisiveis.size === 0 ? (
+            ) : ordensSelecionadas.length === 0 ? (
               podeGravar
-                ? 'Nenhuma ordem selecionada para exibição. Use "Inserir Ordem" acima para escolher quais ordens aparecem na tela.'
-                : "Nenhuma ordem selecionada para exibição. Peça para um usuário com nível Gravação ou Administrador inserir as ordens."
+                ? 'Nenhuma ordem aberta nem encerrada com entrada de cana no dia atual ou anterior. Use "Inserir Ordem" para ver uma ordem específica.'
+                : "Nenhuma ordem aberta nem encerrada com entrada de cana no dia atual ou anterior."
             ) : (
               "Nenhuma ordem de corte encontrada para os filtros selecionados."
             )}
@@ -1199,7 +1219,7 @@ export default function OrdensCorteClient({
                       safraAtual={historicoTch.safraAtual}
                       safrasAnteriores={historicoTch.safrasAnteriores}
                       divergenciaPct={podeGravar ? divergenciaPorOrdem.get(ordem.numero) : undefined}
-                      onRemover={podeGravar ? () => removerOrdem(ordem.numero) : undefined}
+                      onRemover={podeGravar && ordensVisiveis.has(ordem.numero) && !ordensAuto.has(ordem.numero) ? () => removerOrdem(ordem.numero) : undefined}
                       onLancarAreaColhida={podeGravar ? () => setAreaColhidaAlvo(ordem) : undefined}
                     />
                   ))}
