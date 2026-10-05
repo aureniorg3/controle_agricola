@@ -403,11 +403,11 @@ function montarCardOrdem(
       doc.setFont("helvetica", "normal");
       doc.setFontSize(5.2);
       doc.setTextColor(...MUTED);
-      doc.text(rotulo, bx + 1.8, ry + 3);
+      doc.text(rotulo, bx + larguraMini - 1.8, ry + 3, { align: "right" });
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7.6);
       doc.setTextColor(...INK);
-      doc.text(valor, bx + 1.8, ry + 7.6);
+      doc.text(valor, bx + larguraMini - 1.8, ry + 7.6, { align: "right" });
     });
     ry += 9.5 + 2;
 
@@ -430,22 +430,22 @@ function montarCardOrdem(
     doc.setFont("helvetica", "normal");
     doc.setFontSize(5.4);
     doc.setTextColor(...MUTED);
-    doc.text("Produção no período", xr + 1.8, ry + 3.4);
+    doc.text("Produção no período", xr + larguraDir - 1.8, ry + 3.4, { align: "right" });
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.setTextColor(...INK);
-    doc.text(`${fmtT(m.entradaPeriodoT)} t`, xr + 1.8, ry + 9);
+    doc.text(`${fmtT(m.entradaPeriodoT)} t`, xr + larguraDir - 1.8, ry + 9, { align: "right" });
     ry += 11.5 + 2;
 
     caixa(xr, ry, larguraDir, 10.5, FUNDO);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(5.2);
     doc.setTextColor(...MUTED);
-    doc.text("TCH médio realizado", xr + 1.8, ry + 3.2);
+    doc.text("TCH médio realizado", xr + larguraDir - 1.8, ry + 3.2, { align: "right" });
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8.6);
     doc.setTextColor(...INK);
-    doc.text(fmtTch(tchMedio), xr + 1.8, ry + 8.2);
+    doc.text(fmtTch(tchMedio), xr + larguraDir - 1.8, ry + 8.2, { align: "right" });
     const t = tchMedio;
     const nivel: [string, [number, number, number], [number, number, number]] =
       t > 80
@@ -455,7 +455,7 @@ function montarCardOrdem(
           : t >= 40
             ? ["Médio", [255, 243, 224], [167, 110, 19]]
             : ["Baixo", [255, 235, 238], [178, 60, 43]];
-    selo(nivel[0], xr + larguraDir - 1.8, ry + 7.6, nivel[1], nivel[2], true);
+    selo(nivel[0], xr + 1.8, ry + 7.6, nivel[1], nivel[2], false);
     ry += 10.5 + 2;
 
     if (ordem.tipoCana) {

@@ -1782,11 +1782,11 @@ function OrdemCard({
           {/* Painel de resumo */}
           <div className="flex flex-col gap-2.5">
             <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg bg-surface p-2.5">
+              <div className="rounded-lg bg-surface p-2.5 text-right">
                 <div className="text-[10.5px] text-muted">Área da ordem</div>
                 <div className="text-[15px] font-bold tabular text-ink">{fmtHa(m.areaTotalHa)} ha</div>
               </div>
-              <div className="rounded-lg bg-surface p-2.5">
+              <div className="rounded-lg bg-surface p-2.5 text-right">
                 <div className="text-[10.5px] text-muted">Área colhida</div>
                 <div className="text-[15px] font-bold tabular text-ink">{fmtHa(areaColhidaHa)} ha</div>
               </div>
@@ -1802,17 +1802,19 @@ function OrdemCard({
               </div>
             </div>
 
-            <div className="rounded-lg px-3 py-2.5" style={{ backgroundColor: "rgb(255, 255, 209)" }}>
+            <div className="rounded-lg px-3 py-2.5 text-right" style={{ backgroundColor: "rgb(255, 255, 209)" }}>
               <div className="text-[11px] text-ink/80">Produção no período</div>
               <div className="text-[19px] font-bold tabular text-ink">{fmtT(m.entradaPeriodoT)} t</div>
             </div>
 
             <div className="flex items-center justify-between rounded-lg bg-surface px-3 py-2.5">
-              <div>
+              <div className="order-2 text-right">
                 <div className="text-[10.5px] text-muted">TCH médio realizado</div>
                 <div className="text-[17px] font-bold tabular text-ink">{fmtTch(tchMedio)}</div>
               </div>
-              <TchBadge tch={tchMedio} />
+              <span className="order-1">
+                <TchBadge tch={tchMedio} />
+              </span>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
