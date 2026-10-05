@@ -24,6 +24,22 @@ function ateCorte(e: EntradaDiaria, hora: HoraCorte): number {
 const arredonda = (n: number) => Math.round(n * 1000) / 1000;
 
 /**
+ * A área colhida da ordem na data escolhida: o saldo lançado antes do apontamento
+ * diário (tlh.area_col_ha) + o que foi apontado dia a dia até essa data. Assim o
+ * filtro de datas anteriores mostra a área colhida que valia naquele dia.
+ */
+export function aplicarAreaColhidaDia(ordem: OrdemCorte, referencia: string): OrdemCorte {
+  return {
+    ...ordem,
+    talhoes: ordem.talhoes.map((t) => ({
+      ...t,
+      areaColhidaHa:
+        Math.round((t.areaColhidaHa + (t.colhidaDias ?? []).filter((d) => d.d <= referencia).reduce((s, d) => s + d.ha, 0)) * 100) / 100,
+    })),
+  };
+}
+
+/**
  * Prepara uma ordem para a tela:
  *  1) no dia da referência, `toneladasAte6h` passa a valer "até o horário de
  *     corte escolhido" (6, 12, 18 ou 00:00 = dia completo) — todo o resto do

@@ -1,0 +1,390 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import AuditoriaModal, { fmtDataHora } from "@/components/AuditoriaModal";
+import { fmtDateBR, fmtHa } from "@/lib/format";
+import type { ApontamentoArea } from "@/lib/db-area";
+import type { OrdemCorte } from "@/lib/types";
+
+const INPUT =
+  "rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface";
+const ROTULO = "mb-1 block text-[11.5px] font-semibold text-muted";
+
+const arred = (n: number) => Math.round(n * 100) / 100;
+const numero = (v: string) => Number(v.replace(/\./g, "").replace(",", "."));
+
+/**
+ * Apontamento dia a dia da área colhida: escolhe a data e a ordem, informa os
+ * hectares colhidos no dia em cada talhão e grava. O histórico fica guardado
+ * (com usuário e log), e o filtro de datas anteriores do painel soma só até a data.
+ */
+export default function AreaColhidaTab({
+  ordens,
+  referencia,
+  ordemInicial,
+  podeGravar,
+  onSalvo,
+}: {
+  ordens: OrdemCorte[];
+  referencia: string;
+  ordemInicial: string | null;
+  podeGravar: boolean;
+  onSalvo: () => Promise<void> | void;
+}) {
+  const raiz = useRef<HTMLDivElement>(null);
+  const [dt, setDt] = useState(referencia);
+  const [ordemNum, setOrdemNum] = useState(ordemInicial ?? "");
+  const [valores, setValores] = useState<Record<string, string>>({});
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [historico, setHistorico] = useState<ApontamentoArea[]>([]);
+  const [carregando, setCarregando] = useState(false);
+  const [filtroOrdem, setFiltroOrdem] = useState("");
+  const [de, setDe] = useState("");
+  const [ate, setAte] = useState("");
+  const [logAberto, setLogAberto] = useState<{ q?: string } | null>(null);
+
+  const ordem = useMemo(() => ordens.find((o) => o.numero === ordemNum.trim()), [ordens, ordemNum]);
+  const opcoes = useMemo(
+    () =>
+      [...ordens].sort(
+        (a, b) => Number(b.status === "Aberta") - Number(a.status === "Aberta") || b.numero.localeCompare(a.numero, undefined, { numeric: true })
+      ),
+    [ordens]
+  );
+
+  useEffect(() => {
+    if (ordemInicial) setOrdemNum(ordemInicial);
+  }, [ordemInicial]);
+
+  // ao trocar a ordem ou a data, traz o que já estava lançado naquele dia
+  useEffect(() => {
+    if (!ordem) {
+      setValores({});
+      return;
+    }
+    const v: Record<string, string> = {};
+    for (const t of ordem.talhoes) {
+      const dia = (t.colhidaDias ?? []).find((x) => x.d === dt);
+      v[`${t.fazendaCodigo}|${t.talhao}`] = dia ? String(dia.ha).replace(".", ",") : "";
+    }
+    setValores(v);
+  }, [ordem, dt]);
+
+  const carregarHistorico = useCallback(async () => {
+    setCarregando(true);
+    try {
+      const p = new URLSearchParams();
+      if (filtroOrdem.trim()) p.set("ordem", filtroOrdem.trim());
+      if (de) p.set("de", de);
+      if (ate) p.set("ate", ate);
+      const res = await fetch(`/api/area-colhida?${p}`, { cache: "no-store" });
+      const j = await res.json();
+      if (res.ok) setHistorico(j.lancamentos);
+    } finally {
+      setCarregando(false);
+    }
+  }, [filtroOrdem, de, ate]);
+
+  useEffect(() => {
+    carregarHistorico();
+  }, [carregarHistorico]);
+
+  const linhas = useMemo(() => {
+    if (!ordem) return [];
+    return ordem.talhoes.map((t) => {
+      const dias = t.colhidaDias ?? [];
+      const anterior = arred(t.areaColhidaHa + dias.filter((x) => x.d < dt).reduce((s, x) => s + x.ha, 0));
+      const posterior = arred(dias.filter((x) => x.d > dt).reduce((s, x) => s + x.ha, 0));
+      const chave = `${t.fazendaCodigo}|${t.talhao}`;
+      const dia = Number.isFinite(numero(valores[chave] ?? "")) ? numero(valores[chave] ?? "") : 0;
+      const acumulado = arred(anterior + dia);
+      return { t, chave, anterior, posterior, dia, acumulado, saldo: arred(t.areaHa - acumulado - posterior) };
+    });
+  }, [ordem, valores, dt]);
+
+  const totalDia = arred(linhas.reduce((s, l) => s + l.dia, 0));
+
+  async function gravar() {
+    if (salvando) return;
+    setErro(null);
+    setAviso(null);
+    if (!ordem) return setErro("Escolha a ordem.");
+    if (!dt) return setErro("Informe a data.");
+    for (const l of linhas) {
+      const txt = (valores[l.chave] ?? "").trim();
+      if (txt !== "" && (!Number.isFinite(numero(txt)) || numero(txt) < 0)) return setErro(`Talhão ${l.t.talhao}: informe um número válido.`);
+    }
+    setSalvando(true);
+    try {
+      const res = await fetch("/api/area-colhida", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ordem: ordem.numero,
+          dt,
+          itens: linhas.map((l) => ({ faz: l.t.fazendaCodigo, tlh: l.t.talhao, ha: l.dia })),
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível gravar.");
+      setAviso(
+        `Área colhida de ${fmtDateBR(dt)} gravada na ordem ${ordem.numero}: ${j.incluidos} incluído(s), ${j.alterados} alterado(s), ${j.removidos} removido(s).`
+      );
+      await onSalvo();
+      await carregarHistorico();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível gravar.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  function aoTeclar(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "F2") {
+      e.preventDefault();
+      gravar();
+      return;
+    }
+    const alvo = e.target as HTMLInputElement;
+    if (e.key !== "Enter" || alvo.dataset?.nav === undefined) return;
+    e.preventDefault();
+    const navs = Array.from(raiz.current?.querySelectorAll<HTMLInputElement>("[data-nav]:not(:disabled)") ?? []);
+    const i = navs.indexOf(alvo);
+    if (i < navs.length - 1) {
+      navs[i + 1].focus();
+      navs[i + 1].select?.();
+    } else gravar();
+  }
+
+  async function excluirLancamento(l: ApontamentoArea) {
+    if (!window.confirm(`Excluir a área colhida de ${l.area.toLocaleString("pt-BR")} ha do talhão ${l.tlh} em ${fmtDateBR(l.dt)}? Fica registrado no log.`)) return;
+    setErro(null);
+    const res = await fetch("/api/area-colhida", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ordem: l.ord, dt: l.dt, itens: [{ faz: l.faz, tlh: l.tlh, ha: 0 }] }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return setErro(j.error ?? "Não foi possível excluir.");
+    setAviso(`Lançamento do talhão ${l.tlh} em ${fmtDateBR(l.dt)} excluído.`);
+    await onSalvo();
+    await carregarHistorico();
+  }
+
+  function editarLancamento(l: ApontamentoArea) {
+    setOrdemNum(l.ord);
+    setDt(l.dt);
+    setAviso(null);
+    setErro(null);
+    raiz.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  return (
+    <div ref={raiz} onKeyDown={aoTeclar} className="space-y-4">
+      <section className="rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
+        <h2 className="mb-3 text-[14px] font-bold text-ink">Apontamento da área colhida (dia a dia)</h2>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className={ROTULO}>Data</label>
+            <input type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={!podeGravar} className={`${INPUT} w-[160px]`} data-nav />
+          </div>
+          <div>
+            <label className={ROTULO}>Ordem</label>
+            <input
+              list="ordens-area-lista"
+              value={ordemNum}
+              onChange={(e) => setOrdemNum(e.target.value)}
+              disabled={!podeGravar}
+              placeholder="Nº da ordem"
+              className={`${INPUT} w-[140px]`}
+              data-nav
+            />
+            <datalist id="ordens-area-lista">
+              {opcoes.map((o) => (
+                <option key={o.numero} value={o.numero}>
+                  {`${o.status} · ${o.fazendaNome}`}
+                </option>
+              ))}
+            </datalist>
+          </div>
+          <p className="min-w-0 flex-1 truncate pb-2 text-[12.5px] text-ink">
+            {ordemNum.trim() === "" ? (
+              <span className="text-muted">Escolha a ordem para listar os talhões.</span>
+            ) : !ordem ? (
+              <span className="font-semibold text-alert-600">Ordem {ordemNum} não encontrada.</span>
+            ) : (
+              <>
+                <b>{ordem.status}</b> · {ordem.frente} · {ordem.fazendaCodigo} {ordem.fazendaNome}
+              </>
+            )}
+          </p>
+        </div>
+
+        {ordem && (
+          <div className="mt-3 overflow-x-auto rounded-md border border-line">
+            <table className="w-full text-[12.5px]">
+              <thead>
+                <tr className="border-b border-line bg-navy-900 text-left text-white">
+                  <th className="px-3 py-2 font-semibold">Fazenda</th>
+                  <th className="px-3 py-2 text-center font-semibold">Talhão</th>
+                  <th className="px-3 py-2 text-right font-semibold">Área (ha)</th>
+                  <th className="px-3 py-2 text-right font-semibold">Colhida até o dia anterior (ha)</th>
+                  <th className="px-3 py-2 text-right font-semibold">Colhida no dia (ha)</th>
+                  <th className="px-3 py-2 text-right font-semibold">Acumulada (ha)</th>
+                  <th className="px-3 py-2 text-right font-semibold">Saldo (ha)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((l, i) => (
+                  <tr key={l.chave} className={`border-b border-line/60 ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}>
+                    <td className="px-3 py-1 text-ink">{l.t.fazendaCodigo}</td>
+                    <td className="px-3 py-1 text-center font-semibold text-ink">{l.t.talhao}</td>
+                    <td className="px-3 py-1 text-right tabular text-ink">{fmtHa(l.t.areaHa)}</td>
+                    <td className="px-3 py-1 text-right tabular text-muted">{fmtHa(l.anterior)}</td>
+                    <td className="px-3 py-1 text-right">
+                      <input
+                        value={valores[l.chave] ?? ""}
+                        onChange={(e) => setValores((v) => ({ ...v, [l.chave]: e.target.value }))}
+                        onFocus={(e) => e.target.select()}
+                        disabled={!podeGravar}
+                        inputMode="decimal"
+                        data-nav
+                        className={`${INPUT} w-[110px] text-right`}
+                        aria-label={`Área colhida no dia — talhão ${l.t.talhao}`}
+                      />
+                    </td>
+                    <td className="px-3 py-1 text-right tabular font-semibold text-ink">{fmtHa(l.acumulado)}</td>
+                    <td className={`px-3 py-1 text-right tabular ${l.saldo < -0.01 ? "font-semibold text-alert-600" : "text-muted"}`}>{fmtHa(l.saldo)}</td>
+                  </tr>
+                ))}
+                <tr className="bg-navy-950 font-bold text-white">
+                  <td className="px-3 py-1.5" colSpan={2}>
+                    Total
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(arred(ordem.talhoes.reduce((s, t) => s + t.areaHa, 0)))}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(arred(linhas.reduce((s, l) => s + l.anterior, 0)))}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(totalDia)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(arred(linhas.reduce((s, l) => s + l.acumulado, 0)))}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(arred(linhas.reduce((s, l) => s + l.saldo, 0)))}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {erro && <p className="mt-3 text-[12.5px] font-medium text-alert-600">{erro}</p>}
+        {aviso && <p className="mt-3 text-[12.5px] font-semibold text-good-700">{aviso}</p>}
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={gravar}
+            disabled={!podeGravar || salvando || !ordem}
+            className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
+          >
+            {salvando ? "Gravando…" : "Gravar (F2)"}
+          </button>
+          <span className="text-[11.5px] text-muted">
+            Informe os hectares colhidos <b>naquele dia</b> (vazio ou 0 apaga o lançamento do dia). A área "colhida até o dia anterior" inclui o saldo
+            lançado antes do apontamento diário. Enter passa para o próximo talhão.
+          </span>
+        </div>
+      </section>
+
+      <section className="rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
+        <div className="mb-3 flex flex-wrap items-end gap-3">
+          <h2 className="mr-2 text-[14px] font-bold text-ink">Histórico de lançamentos</h2>
+          <div>
+            <label className={ROTULO}>Ordem</label>
+            <input value={filtroOrdem} onChange={(e) => setFiltroOrdem(e.target.value)} placeholder="Todas" className={`${INPUT} w-[110px]`} />
+          </div>
+          <div>
+            <label className={ROTULO}>De</label>
+            <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className={`${INPUT} w-[150px]`} />
+          </div>
+          <div>
+            <label className={ROTULO}>Até</label>
+            <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={`${INPUT} w-[150px]`} />
+          </div>
+          <button
+            type="button"
+            onClick={() => setLogAberto({ q: filtroOrdem.trim() ? `Ordem ${filtroOrdem.trim()} ·` : undefined })}
+            className="rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card"
+          >
+            Log de alterações
+          </button>
+        </div>
+        <div className="overflow-x-auto rounded-md border border-line">
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr className="border-b border-line bg-navy-900 text-left text-white">
+                <th className="px-3 py-2 font-semibold">Data</th>
+                <th className="px-3 py-2 font-semibold">Ordem</th>
+                <th className="px-3 py-2 font-semibold">Fazenda</th>
+                <th className="px-3 py-2 text-center font-semibold">Talhão</th>
+                <th className="px-3 py-2 text-right font-semibold">Área colhida (ha)</th>
+                <th className="px-3 py-2 font-semibold">Lançado por</th>
+                <th className="px-3 py-2 font-semibold">Lançado em</th>
+                <th className="px-3 py-2 font-semibold">Alterado por</th>
+                <th className="px-3 py-2 font-semibold">Alterado em</th>
+                <th className="px-3 py-2 text-right font-semibold">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historico.map((l, i) => {
+                const alterado = l.alteradoEm !== l.criadoEm;
+                return (
+                  <tr key={`${l.ord}|${l.faz}|${l.tlh}|${l.dt}`} className={`border-b border-line/60 ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}>
+                    <td className="whitespace-nowrap px-3 py-1 text-ink">{fmtDateBR(l.dt)}</td>
+                    <td className="px-3 py-1 text-ink">{l.ord}</td>
+                    <td className="px-3 py-1 text-ink">{l.fazNm ? `${l.faz} · ${l.fazNm}` : l.faz}</td>
+                    <td className="px-3 py-1 text-center text-ink">{l.tlh}</td>
+                    <td className="px-3 py-1 text-right tabular text-ink">{fmtHa(l.area)}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-ink">{l.usuario || "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-muted">{fmtDataHora(l.criadoEm)}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-ink">{alterado ? l.alteradoPor || "—" : ""}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-muted">{alterado ? fmtDataHora(l.alteradoEm) : ""}</td>
+                    <td className="whitespace-nowrap px-3 py-1 text-right">
+                      {podeGravar && (
+                        <>
+                          <button type="button" onClick={() => editarLancamento(l)} className="mr-1 rounded px-1.5 py-0.5 text-[12px] font-semibold text-brand-700 hover:bg-brand-50">
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => excluirLancamento(l)}
+                            aria-label="Excluir lançamento"
+                            className="rounded px-1.5 text-[15px] leading-none text-muted hover:bg-alert-50 hover:text-alert-600"
+                          >
+                            ×
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!carregando && historico.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="px-4 py-8 text-center text-muted">
+                    Nenhum lançamento de área colhida ainda.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {logAberto && (
+        <AuditoriaModal
+          titulo="Log da área colhida"
+          filtro={{ modulo: "Colheita", entidade: "Área colhida", q: logAberto.q }}
+          onFechar={() => setLogAberto(null)}
+        />
+      )}
+    </div>
+  );
+}

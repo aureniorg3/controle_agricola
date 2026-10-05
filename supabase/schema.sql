@@ -307,3 +307,51 @@ create table if not exists rod_log (
   depois jsonb
 );
 create index if not exists idx_rod_log_bol on rod_log(bol, em);
+
+-- Área colhida lançada dia a dia por talhão (histórico). A área acumulada de uma data
+-- é tlh.area_col_ha (saldo lançado antes do apontamento diário) + soma de col_dia até a data.
+create table if not exists col_dia (
+  ord_num text not null,
+  faz_cod text not null,
+  tlh text not null,
+  dt date not null,
+  area numeric not null default 0,
+  usr text not null default '',
+  cri_em timestamptz not null default now(),
+  atu_usr text not null default '',
+  atu_em timestamptz not null default now(),
+  primary key (ord_num, faz_cod, tlh, dt)
+);
+
+-- Auditoria geral: quem, quando e o conteúdo antes/depois de cada lançamento, alteração,
+-- exclusão ou importação (os boletins das Rodadas de Campo usam rod_log).
+create table if not exists aud_log (
+  id bigserial primary key,
+  em timestamptz not null default now(),
+  usr text not null default '',
+  modulo text not null,
+  entidade text not null,
+  chave text not null default '',
+  acao text not null,
+  antes jsonb,
+  depois jsonb
+);
+create index if not exists idx_aud_log_em on aud_log(em desc);
+
+-- Usuário que lançou (usr) e que alterou por último (atu_usr, atu_em) nos lançamentos:
+alter table met_frt add column if not exists usr text not null default '';
+alter table met_frt add column if not exists atu_usr text not null default '';
+alter table met_frt add column if not exists atu_em timestamptz;
+alter table eqp_frt add column if not exists usr text not null default '';
+alter table eqp_frt add column if not exists atu_usr text not null default '';
+alter table eqp_frt add column if not exists atu_em timestamptz;
+alter table saf_cad add column if not exists usr text not null default '';
+alter table saf_cad add column if not exists atu_usr text not null default '';
+alter table saf_cad add column if not exists atu_em timestamptz;
+alter table cad_itm add column if not exists usr text not null default '';
+alter table cad_itm add column if not exists atu_usr text not null default '';
+alter table ord_vis add column if not exists usr text not null default '';
+alter table ord_vis add column if not exists cri_em timestamptz not null default now();
+alter table rod_cad add column if not exists usr text not null default '';
+alter table rod_cad add column if not exists atu_usr text not null default '';
+alter table rod_cad add column if not exists atu_em timestamptz;

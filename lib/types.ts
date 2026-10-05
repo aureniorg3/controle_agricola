@@ -18,6 +18,8 @@ export interface TalhaoOrdem {
   /** área colhida lançada manualmente (medição de campo, parcial) — 0 até
    * ser lançada pela primeira vez. */
   areaColhidaHa: number;
+  /** apontamento diário da área colhida (histórico); a tela soma o que vale até a data escolhida */
+  colhidaDias?: { d: string; ha: number }[];
 }
 
 /**

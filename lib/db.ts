@@ -341,6 +341,39 @@ export function prepararBanco(pool: Pool): Promise<void> {
       );
       await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_log_bol ON rod_log(bol, em)");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_itm_bol ON rod_itm(bol)");
+      // área colhida lançada dia a dia, por talhão (histórico: o filtro de datas anteriores soma só até a data)
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS col_dia (
+           ord_num text NOT NULL, faz_cod text NOT NULL, tlh text NOT NULL, dt date NOT NULL,
+           area numeric NOT NULL DEFAULT 0,
+           usr text NOT NULL DEFAULT '', cri_em timestamptz NOT NULL DEFAULT now(),
+           atu_usr text NOT NULL DEFAULT '', atu_em timestamptz NOT NULL DEFAULT now(),
+           PRIMARY KEY (ord_num, faz_cod, tlh, dt)
+         )`
+      );
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_col_dia_dt ON col_dia(dt)");
+      // auditoria geral: quem, quando, o quê (antes e depois)
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS aud_log (
+           id bigserial PRIMARY KEY, em timestamptz NOT NULL DEFAULT now(), usr text NOT NULL DEFAULT '',
+           modulo text NOT NULL, entidade text NOT NULL, chave text NOT NULL DEFAULT '', acao text NOT NULL,
+           antes jsonb, depois jsonb
+         )`
+      );
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_aud_log_em ON aud_log(em DESC)");
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_aud_log_chave ON aud_log(modulo, entidade, chave)");
+      // usuário que lançou / alterou por último, em todos os lançamentos
+      for (const t of ["met_frt", "eqp_frt", "saf_cad", "cad_itm", "ord_vis", "rod_cad"]) {
+        await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS usr text NOT NULL DEFAULT ''`);
+      }
+      for (const t of ["met_frt", "eqp_frt", "saf_cad", "cad_itm", "rod_cad"]) {
+        await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS atu_usr text NOT NULL DEFAULT ''`);
+      }
+      await pool.query("ALTER TABLE met_frt ADD COLUMN IF NOT EXISTS atu_em timestamptz");
+      await pool.query("ALTER TABLE eqp_frt ADD COLUMN IF NOT EXISTS atu_em timestamptz");
+      await pool.query("ALTER TABLE saf_cad ADD COLUMN IF NOT EXISTS atu_em timestamptz");
+      await pool.query("ALTER TABLE rod_cad ADD COLUMN IF NOT EXISTS atu_em timestamptz");
+      await pool.query("ALTER TABLE ord_vis ADD COLUMN IF NOT EXISTS cri_em timestamptz NOT NULL DEFAULT now()");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_bol_chave ON rod_bol(rod, dt, reg, sem, faz)");
       // toda rodada tem 8 semanas: as que vieram da importação com menos (ex.: rodada em andamento) seguem
       // até a semana 8, de 7 em 7 dias a partir do fim da última semana
@@ -471,10 +504,21 @@ async function carregarOrdensCompletas(pool: Pool, numeros?: string[]): Promise<
   if (ordensRows.length === 0) return [];
 
   const todosNumeros = ordensRows.map((r) => r.numero);
-  const [{ rows: talhoesRows }, { rows: entradasRows }] = await Promise.all([
+  const [{ rows: talhoesRows }, { rows: entradasRows }, { rows: colhidaRows }] = await Promise.all([
     pool.query<TalhaoRow>(`SELECT ${COLS_TLH} FROM tlh WHERE ord_num = ANY($1::text[])`, [todosNumeros]),
     pool.query<EntradaRow>(`SELECT ${COLS_ENT} FROM ent_dia WHERE ord_num = ANY($1::text[])`, [todosNumeros]),
+    pool.query<{ ord_num: string; faz_cod: string; tlh: string; dt: string; area: number }>(
+      "SELECT ord_num, faz_cod, tlh, dt, area::float AS area FROM col_dia WHERE ord_num = ANY($1::text[]) ORDER BY dt",
+      [todosNumeros]
+    ),
   ]);
+  const colhidaPorTalhao = new Map<string, { d: string; ha: number }[]>();
+  for (const c of colhidaRows) {
+    const k = `${c.ord_num}|${c.faz_cod}|${c.tlh}`;
+    const l = colhidaPorTalhao.get(k) ?? [];
+    l.push({ d: c.dt, ha: c.area });
+    colhidaPorTalhao.set(k, l);
+  }
 
   const talhoesPorOrdem = new Map<string, TalhaoOrdem[]>();
   for (const t of talhoesRows) {
@@ -485,6 +529,7 @@ async function carregarOrdensCompletas(pool: Pool, numeros?: string[]): Promise<
       talhao: t.talhao,
       areaHa: t.area_ha,
       areaColhidaHa: t.area_colhida_ha,
+      colhidaDias: colhidaPorTalhao.get(`${t.ordem_numero}|${t.fazenda_codigo}|${t.talhao}`) ?? [],
     });
     talhoesPorOrdem.set(t.ordem_numero, lista);
   }
@@ -1487,77 +1532,6 @@ export async function historicoTchPorOrdem(safraAtual: number): Promise<Historic
   return { safraAtual, safrasAnteriores, porOrdem, estPorTalhao };
 }
 
-export type LancamentoAreaColhida =
-  | { modo: "ordem"; totalHa: number }
-  | { modo: "talhoes"; valores: { fazendaCodigo: string; talhao: string; areaColhidaHa: number }[] };
-
-/**
- * Único dado ainda lançado manualmente neste módulo: a área já colhida de
- * cada talhão (medição de campo) — as toneladas continuam 100% vindas da
- * importação. "Por ordem" distribui o total proporcionalmente pela área de
- * cada talhão (mesmo critério do sistema antigo); "por talhão" grava os
- * valores exatos informados.
- */
-export async function lancarAreaColhida(
-  numero: string,
-  input: LancamentoAreaColhida
-): Promise<OrdemCorte | { erro: string }> {
-  const pool = getPool();
-  await prepararBanco(pool);
-  const ordem = (await carregarOrdensCompletas(pool, [numero]))[0];
-  if (!ordem) return { erro: `Ordem ${numero} não encontrada.` };
-
-  if (input.modo === "ordem") {
-    const areaTotalHa = ordem.talhoes.reduce((s, t) => s + t.areaHa, 0);
-    if (areaTotalHa <= 0) {
-      return { erro: "Ordem sem área cadastrada nos talhões — não é possível distribuir." };
-    }
-    if (input.totalHa < 0 || input.totalHa > areaTotalHa + 0.01) {
-      return { erro: `Área colhida deve estar entre 0 e ${areaTotalHa.toFixed(2)} ha (área total da ordem).` };
-    }
-    for (const t of ordem.talhoes) {
-      t.areaColhidaHa = Math.round((t.areaHa / areaTotalHa) * input.totalHa * 100) / 100;
-    }
-  } else {
-    for (const v of input.valores) {
-      const talhao = ordem.talhoes.find((t) => t.fazendaCodigo === v.fazendaCodigo && t.talhao === v.talhao);
-      if (!talhao) continue;
-      if (v.areaColhidaHa < 0 || v.areaColhidaHa > talhao.areaHa + 0.01) {
-        return {
-          erro: `Talhão ${v.talhao} (fazenda ${v.fazendaCodigo}): área colhida deve estar entre 0 e ${talhao.areaHa.toFixed(2)} ha.`,
-        };
-      }
-    }
-    // só grava depois de validar todos — não deixa a ordem meio atualizada.
-    for (const v of input.valores) {
-      const talhao = ordem.talhoes.find((t) => t.fazendaCodigo === v.fazendaCodigo && t.talhao === v.talhao);
-      if (talhao) talhao.areaColhidaHa = Math.round(v.areaColhidaHa * 100) / 100;
-    }
-  }
-
-  ordem.atualizadoEm = new Date().toISOString();
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    for (const t of ordem.talhoes) {
-      await client.query(
-        "UPDATE tlh SET area_col_ha = $1 WHERE ord_num = $2 AND faz_cod = $3 AND tlh = $4",
-        [t.areaColhidaHa, numero, t.fazendaCodigo, t.talhao]
-      );
-    }
-    await client.query("UPDATE ord SET atu_em = $1 WHERE num = $2", [ordem.atualizadoEm, numero]);
-    await client.query("UPDATE app_met SET ult_atu = now() WHERE id = true");
-    await client.query("COMMIT");
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
-  return ordem;
-}
-
 function mapUsuario(r: {
   id: string;
   nome: string;
@@ -1583,6 +1557,7 @@ function mapUsuario(r: {
     criadoEm: paraIso(r.criado_em),
   };
 }
+
 
 export async function listUsuarios(): Promise<Usuario[]> {
   const pool = getPool();

@@ -26,7 +26,8 @@ import {
 import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev, todayISO } from "@/lib/format";
 import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
 import { Campo, ModalShell } from "@/components/ui";
-import { aplicarCorteERateio, HORAS_CORTE, rotuloHoraCorte, type HoraCorte } from "@/lib/rateio";
+import { aplicarAreaColhidaDia, aplicarCorteERateio, HORAS_CORTE, rotuloHoraCorte, type HoraCorte } from "@/lib/rateio";
+import AreaColhidaTab from "./AreaColhidaTab";
 import {
   IconCaminhaoCana,
   IconColhedora,
@@ -280,7 +281,9 @@ export default function OrdensCorteClient({
             entradas: o.entradas.filter((e) => e.data >= producao.inicio && e.data <= producao.fim),
           }))
         : ordensBrutas
-      ).map((o) => aplicarCorteERateio(o, referencia, horaCorte, historicoTch.estPorTalhao?.[o.numero])),
+      )
+        .map((o) => aplicarAreaColhidaDia(o, referencia))
+        .map((o) => aplicarCorteERateio(o, referencia, horaCorte, historicoTch.estPorTalhao?.[o.numero])),
     [ordensBrutas, producao, referencia, horaCorte, historicoTch]
   );
   const [ordensVisiveis, setOrdensVisiveis] = useState<Set<string>>(() => new Set(initialOrdensVisiveis));
@@ -294,7 +297,8 @@ export default function OrdensCorteClient({
   const [statusFiltro, setStatusFiltro] = usarPersistido<"todas" | StatusOrdem>("ordens.status", "todas", ehUmDe(["todas", "Aberta", "Encerrada"] as const));
   const [busca, setBusca] = usarPersistido("ordens.busca", "", ehTexto);
   const [importarAberto, setImportarAberto] = useState(false);
-  const [areaColhidaAlvo, setAreaColhidaAlvo] = useState<OrdemCorte | null>(null);
+  const [aba, setAba] = usarPersistido<"painel" | "apontamento">("ordens.aba", "painel", ehUmDe(["painel", "apontamento"] as const));
+  const [ordemApontamento, setOrdemApontamento] = useState<string | null>(null);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(null);
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set());
   const [gerandoPdf, setGerandoPdf] = useState(false);
@@ -329,11 +333,13 @@ export default function OrdensCorteClient({
     }
   }, [frentesCfg, frentesCfgCarregada]);
 
-  async function refetch() {
+  // `resetarData`: depois de importar, volta para o último dia com movimento; nos demais casos mantém a data escolhida
+  async function refetch(resetarData = false) {
     const res = await fetch("/api/ordens-corte", { cache: "no-store" });
     const data = await res.json();
     setOrdens(data.ordens);
     setOrdensVisiveis(new Set<string>(data.ordensVisiveis ?? []));
+    if (resetarData)
     setReferencia(
       ultimaDataComMovimento(
         producao
@@ -866,6 +872,36 @@ export default function OrdensCorteClient({
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="mb-4 flex rounded-lg bg-navy-900/5 p-1 sm:inline-flex">
+          {([
+            ["painel", "Painel"],
+            ["apontamento", "Apontamento · Área colhida"],
+          ] as const).map(([k, rotulo]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setAba(k)}
+              className={`flex-1 rounded-md px-4 py-1.5 text-[13px] font-semibold transition-colors sm:flex-none ${
+                aba === k ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-white"
+              }`}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+
+        {aba === "apontamento" && (
+          <AreaColhidaTab
+            ordens={ordensBrutas}
+            referencia={referencia}
+            ordemInicial={ordemApontamento}
+            podeGravar={podeGravar}
+            onSalvo={() => refetch()}
+          />
+        )}
+
+        {aba === "painel" && (
+          <>
         {/* Inserir ordem manualmente */}
         {podeGravar && (
           <div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
@@ -1220,7 +1256,7 @@ export default function OrdensCorteClient({
                       safrasAnteriores={historicoTch.safrasAnteriores}
                       divergenciaPct={podeGravar ? divergenciaPorOrdem.get(ordem.numero) : undefined}
                       onRemover={podeGravar && ordensVisiveis.has(ordem.numero) && !ordensAuto.has(ordem.numero) ? () => removerOrdem(ordem.numero) : undefined}
-                      onLancarAreaColhida={podeGravar ? () => setAreaColhidaAlvo(ordem) : undefined}
+                      onLancarAreaColhida={podeGravar ? () => { setOrdemApontamento(ordem.numero); setAba("apontamento"); } : undefined}
                     />
                   ))}
                 </div>
@@ -1315,19 +1351,11 @@ export default function OrdensCorteClient({
         <p className="mb-2 mt-6 text-center text-[11.5px] text-muted">
           Sincronizado com o servidor {ultimaSincronizacao ? new Date(ultimaSincronizacao).toLocaleString("pt-BR") : "…"}
         </p>
+          </>
+        )}
       </div>
 
-      {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} onImportado={refetch} admin={ehAdmin(perfil)} />}
-      {areaColhidaAlvo && (
-        <AreaColhidaModal
-          ordem={areaColhidaAlvo}
-          onFechar={() => setAreaColhidaAlvo(null)}
-          onSalvo={(atualizada) => {
-            atualizarOrdemLocal(atualizada);
-            setAreaColhidaAlvo(null);
-          }}
-        />
-      )}
+      {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} onImportado={() => refetch(true)} admin={ehAdmin(perfil)} />}
     </div>
   );
 }
@@ -1786,142 +1814,6 @@ function OrdemCard({
  * proporcionalmente pela área de cada talhão; "Por talhão" grava os valores
  * exatos.
  */
-function AreaColhidaModal({
-  ordem,
-  onFechar,
-  onSalvo,
-}: {
-  ordem: OrdemCorte;
-  onFechar: () => void;
-  onSalvo: (ordemAtualizada: OrdemCorte) => void;
-}) {
-  const [modo, setModo] = useState<"ordem" | "talhoes">("ordem");
-  const areaTotalHa = calcAreaTotalHa(ordem);
-  const [totalHa, setTotalHa] = useState(() => calcAreaColhidaHa(ordem).toString());
-  const [porTalhao, setPorTalhao] = useState<Record<string, string>>(() =>
-    Object.fromEntries(ordem.talhoes.map((t) => [`${t.fazendaCodigo}|${t.talhao}`, t.areaColhidaHa.toString()]))
-  );
-  const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-
-  async function salvar(e: FormEvent) {
-    e.preventDefault();
-    setErro(null);
-    setEnviando(true);
-    try {
-      const body =
-        modo === "ordem"
-          ? { numero: ordem.numero, modo: "ordem", totalHa: Number(totalHa.replace(",", ".")) }
-          : {
-              numero: ordem.numero,
-              modo: "talhoes",
-              valores: ordem.talhoes.map((t) => ({
-                fazendaCodigo: t.fazendaCodigo,
-                talhao: t.talhao,
-                areaColhidaHa: Number((porTalhao[`${t.fazendaCodigo}|${t.talhao}`] ?? "0").replace(",", ".")),
-              })),
-            };
-      const res = await fetch("/api/ordens-corte/area-colhida", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setErro(data?.error ?? "Não foi possível lançar a área colhida.");
-        return;
-      }
-      onSalvo(data.ordem as OrdemCorte);
-    } catch {
-      setErro("Não foi possível enviar a solicitação. Verifique a conexão.");
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  return (
-    <ModalShell titulo={`Lançar área colhida — Ordem ${ordem.numero}`} onFechar={onFechar}>
-      <div className="mb-4 flex gap-1.5 rounded-lg bg-navy-900/5 p-1">
-        <button
-          type="button"
-          onClick={() => setModo("ordem")}
-          className={`flex-1 rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
-            modo === "ordem" ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-white"
-          }`}
-        >
-          Total da ordem
-        </button>
-        <button
-          type="button"
-          onClick={() => setModo("talhoes")}
-          className={`flex-1 rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
-            modo === "talhoes" ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-white"
-          }`}
-        >
-          Por talhão
-        </button>
-      </div>
-
-      <form onSubmit={salvar} className="space-y-3">
-        {modo === "ordem" ? (
-          <Campo label={`Área colhida da ordem (ha) — total da ordem: ${fmtHa(areaTotalHa)} ha`}>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={totalHa}
-              onChange={(e) => setTotalHa(e.target.value)}
-              className="w-full rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink shadow-card"
-            />
-            <span className="mt-1 block text-[11px] text-muted">
-              Distribuído proporcionalmente pela área de cada talhão.
-            </span>
-          </Campo>
-        ) : (
-          <div className="max-h-[45vh] space-y-2 overflow-y-auto">
-            {ordem.talhoes.map((t) => {
-              const chave = `${t.fazendaCodigo}|${t.talhao}`;
-              return (
-                <Campo key={chave} label={`Talhão ${t.talhao} · ${t.fazendaNome} (área: ${fmtHa(t.areaHa)} ha)`}>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={porTalhao[chave] ?? "0"}
-                    onChange={(e) => setPorTalhao((prev) => ({ ...prev, [chave]: e.target.value }))}
-                    className="w-full rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink shadow-card"
-                  />
-                </Campo>
-              );
-            })}
-          </div>
-        )}
-
-        {erro && (
-          <div className="rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">
-            {erro}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onFechar}
-            className="rounded-lg border border-line px-3.5 py-1.5 text-[13px] font-semibold text-ink hover:bg-surface"
-          >
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            disabled={enviando}
-            className="rounded-lg bg-navy-900 px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
-          >
-            {enviando ? "Salvando…" : "Salvar"}
-          </button>
-        </div>
-      </form>
-    </ModalShell>
-  );
-}
-
 interface ResultadoImportacaoUI {
   totalOrdens: number;
   totalViagens: number;
