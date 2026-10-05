@@ -1,0 +1,504 @@
+[
+ {
+  "aba": "COMUNICADO 9819",
+  "forn_nm": "Joilson Alves de Almeida",
+  "forn_cod": "443190",
+  "doc": "529.439.416-20",
+  "faz": [
+   {
+    "cod": "9819",
+    "nome": "FAZ. N. S. APARECIDA",
+    "area": 125.24
+   }
+  ],
+  "itens": [
+   {
+    "cod": "2774574",
+    "nm": "AIR COMBAT",
+    "um": "LT",
+    "dose": 0.05,
+    "qtd": 6.2620000000000005,
+    "vu": 35,
+    "vt": 219.17000000000002
+   },
+   {
+    "cod": "2602751",
+    "nm": "SPIKE",
+    "um": "LT",
+    "dose": 2,
+    "qtd": 250.48,
+    "vu": 42.75010000221651,
+    "vt": 10708.045048555192
+   },
+   {
+    "cod": "2474049",
+    "nm": "PICLORAM",
+    "um": "LT",
+    "dose": 1.5,
+    "qtd": 187.85999999999999,
+    "vu": 36.520600042867855,
+    "vt": 6860.7599240531545
+   },
+   {
+    "cod": "1350500",
+    "nm": "ALION SC500 INDAZIFLAN 50G/L",
+    "um": "LT",
+    "dose": 0.1,
+    "qtd": 12.524000000000001,
+    "vu": 1549.9797001438592,
+    "vt": 19411.945764601693
+   }
+  ],
+  "vol": "18.800 lt",
+  "assin": [
+   "Weslei Silva Zazenon",
+   "Cloves Rodrigues de Oliveira Junior",
+   "Leonardo Dias de Almeida"
+  ],
+  "dt": "2026-08-26",
+  "obs": ""
+ },
+ {
+  "aba": "COMUNICADO 9825",
+  "forn_nm": "Joilson Alves de Almeida",
+  "forn_cod": "443190",
+  "doc": "529.439.416-20",
+  "faz": [
+   {
+    "cod": "9825",
+    "nome": "FAZ. SÃO FRANCISCO",
+    "area": 104.88
+   }
+  ],
+  "itens": [
+   {
+    "cod": "2774574",
+    "nm": "AIR COMBAT",
+    "um": "LT",
+    "dose": 0.05,
+    "qtd": 5.244,
+    "vu": 35,
+    "vt": 183.54
+   },
+   {
+    "cod": "2602751",
+    "nm": "SPIKE",
+    "um": "LT",
+    "dose": 2,
+    "qtd": 209.76,
+    "vu": 42.75010000221651,
+    "vt": 8967.260976464935
+   },
+   {
+    "cod": "2474049",
+    "nm": "PICLORAM",
+    "um": "LT",
+    "dose": 1.5,
+    "qtd": 157.32,
+    "vu": 36.520600042867855,
+    "vt": 5745.42079874397
+   },
+   {
+    "cod": "1350500",
+    "nm": "ALION SC500 INDAZIFLAN 50G/L",
+    "um": "LT",
+    "dose": 0.1,
+    "qtd": 10.488,
+    "vu": 1549.9797001438592,
+    "vt": 16256.187095108795
+   }
+  ],
+  "vol": "15.700 lt",
+  "assin": [
+   "Weslei Silva Zazenon",
+   "Cloves Rodrigues de Oliveira Junior",
+   "Leonardo Dias de Almeida"
+  ],
+  "dt": "2026-08-26",
+  "obs": ""
+ },
+ {
+  "aba": "COMUNICADO 9837",
+  "forn_nm": "FRANCA MINERADORA",
+  "forn_cod": "430869",
+  "doc": "33.009.540/0001-95",
+  "faz": [
+   {
+    "cod": "9837",
+    "nome": "FAZ. SANTA PAULA",
+    "area": null
+   }
+  ],
+  "itens": [
+   {
+    "cod": "1350500",
+    "nm": "ALION SC500 INDAZIFLAN 50G/L",
+    "um": "LT",
+    "dose": null,
+    "qtd": 0.38,
+    "vu": 1549.98,
+    "vt": 588.9924
+   },
+   {
+    "cod": "2774574",
+    "nm": "AIR COMBAT",
+    "um": "LT",
+    "dose": null,
+    "qtd": 0.2,
+    "vu": 35,
+    "vt": 7
+   }
+  ],
+  "vol": "650 lt",
+  "assin": [
+   "Weslei Silva Zazenon",
+   "Cloves Rodrigues de Oliveira Junior",
+   "Leonardo Dias de Almeida"
+  ],
+  "dt": "2026-07-03",
+  "obs": "Aba do arquivo com valores que parecem de modelo (conferir). Não consta na aba RESUMO (saldo em aberto do arquivo)."
+ },
+ {
+  "aba": "COMUNICADO 9545 -1",
+  "forn_nm": "Joilson Alves de Almeida",
+  "forn_cod": "443190",
+  "doc": "529.439.416-20",
+  "faz": [
+   {
+    "cod": "9545",
+    "nome": "FAZ. FUNDINHO",
+    "area": 52.86
+   }
+  ],
+  "itens": [
+   {
+    "cod": "2745094",
+    "nm": "VANTACOR",
+    "um": "LT",
+    "dose": 0.035,
+    "qtd": 2,
+    "vu": 956.8,
+    "vt": 1913.6
+   },
+   {
+    "cod": "1178738",
+    "nm": "ACTARA 750 SG",
+    "um": "LT",
+    "dose": 0.3,
+    "qtd": 15,
+    "vu": 348.45,
+    "vt": 5226.75
+   }
+  ],
+  "vol": "650 lt",
+  "assin": [
+   "Iranildo Antonio da Silva",
+   "Cristiano Oliveira dos Santos",
+   "Leonardo Dias de Almeida",
+   "Cloves Rodrigues de Oliveira Junior"
+  ],
+  "dt": "2026-09-14",
+  "obs": ""
+ },
+ {
+  "aba": "COMUNICADO 9825_ADU",
+  "forn_nm": "Joilson Alves de Almeida",
+  "forn_cod": "443190",
+  "doc": "529.439.416-20",
+  "faz": [
+   {
+    "cod": "9825",
+    "nome": "FAZ. SÃO FRANCISCO",
+    "area": 104.88
+   }
+  ],
+  "itens": [
+   {
+    "cod": "1968282",
+    "nm": "ADUBO 16.00.20 SUPER N",
+    "um": "TON",
+    "dose": 0.55,
+    "qtd": 58,
+    "vu": 2443.44,
+    "vt": 141719.52
+   }
+  ],
+  "vol": "58 ton",
+  "assin": [
+   "Iranildo Antonio da Silva",
+   "Cristiano Oliveira dos Santos",
+   "Leonardo Dias de Almeida",
+   "Cloves Rodrigues de Oliveira Junior"
+  ],
+  "dt": null,
+  "obs": "Não consta na aba RESUMO (saldo em aberto do arquivo)."
+ },
+ {
+  "aba": "COMUNICADO 9825_CATA",
+  "forn_nm": "Joilson Alves de Almeida",
+  "forn_cod": "443190",
+  "doc": "529.439.416-20",
+  "faz": [
+   {
+    "cod": "9825",
+    "nome": "FAZ. SÃO FRANCISCO",
+    "area": 104.88
+   },
+   {
+    "cod": "9819",
+    "nome": "FAZ. N. S. APARECIDA",
+    "area": 125.24
+   }
+  ],
+  "itens": [
+   {
+    "cod": "2707032",
+    "nm": "HEXAZINONA D NORTOX",
+    "um": "KG",
+    "dose": 0.4,
+    "qtd": 92,
+    "vu": 37.01,
+    "vt": 3404.9199999999996
+   },
+   {
+    "cod": "2399532",
+    "nm": "PROTAC",
+    "um": "KG",
+    "dose": 0.004,
+    "qtd": 1,
+    "vu": 48.94,
+    "vt": 48.94
+   }
+  ],
+  "vol": "400 lt.",
+  "assin": [
+   "Iranildo Antonio da Silva",
+   "Cristiano Oliveira dos Santos",
+   "Leonardo Dias de Almeida",
+   "Cloves Rodrigues de Oliveira Junior"
+  ],
+  "dt": null,
+  "obs": "Não consta na aba RESUMO (saldo em aberto do arquivo)."
+ },
+ {
+  "aba": "COMUNICADO 9830",
+  "forn_nm": "Joilson Alves de Almeida",
+  "forn_cod": "443190",
+  "doc": "529.439.416-20",
+  "faz": [
+   {
+    "cod": "9830",
+    "nome": "FAZ. LAGOINHA",
+    "area": 43.04
+   }
+  ],
+  "itens": [
+   {
+    "cod": "1425997",
+    "nm": "COACT",
+    "um": "KG",
+    "dose": 0.126,
+    "qtd": 5.423,
+    "vu": 714.62,
+    "vt": 3875.3842600000003
+   },
+   {
+    "cod": "2399532",
+    "nm": "PROTAC",
+    "um": "KG",
+    "dose": 0.05,
+    "qtd": 2.152,
+    "vu": 48.94,
+    "vt": 105.31888000000001
+   },
+   {
+    "cod": "1350500",
+    "nm": "ALION SC500 INDAZIFLAN 50G/L",
+    "um": "LT",
+    "dose": 0.1,
+    "qtd": 4.304,
+    "vu": 1549.98,
+    "vt": 6671.113920000001
+   },
+   {
+    "cod": "2474050",
+    "nm": "METSULFURON",
+    "um": "LT",
+    "dose": 0.03,
+    "qtd": 1.291,
+    "vu": 192.26,
+    "vt": 248.20765999999998
+   }
+  ],
+  "vol": "6.456 lt.",
+  "assin": [
+   "Iranildo Antonio da Silva",
+   "Cristiano Oliveira dos Santos",
+   "Leonardo Dias de Almeida",
+   "Cloves Rodrigues de Oliveira Junior"
+  ],
+  "dt": null,
+  "obs": "Não consta na aba RESUMO (saldo em aberto do arquivo)."
+ },
+ {
+  "aba": "COMUNICADO 9819_ADU",
+  "forn_nm": "Joilson Alves de Almeida",
+  "forn_cod": "443190",
+  "doc": "529.439.416-20",
+  "faz": [
+   {
+    "cod": "9819",
+    "nome": "FAZ. N. S. APARECIDA",
+    "area": 125.24
+   }
+  ],
+  "itens": [
+   {
+    "cod": "1968282",
+    "nm": "ADUBO 16.00.20 SUPER N",
+    "um": "TON",
+    "dose": 0.55,
+    "qtd": 69,
+    "vu": 2443.44,
+    "vt": 168597.36000000002
+   }
+  ],
+  "vol": "69 ton",
+  "assin": [
+   "Iranildo Antonio da Silva",
+   "Cristiano Oliveira dos Santos",
+   "Leonardo Dias de Almeida",
+   "Cloves Rodrigues de Oliveira Junior"
+  ],
+  "dt": null,
+  "obs": "Não consta na aba RESUMO (saldo em aberto do arquivo)."
+ },
+ {
+  "aba": "COMUNICADO 9545",
+  "forn_nm": "Joilson Alves de Almeida",
+  "forn_cod": "443190",
+  "doc": "529.439.416-20",
+  "faz": [
+   {
+    "cod": "9545",
+    "nome": "FAZ. FUNDINHO",
+    "area": 52.86
+   }
+  ],
+  "itens": [
+   {
+    "cod": "2745094",
+    "nm": "VANTACOR",
+    "um": "LT",
+    "dose": null,
+    "qtd": 0.035,
+    "vu": 1549.98,
+    "vt": 54.249300000000005
+   },
+   {
+    "cod": "1178738",
+    "nm": "ACTARA 750 SG",
+    "um": "LT",
+    "dose": null,
+    "qtd": 0.2,
+    "vu": 35,
+    "vt": 7
+   }
+  ],
+  "vol": "650 lt",
+  "assin": [
+   "Weslei Silva Zazenon",
+   "Cloves Rodrigues de Oliveira Junior",
+   "Leonardo Dias de Almeida"
+  ],
+  "dt": "2026-07-03",
+  "obs": "Aba do arquivo com valores que parecem de modelo (conferir). Não consta na aba RESUMO (saldo em aberto do arquivo)."
+ },
+ {
+  "forn_cod": "443190",
+  "forn_nm": "Joilson Alves de Almeida",
+  "doc": "529.439.416-20",
+  "assin": [
+   "Weslei Silva Zazenon",
+   "Cloves Rodrigues de Oliveira Junior",
+   "Leonardo Dias de Almeida"
+  ],
+  "aba": "RESUMO (03/07 · Fundinho)",
+  "dt": "2026-07-03",
+  "faz": [
+   {
+    "cod": "9831",
+    "nome": "FAZ. FUNDINHO",
+    "area": null
+   }
+  ],
+  "vol": "",
+  "obs": "Origem: aba RESUMO (sem comunicado na planilha).",
+  "itens": [
+   {
+    "cod": "858778",
+    "nm": "MAGNUS BR",
+    "um": "KG",
+    "dose": null,
+    "qtd": 20,
+    "vu": 85.66,
+    "vt": 1713.2
+   },
+   {
+    "cod": "1830648",
+    "nm": "PROVENCE TOTAL",
+    "um": "LT",
+    "dose": null,
+    "qtd": 10,
+    "vu": 487.99,
+    "vt": 4879.9
+   },
+   {
+    "cod": "2399532",
+    "nm": "PROTAC",
+    "um": "KG",
+    "dose": null,
+    "qtd": 0.3,
+    "vu": 47.95,
+    "vt": 14.385
+   }
+  ]
+ },
+ {
+  "forn_cod": "443190",
+  "forn_nm": "Joilson Alves de Almeida",
+  "doc": "529.439.416-20",
+  "assin": [
+   "Weslei Silva Zazenon",
+   "Cloves Rodrigues de Oliveira Junior",
+   "Leonardo Dias de Almeida"
+  ],
+  "aba": "RESUMO (03/07 · Hexazinona)",
+  "dt": "2026-07-03",
+  "faz": [
+   {
+    "cod": "9819",
+    "nome": "FAZ. N. S. APARECIDA",
+    "area": null
+   },
+   {
+    "cod": "9825",
+    "nome": "FAZ. SÃO FRANCISCO",
+    "area": null
+   }
+  ],
+  "vol": "",
+  "obs": "Origem: aba RESUMO (sem comunicado na planilha).",
+  "itens": [
+   {
+    "cod": "240151",
+    "nm": "HEXAZINONA 250",
+    "um": "LT",
+    "dose": 2,
+    "qtd": 57,
+    "vu": 30.90022532,
+    "vt": 1761.31284324
+   }
+  ]
+ }
+]
