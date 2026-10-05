@@ -226,3 +226,54 @@ export async function snapshotsExistentes(chaves: { empresa: number; data: strin
   );
   return new Set(rows.map((r) => `${r.emp}|${r.d}`));
 }
+
+export interface ItemMaterial {
+  cod: string;
+  ds: string;
+  un: string;
+  grp: string;
+  /** preço médio do Saldo de Insumos mais recente (CRV-MG primeiro); null se nunca houve saldo */
+  preco: number | null;
+  precoData: string | null;
+}
+
+/** Item do cadastro Material e Insumos + preço médio do último saldo. */
+export async function itemMaterial(cod: string): Promise<ItemMaterial | null> {
+  const pool = getPool();
+  await preparar(pool);
+  const c = (
+    await pool.query<{ cod: string; nm: string; un: string | null; grp: string | null }>(
+      `SELECT cod, nm, dds->>'unidade_medida_consumo' AS un, dds->>'grupo_de_produto' AS grp FROM cad_itm WHERE cad = 'materiais-insumos' AND cod = $1`,
+      [cod.trim()]
+    )
+  ).rows[0];
+  if (!c) return null;
+  const consulta = (filtroEmp: string, soComSaldo: boolean) =>
+    pool.query<{ dt: string; preco: number | null }>(
+      `SELECT dt::text AS dt, (SUM(saldo * custo) / NULLIF(SUM(saldo), 0))::float AS preco
+         FROM ins_sld WHERE cod = $1 ${filtroEmp} ${soComSaldo ? "AND saldo > 0" : ""}
+        GROUP BY dt HAVING SUM(saldo) ${soComSaldo ? "> 0" : "<> 0"} ORDER BY dt DESC LIMIT 1`,
+      [cod.trim()]
+    );
+  let p = (await consulta("AND emp = 5", true)).rows[0] ?? (await consulta("", true)).rows[0];
+  if (!p) {
+    const u = (await pool.query<{ dt: string; preco: number | null }>(`SELECT dt::text AS dt, custo::float AS preco FROM ins_sld WHERE cod = $1 ORDER BY dt DESC LIMIT 1`, [cod.trim()])).rows[0];
+    p = u;
+  }
+  return { cod: c.cod, ds: c.nm, un: (c.un ?? "").trim(), grp: (c.grp ?? "").trim(), preco: p?.preco ?? null, precoData: p?.dt ?? null };
+}
+
+/** Busca no cadastro Material e Insumos por código (começo) ou descrição; insumos agrícolas (grupo 01.02) primeiro. */
+export async function buscarMateriais(q: string): Promise<{ cod: string; ds: string; un: string }[]> {
+  const pool = getPool();
+  await preparar(pool);
+  const termo = q.trim().replace(/[%_\\]/g, (ch) => `\\${ch}`);
+  if (termo.length < 2) return [];
+  const { rows } = await pool.query<{ cod: string; ds: string; un: string | null }>(
+    `SELECT cod, nm AS ds, dds->>'unidade_medida_consumo' AS un FROM cad_itm
+      WHERE cad = 'materiais-insumos' AND (cod LIKE $1 || '%' OR nm ILIKE '%' || $1 || '%')
+      ORDER BY (dds->>'grupo_de_produto' LIKE '01.02%') DESC, nm LIMIT 12`,
+    [termo]
+  );
+  return rows.map((r) => ({ cod: r.cod, ds: r.ds, un: (r.un ?? "").trim() }));
+}

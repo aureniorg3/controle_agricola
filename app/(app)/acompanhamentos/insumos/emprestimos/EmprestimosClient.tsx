@@ -31,6 +31,9 @@ interface ItemForm {
   dose: string;
   qtd: string;
   vu: string;
+  /** true: item achado no cadastro Material e Insumos (descrição e UM vêm de lá); false: código fora do cadastro */
+  cad?: boolean;
+  aviso?: string;
 }
 interface FazForm {
   cod: string;
@@ -219,6 +222,55 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
       await carregar();
     } catch (er) {
       setErro(er instanceof Error ? er.message : "Não foi possível excluir.");
+    }
+  }
+
+  const [sugestoes, setSugestoes] = useState<{ cod: string; ds: string; un: string }[]>([]);
+
+  async function buscarSugestoes(q: string) {
+    if (q.trim().length < 2) return setSugestoes([]);
+    try {
+      const res = await fetch(`/api/insumos/item?q=${encodeURIComponent(q.trim())}`, { cache: "no-store" });
+      const json = await res.json();
+      setSugestoes(res.ok ? json.itens : []);
+    } catch {
+      setSugestoes([]);
+    }
+  }
+
+  /** Traz do cadastro a descrição e a UM e do Saldo de Insumos o preço médio mais recente. */
+  async function aplicarItem(k: number, cod: string) {
+    const c = cod.trim();
+    if (!c) return;
+    try {
+      const res = await fetch(`/api/insumos/item?cod=${encodeURIComponent(c)}`, { cache: "no-store" });
+      const json = await res.json();
+      const it = res.ok ? json.item : null;
+      if (!it) {
+        setForm((f) => f && { ...f, itens: f.itens.map((x, i) => (i === k && x.cod.trim() === c ? { ...x, cad: false, aviso: "Código não encontrado no cadastro Material e Insumos — preencha à mão." } : x)) });
+        return;
+      }
+      setForm(
+        (f) =>
+          f && {
+            ...f,
+            itens: f.itens.map((x, i) =>
+              i === k && x.cod.trim() === c
+                ? {
+                    ...x,
+                    cod: it.cod,
+                    nm: it.ds,
+                    um: it.un,
+                    vu: it.preco !== null ? emTexto(Math.round(it.preco * 100) / 100) : x.vu,
+                    cad: true,
+                    aviso: it.preco !== null ? `Preço médio do saldo de ${fmtDateBR(it.precoData)}` : "Sem saldo no histórico: informe o preço.",
+                  }
+                : x
+            ),
+          }
+      );
+    } catch {
+      /* segue digitado */
     }
   }
 
@@ -457,10 +509,10 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
                 </option>
               ))}
             </datalist>
-            <datalist id="item-cods">
-              {Array.from(sugestoesItem.entries()).map(([c, v]) => (
-                <option key={c} value={c}>
-                  {v.nm}
+            <datalist id="item-sug">
+              {sugestoes.map((x) => (
+                <option key={x.cod} value={x.cod}>
+                  {x.ds} ({x.un})
                 </option>
               ))}
             </datalist>
@@ -498,87 +550,127 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
             </div>
 
             <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted">Insumos emprestados</div>
-            <div className="mt-1 space-y-2">
-              {form.itens.map((i, k) => (
-                <div key={k} className="grid grid-cols-12 items-end gap-2">
-                  <div className="col-span-3 md:col-span-2">
-                    <label className={ROTULO}>Código</label>
-                    <input
-                      list="item-cods"
-                      value={i.cod}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        const s = sugestoesItem.get(v);
-                        updItem(k, s ? { cod: v, nm: i.nm || s.nm, um: i.um || s.um, vu: i.vu || emTexto(s.vu) } : { cod: v });
-                      }}
-                      className={INPUT}
-                    />
-                  </div>
-                  <div className="col-span-9 md:col-span-3">
-                    <label className={ROTULO}>Descrição</label>
-                    <input value={i.nm} onChange={(e) => updItem(k, { nm: e.target.value })} className={INPUT} />
-                  </div>
-                  <div className="col-span-2 md:col-span-1">
-                    <label className={ROTULO}>U.M.</label>
-                    <input value={i.um} onChange={(e) => updItem(k, { um: e.target.value })} className={INPUT} />
-                  </div>
-                  <div className="col-span-3 md:col-span-1">
-                    <label className={ROTULO}>Dose</label>
-                    <input value={i.dose} onChange={(e) => updItem(k, { dose: e.target.value })} inputMode="decimal" className={`${INPUT} text-right`} />
-                  </div>
-                  <div className="col-span-3 md:col-span-1">
-                    <label className={ROTULO}>Qtd</label>
-                    <input value={i.qtd} onChange={(e) => updItem(k, { qtd: e.target.value })} inputMode="decimal" className={`${INPUT} text-right`} />
-                  </div>
-                  <div className="col-span-4 md:col-span-2">
-                    <label className={ROTULO}>Vl. unit.</label>
-                    <input value={i.vu} onChange={(e) => updItem(k, { vu: e.target.value })} inputMode="decimal" className={`${INPUT} text-right`} />
-                  </div>
-                  <div className="col-span-8 text-right text-[12.5px] tabular font-semibold md:col-span-1">
-                    {brl(numero(i.qtd) > 0 ? totalItem(numero(i.qtd), numero(i.vu || "0") || 0) : 0)}
-                  </div>
-                  <div className="col-span-4 text-right md:col-span-1">
-                    {form.itens.length > 1 && (
-                      <button type="button" onClick={() => upd({ itens: form.itens.filter((_, x) => x !== k) })} className="text-[12px] text-alert-700 hover:underline">
-                        remover
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+            <div className="mt-1 overflow-x-auto rounded-lg border border-line">
+              <table className="w-full min-w-[760px] text-[12.5px]">
+                <thead>
+                  <tr className="bg-surface text-left text-muted">
+                    <th className="w-[130px] px-2 py-1.5 font-semibold">Código</th>
+                    <th className="px-2 py-1.5 font-semibold">Descrição</th>
+                    <th className="w-[70px] px-2 py-1.5 font-semibold">U.M.</th>
+                    <th className="w-[80px] px-2 py-1.5 text-right font-semibold">Dose</th>
+                    <th className="w-[100px] px-2 py-1.5 text-right font-semibold">Qtd</th>
+                    <th className="w-[110px] px-2 py-1.5 text-right font-semibold">Preço médio</th>
+                    <th className="w-[120px] px-2 py-1.5 text-right font-semibold">Vl. total</th>
+                    <th className="w-[30px]" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {form.itens.map((i, k) => {
+                    const cel = "w-full rounded border border-transparent bg-transparent px-1.5 py-1 hover:border-line focus:border-navy-900 focus:bg-surface focus:outline-none";
+                    return (
+                      <Fragment key={k}>
+                        <tr className="border-t border-line/60 align-middle">
+                          <td className="px-1 py-0.5">
+                            <input
+                              list="item-sug"
+                              value={i.cod}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                updItem(k, { cod: v, cad: undefined, aviso: undefined });
+                                buscarSugestoes(v);
+                                if (sugestoes.some((x) => x.cod === v)) aplicarItem(k, v);
+                              }}
+                              onBlur={() => i.cad === undefined && aplicarItem(k, i.cod)}
+                              className={`${cel} tabular`}
+                              aria-label="Código do insumo"
+                            />
+                          </td>
+                          <td className="px-1 py-0.5">
+                            <input value={i.nm} readOnly={i.cad === true} onChange={(e) => updItem(k, { nm: e.target.value })} className={cel} aria-label="Descrição" />
+                          </td>
+                          <td className="px-1 py-0.5">
+                            <input value={i.um} readOnly={i.cad === true} onChange={(e) => updItem(k, { um: e.target.value })} className={cel} aria-label="Unidade" />
+                          </td>
+                          <td className="px-1 py-0.5">
+                            <input value={i.dose} onChange={(e) => updItem(k, { dose: e.target.value })} inputMode="decimal" className={`${cel} text-right`} aria-label="Dose" />
+                          </td>
+                          <td className="px-1 py-0.5">
+                            <input value={i.qtd} onChange={(e) => updItem(k, { qtd: e.target.value })} inputMode="decimal" className={`${cel} text-right`} aria-label="Quantidade" />
+                          </td>
+                          <td className="px-1 py-0.5">
+                            <input value={i.vu} onChange={(e) => updItem(k, { vu: e.target.value })} inputMode="decimal" className={`${cel} text-right`} aria-label="Preço médio" />
+                          </td>
+                          <td className="px-2 py-0.5 text-right tabular font-semibold">{brl(numero(i.qtd) > 0 ? totalItem(numero(i.qtd), numero(i.vu || "0") || 0) : 0)}</td>
+                          <td className="px-1 text-center">
+                            {form.itens.length > 1 && (
+                              <button type="button" title="Remover linha" onClick={() => upd({ itens: form.itens.filter((_, x) => x !== k) })} className="text-alert-700 hover:underline">
+                                ×
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                        {i.aviso && (
+                          <tr>
+                            <td />
+                            <td colSpan={7} className={`px-2 pb-1 text-[11px] ${i.cad === false ? "text-amber-700" : "text-muted"}`}>
+                              {i.aviso}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                  <tr className="border-t border-line bg-surface font-bold">
+                    <td colSpan={6} className="px-2 py-1.5 text-right">
+                      Total
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular">{brl(totalForm)}</td>
+                    <td />
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <div className="mt-2 flex items-center justify-between">
-              <button type="button" className={BOTAO} onClick={() => upd({ itens: [...form.itens, itemVazio()] })}>
-                + Insumo
-              </button>
-              <div className="text-[13px] font-bold tabular">Total: {brl(totalForm)}</div>
-            </div>
+            <button type="button" className={`${BOTAO} mt-2`} onClick={() => upd({ itens: [...form.itens, itemVazio()] })}>
+              + Insumo
+            </button>
 
             <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted">Local de aplicação</div>
-            <div className="mt-1 space-y-2">
-              {form.faz.map((f, k) => (
-                <div key={k} className="grid grid-cols-12 items-end gap-2">
-                  <div className="col-span-3 md:col-span-2">
-                    <label className={ROTULO}>Fazenda (cód.)</label>
-                    <input value={f.cod} onChange={(e) => updFaz(k, { cod: e.target.value })} onBlur={() => nomeFazenda(k, f.cod)} className={INPUT} />
-                  </div>
-                  <div className="col-span-9 md:col-span-6">
-                    <label className={ROTULO}>Descrição</label>
-                    <input value={f.nome} onChange={(e) => updFaz(k, { nome: e.target.value })} className={INPUT} />
-                  </div>
-                  <div className="col-span-8 md:col-span-3">
-                    <label className={ROTULO}>Área (ha)</label>
-                    <input value={f.area} onChange={(e) => updFaz(k, { area: e.target.value })} inputMode="decimal" className={`${INPUT} text-right`} />
-                  </div>
-                  <div className="col-span-4 text-right md:col-span-1">
-                    {form.faz.length > 1 && (
-                      <button type="button" onClick={() => upd({ faz: form.faz.filter((_, x) => x !== k) })} className="text-[12px] text-alert-700 hover:underline">
-                        remover
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+            <div className="mt-1 overflow-x-auto rounded-lg border border-line">
+              <table className="w-full min-w-[520px] text-[12.5px]">
+                <thead>
+                  <tr className="bg-surface text-left text-muted">
+                    <th className="w-[130px] px-2 py-1.5 font-semibold">Fazenda (cód.)</th>
+                    <th className="px-2 py-1.5 font-semibold">Descrição</th>
+                    <th className="w-[130px] px-2 py-1.5 text-right font-semibold">Área (ha)</th>
+                    <th className="w-[30px]" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {form.faz.map((f, k) => {
+                    const cel = "w-full rounded border border-transparent bg-transparent px-1.5 py-1 hover:border-line focus:border-navy-900 focus:bg-surface focus:outline-none";
+                    return (
+                      <tr key={k} className="border-t border-line/60">
+                        <td className="px-1 py-0.5">
+                          <input value={f.cod} onChange={(e) => updFaz(k, { cod: e.target.value })} onBlur={() => nomeFazenda(k, f.cod)} className={`${cel} tabular`} aria-label="Código da fazenda" />
+                        </td>
+                        <td className="px-1 py-0.5">
+                          <input value={f.nome} onChange={(e) => updFaz(k, { nome: e.target.value })} className={cel} aria-label="Descrição da fazenda" />
+                        </td>
+                        <td className="px-1 py-0.5">
+                          <input value={f.area} onChange={(e) => updFaz(k, { area: e.target.value })} inputMode="decimal" className={`${cel} text-right`} aria-label="Área" />
+                        </td>
+                        <td className="px-1 text-center">
+                          {form.faz.length > 1 && (
+                            <button type="button" title="Remover linha" onClick={() => upd({ faz: form.faz.filter((_, x) => x !== k) })} className="text-alert-700 hover:underline">
+                              ×
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
             <button type="button" className={`${BOTAO} mt-2`} onClick={() => upd({ faz: [...form.faz, fazVazia()] })}>
               + Fazenda
