@@ -169,7 +169,7 @@ export default function SaldoResumoClient({ perfil, nomeUsuario }: { perfil: Per
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden" translate="no">
       <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
         <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Insumos</span>
+          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Insumos · Saldo Insumos</span>
           <div className="truncate text-[15px] font-bold text-ink">Resumo — Saldo de Insumos Agrícolas</div>
         </nav>
         {podeImportar && (

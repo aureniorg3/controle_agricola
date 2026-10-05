@@ -1,5 +1,9 @@
-import { redirect } from "next/navigation";
+import { usuarioAtual } from "@/lib/db";
+import SaldoResumoClient from "./SaldoResumoClient";
 
-export default function Page() {
-  redirect("/acompanhamentos/insumos/resumo");
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const usuario = await usuarioAtual();
+  return <SaldoResumoClient perfil={usuario?.perfil ?? "leitura"} nomeUsuario={usuario?.nome ?? "Usuário"} />;
 }

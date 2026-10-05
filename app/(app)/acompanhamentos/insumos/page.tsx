@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function Page() {
-  redirect("/acompanhamentos/insumos/resumo");
+  redirect("/acompanhamentos/insumos/saldo/resumo");
 }

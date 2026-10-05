@@ -77,8 +77,10 @@ const SECTIONS: Section[] = [
         label: "Insumos",
         icon: IconInsumo,
         children: [
-          { label: "Resumo", href: "/acompanhamentos/insumos/resumo" },
-          { label: "Saldo Insumos", href: "/acompanhamentos/insumos/saldo" },
+          {
+            label: "Saldo Insumos",
+            children: [{ label: "Resumo", href: "/acompanhamentos/insumos/saldo/resumo" }],
+          },
           { label: "Empréstimos", href: "/acompanhamentos/insumos/emprestimos" },
         ],
       },
