@@ -26,6 +26,8 @@ export interface CadastroSpec {
   colunas: ColunaCadastro[];
   /** colunas que formam o código — não se edita depois de criado */
   chaves: string[];
+  /** planilha muito grande (dezenas de milhares de linhas): lida em fluxo, guardando só as colunas de `colunas` */
+  grande?: boolean;
 }
 
 /** minúsculas, sem acento e sem pontuação: "Código Cliente/Forn." -> "codigo cliente forn" */
@@ -253,6 +255,25 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
       { chave: "regiao_nm", rotulo: "Descrição da Região", largura: 220, derivada: true },
     ],
   },
+  {
+    slug: "materiais-insumos",
+    titulo: "Material e Insumos",
+    // o relatório sai do sistema como "ExportTCO13TExportToExcel-NNNN"
+    arquivos: ["materiais e insumos", "material e insumos", "produtos", "materiais", "exporttco13texporttoexcel"],
+    obrigatorias: ["codigo", "descricao", "grupo_de_produto", "unidade_medida_consumo"],
+    codigo: (d) => texto(d.codigo),
+    nome: (d) => texto(d.descricao),
+    chaves: ["codigo"],
+    grande: true,
+    colunas: [
+      { chave: "codigo", rotulo: "Código", alinhar: "direita" },
+      { chave: "descricao", rotulo: "Descrição", largura: 320 },
+      { chave: "descricao_complementar_1", rotulo: "Descrição Complementar", largura: 220 },
+      { chave: "grupo_de_produto", rotulo: "Grupo" },
+      { chave: "unidade_medida_consumo", rotulo: "UM", alinhar: "centro" },
+      { chave: "tipo_de_produto", rotulo: "Tipo de Produto" },
+    ],
+  },
 ];
 
 export function specPorSlug(slug: string): CadastroSpec | undefined {
@@ -262,5 +283,5 @@ export function specPorSlug(slug: string): CadastroSpec | undefined {
 /** Cadastro sugerido pelo nome do arquivo ("Tipo de Solo.xlsx" -> tipos-solo). */
 export function specPorNomeArquivo(nomeArquivo: string): CadastroSpec | undefined {
   const base = normalizarTexto(nomeArquivo.replace(/\.[^.]+$/, ""));
-  return CADASTROS_SPEC.find((s) => s.arquivos.includes(base));
+  return CADASTROS_SPEC.find((s) => s.arquivos.some((a) => base === a || base.startsWith(`${a} `)));
 }

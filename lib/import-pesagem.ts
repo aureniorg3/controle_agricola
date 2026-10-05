@@ -124,9 +124,9 @@ function repararZipParaExceljs(buffer: Buffer): Promise<Buffer> {
  * memória — os relatórios de Pesagem/Conferência têm ~176 mil linhas, e o
  * parser padrão do pacote xlsx passa de 700 MB de RAM nesses arquivos
  * (estoura o limite de 512 MB da instância gratuita do Render). */
-async function paraCadaLinha(buffer: ArrayBuffer, onLinha: (linha: unknown[]) => void): Promise<void> {
-  const bufferReparado = await repararZipParaExceljs(Buffer.from(buffer));
-  const stream = Readable.from(bufferReparado);
+export async function paraCadaLinha(buffer: ArrayBuffer, onLinha: (linha: unknown[]) => void, reparar = true): Promise<void> {
+  // o reparo descompacta o arquivo todo em memória: só quando o leitor direto não aguenta o ZIP
+  const stream = Readable.from(reparar ? await repararZipParaExceljs(Buffer.from(buffer)) : Buffer.from(buffer));
   const wb = new ExcelJS.stream.xlsx.WorkbookReader(stream, {
     entries: "emit",
     sharedStrings: "cache",

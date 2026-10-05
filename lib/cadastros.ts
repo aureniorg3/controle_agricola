@@ -22,5 +22,6 @@ export const CADASTROS: { slug: string; label: string }[] = [
   { slug: "maturacao", label: "Maturação" },
   { slug: "estados", label: "Estados" },
   { slug: "fornecedores-prestadores", label: "Fornecedores e Prestadores" },
+  { slug: "materiais-insumos", label: "Material e Insumos" },
   { slug: "usuarios", label: "Usuários" },
 ];

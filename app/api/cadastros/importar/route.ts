@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auditar } from "@/lib/auditar";
 import { getPool, upsertCadastroLote, usuarioDaRequisicao } from "@/lib/db";
 import { specPorSlug } from "@/lib/cadastros-spec";
-import { lerCadastro } from "@/lib/cadastros-import";
+import { lerCadastro, lerCadastroGrande } from "@/lib/cadastros-import";
 import { resolverReferencias } from "@/lib/cadastros-ref";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
       continue;
     }
     try {
-      const lido = lerCadastro(await arquivo.arrayBuffer(), spec);
+      const lido = spec.grande ? await lerCadastroGrande(await arquivo.arrayBuffer(), spec) : lerCadastro(await arquivo.arrayBuffer(), spec);
       if (lido.erros.length > 0) {
         resultados.push({ ...base, erro: lido.erros.join(" ") });
         continue;

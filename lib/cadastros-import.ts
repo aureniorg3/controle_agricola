@@ -1,4 +1,4 @@
-import { dataIso, lerLinhas } from "./import-pesagem";
+import { dataIso, lerLinhas, paraCadaLinha } from "./import-pesagem";
 import {
   normalizarTexto,
   type CadastroSpec,
@@ -30,6 +30,57 @@ export interface ResultadoCadastro {
   repetidas: number;
   avisos: string[];
   erros: string[];
+}
+
+/**
+ * Versão em fluxo para planilhas enormes (ex.: Material e Insumos, ~120 mil linhas): não materializa a planilha
+ * inteira e só guarda as colunas listadas no cadastro, para caber na memória da instância e no banco.
+ */
+export async function lerCadastroGrande(buffer: ArrayBuffer, spec: CadastroSpec): Promise<ResultadoCadastro> {
+  const res: ResultadoCadastro = { itens: [], linhasLidas: 0, repetidas: 0, avisos: [], erros: [] };
+  const guardar = new Set(spec.colunas.map((c) => c.chave));
+  let chaves: string[] | null = null;
+  let n = 0;
+  const porCodigo = new Map<string, { cod: string; nm: string; dados: DadosCadastro }>();
+  const lerLinha = (linha: unknown[]) => {
+    n++;
+    if (!chaves) {
+      if (n > 25) return;
+      const candidatas = chavesDoCabecalho(linha);
+      if (spec.obrigatorias.every((k) => candidatas.includes(k))) chaves = candidatas;
+      return;
+    }
+    const dados: DadosCadastro = {};
+    let preenchida = false;
+    chaves.forEach((k, j) => {
+      const v = valorDaCelula(linha[j]);
+      if (v !== "") preenchida = true;
+      if (guardar.has(k) || spec.obrigatorias.includes(k)) dados[k] = v;
+    });
+    if (!preenchida) return;
+    const cod = spec.codigo(dados);
+    if (!cod || cod === "|") return;
+    res.linhasLidas++;
+    if (porCodigo.has(cod)) res.repetidas++;
+    porCodigo.set(cod, { cod, nm: spec.nome(dados), dados });
+  };
+  try {
+    // leitura direta (leve); só se o ZIP vier fora da especificação é que se usa o leitor reparado (usa muito mais memória)
+    await paraCadaLinha(buffer, lerLinha, false);
+  } catch (e) {
+    if (n > 0) throw e;
+    await paraCadaLinha(buffer, lerLinha, true);
+  }
+  if (!chaves) {
+    res.erros.push(
+      `Não encontrei o cabeçalho de "${spec.titulo}" no arquivo (esperava as colunas: ${spec.obrigatorias.join(", ")}). Confira se o arquivo é do cadastro certo.`
+    );
+    return res;
+  }
+  res.itens = [...porCodigo.values()];
+  if (res.itens.length === 0) res.erros.push(`Nenhum registro de "${spec.titulo}" encontrado abaixo do cabeçalho.`);
+  if (res.repetidas > 0) res.avisos.push(`${res.repetidas} linha(s) repetida(s) no arquivo (mesmo código) — valeu a última de cada.`);
+  return res;
 }
 
 /** Lê a planilha de um cadastro: acha o cabeçalho, guarda todas as colunas por nome e junta repetidos pelo código. */
