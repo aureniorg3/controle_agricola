@@ -19,7 +19,7 @@ import {
   Usuario,
 } from "./types";
 import { auditar, dataBR } from "./auditar";
-import { gerarSenhaProvisoria, hashSenha, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
+import { hashSenha, SENHA_PADRAO_NOVO_USUARIO, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
 
 // `numeric` volta como string por padrão no driver `pg` (pra não perder
 // precisão) — como este app só lida com área/tonelada em ponto flutuante
@@ -1788,7 +1788,7 @@ export async function insertUsuario(
   if (await getUsuarioPorNomeDeUsuario(input.usuario)) {
     return { erro: "Já existe um usuário com esse nome de usuário." };
   }
-  const senhaProvisoria = gerarSenhaProvisoria();
+  const senhaProvisoria = SENHA_PADRAO_NOVO_USUARIO;
   const usuario: Usuario = {
     id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     nome: input.nome.trim(),

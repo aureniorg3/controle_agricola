@@ -250,7 +250,7 @@ function NovoUsuarioModal({ onFechar, onCriado }: { onFechar: () => void; onCria
             Usuário: <span className="font-mono text-[13px] text-ink">{resultado.usuario}</span>
           </p>
           <p className="mt-1">
-            Senha provisória:{" "}
+            Senha padrão:{" "}
             <span className="rounded-md bg-card px-2 py-0.5 font-mono text-[13px] text-ink">
               {resultado.senhaProvisoria}
             </span>

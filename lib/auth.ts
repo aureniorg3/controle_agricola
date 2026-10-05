@@ -20,6 +20,9 @@ function getSecret(): string {
   return process.env.AUTH_SECRET || "controle-agricola-dev-secret-trocar-em-producao";
 }
 
+/** Senha padrão de todo usuário novo; ele é obrigado a trocar no primeiro acesso (`precisaTrocarSenha`). */
+export const SENHA_PADRAO_NOVO_USUARIO = "inicio123";
+
 /** Senha provisória legível (sem 0/O/1/l/I, que se confundem ao digitar),
  * gerada na criação de um usuário — ele troca por uma definitiva no
  * primeiro acesso (ver `precisaTrocarSenha`). */
