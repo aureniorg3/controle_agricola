@@ -99,3 +99,33 @@ export function aplicarCorteERateio(
 
   return { ...ordem, entradas };
 }
+
+/**
+ * Rateia o total do dia entre os talhões da ordem. O peso de cada talhão é o seu saldo a colher ou a sua
+ * área (conforme a base escolhida) e nenhum talhão passa do que ainda falta colher dele: o que
+ * sobraria num talhão que enche é redistribuído entre os outros.
+ */
+export function ratearArea(total: number, itens: { chave: string; peso: number; teto: number }[]): Record<string, number> {
+  const res: Record<string, number> = Object.fromEntries(itens.map((i) => [i.chave, 0]));
+  let ativos = itens.filter((i) => i.teto > 0.004 && i.peso > 0);
+  for (let volta = 0; volta < 20; volta++) {
+    const feito = Object.values(res).reduce((a, b) => a + b, 0);
+    const restante = total - feito;
+    if (restante < 0.004 || ativos.length === 0) break;
+    const soma = ativos.reduce((a, i) => a + i.peso, 0);
+    for (const i of ativos) res[i.chave] = Math.min(i.teto, res[i.chave] + (restante * i.peso) / soma);
+    ativos = ativos.filter((i) => res[i.chave] < i.teto - 0.004);
+  }
+  for (const k of Object.keys(res)) res[k] = arredonda2(res[k]);
+  // ajuste dos centésimos que sobram do arredondamento no talhão de maior valor que ainda comporta
+  const dif = arredonda2(total - Object.values(res).reduce((a, b) => a + b, 0));
+  if (Math.abs(dif) >= 0.01) {
+    const alvo = itens
+      .filter((i) => res[i.chave] + dif <= i.teto + 0.001 && res[i.chave] + dif >= 0)
+      .sort((a, b) => res[b.chave] - res[a.chave])[0];
+    if (alvo) res[alvo.chave] = arredonda2(res[alvo.chave] + dif);
+  }
+  return res;
+}
+
+const arredonda2 = (n: number) => Math.round(n * 100) / 100;

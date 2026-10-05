@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import AuditoriaModal, { fmtDataHora } from "@/components/AuditoriaModal";
 import { fmtDateBR, fmtHa } from "@/lib/format";
+import { ratearArea } from "@/lib/rateio";
 import type { ApontamentoArea } from "@/lib/db-area";
 import type { OrdemCorte } from "@/lib/types";
 
@@ -12,6 +13,7 @@ const ROTULO = "mb-1 block text-[11.5px] font-semibold text-muted";
 
 const arred = (n: number) => Math.round(n * 100) / 100;
 const numero = (v: string) => Number(v.replace(/\./g, "").replace(",", "."));
+
 
 /**
  * Apontamento dia a dia da área colhida: escolhe a data e a ordem, informa os
@@ -35,6 +37,10 @@ export default function AreaColhidaTab({
   const [dt, setDt] = useState(referencia);
   const [ordemNum, setOrdemNum] = useState(ordemInicial ?? "");
   const [valores, setValores] = useState<Record<string, string>>({});
+  // lançar pela ordem (o total do dia é rateado entre os talhões) ou direto em cada talhão
+  const [modo, setModo] = useState<"talhao" | "ordem">("talhao");
+  const [totalOrdem, setTotalOrdem] = useState("");
+  const [baseRateio, setBaseRateio] = useState<"saldo" | "area">("saldo");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -105,6 +111,26 @@ export default function AreaColhidaTab({
   }, [ordem, valores, dt]);
 
   const totalDia = arred(linhas.reduce((s, l) => s + l.dia, 0));
+
+  function aplicarRateio() {
+    setErro(null);
+    setAviso(null);
+    if (!ordem) return setErro("Escolha a ordem.");
+    const total = numero(totalOrdem);
+    if (totalOrdem.trim() === "" || !Number.isFinite(total) || total < 0) return setErro("Informe a área colhida no dia (ha) da ordem.");
+    // o que ainda cabe em cada talhão, sem contar o que já está lançado neste mesmo dia
+    const itens = linhas.map((l) => {
+      const disp = Math.max(0, arred(l.t.areaHa - l.anterior - l.posterior));
+      return { chave: l.chave, peso: baseRateio === "saldo" ? disp : l.t.areaHa, teto: disp };
+    });
+    const cabe = arred(itens.reduce((a, i) => a + i.teto, 0));
+    if (total > cabe + 0.01) {
+      return setErro(`O total do dia (${fmtHa(total)} ha) passa do que ainda falta colher na ordem (${fmtHa(cabe)} ha).`);
+    }
+    const r = ratearArea(total, itens);
+    setValores(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v > 0 ? String(v).replace(".", ",") : ""])));
+    setAviso(`Total de ${fmtHa(total)} ha rateado entre os talhões. Confira, ajuste se precisar e grave.`);
+  }
 
   async function gravar() {
     if (salvando) return;
@@ -221,6 +247,70 @@ export default function AreaColhidaTab({
             )}
           </p>
         </div>
+
+        {ordem && (
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <div className="flex rounded-lg bg-navy-900/5 p-1">
+              {([
+                ["talhao", "Por talhão"],
+                ["ordem", "Por ordem (rateio)"],
+              ] as const).map(([k, rotulo]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setModo(k)}
+                  className={`rounded-md px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                    modo === k ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-white"
+                  }`}
+                >
+                  {rotulo}
+                </button>
+              ))}
+            </div>
+            {modo === "ordem" && (
+              <>
+                <div>
+                  <label className={ROTULO}>Área colhida no dia — ordem (ha)</label>
+                  <input
+                    value={totalOrdem}
+                    onChange={(e) => setTotalOrdem(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        aplicarRateio();
+                      }
+                    }}
+                    inputMode="decimal"
+                    disabled={!podeGravar}
+                    className={`${INPUT} w-[150px] text-right`}
+                    aria-label="Área colhida no dia na ordem"
+                  />
+                </div>
+                <div>
+                  <label className={ROTULO}>Ratear proporcional ao</label>
+                  <select value={baseRateio} onChange={(e) => setBaseRateio(e.target.value as "saldo" | "area")} className={`${INPUT} w-[210px]`}>
+                    <option value="saldo">Saldo a colher de cada talhão</option>
+                    <option value="area">Área de cada talhão</option>
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={aplicarRateio}
+                  disabled={!podeGravar}
+                  className="rounded-lg border border-line bg-surface px-3.5 py-2 text-[13px] font-semibold text-navy-800 hover:bg-card disabled:opacity-50"
+                >
+                  Ratear pelos talhões
+                </button>
+              </>
+            )}
+            <p className="basis-full text-[11.5px] text-muted">
+              {modo === "ordem"
+                ? "O total do dia é dividido entre os talhões da ordem; nenhum talhão passa do que ainda falta colher dele. O resultado aparece na tabela e pode ser ajustado talhão a talhão antes de gravar."
+                : "Digite a área colhida no dia em cada talhão."}
+            </p>
+          </div>
+        )}
 
         {ordem && (
           <div className="mt-3 overflow-x-auto rounded-md border border-line">
