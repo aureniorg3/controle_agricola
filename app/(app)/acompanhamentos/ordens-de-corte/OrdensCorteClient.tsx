@@ -1823,6 +1823,7 @@ interface ResultadoImportacaoUI {
   modo?: "ambos" | "ordens" | "pesagem";
   viagensNovas?: number;
   viagensSubstituidas?: number;
+  viagensMantidas?: number;
   periodo?: string | null;
 }
 
@@ -2055,7 +2056,7 @@ function ImportarModal({
               ? `${resultado.totalOrdens} ordem(ns) no cadastro · entradas de cana mantidas.`
               : `${resultado.modo === "ambos" ? `${resultado.totalOrdens} ordem(ns) · ` : ""}${resultado.totalViagens} viagem(ns) lida(s)${
                   resultado.periodo ? ` (${resultado.periodo})` : ""
-                } · ${resultado.viagensNovas ?? 0} nova(s), ${resultado.viagensSubstituidas ?? 0} substituída(s) · histórico anterior mantido.`}
+                } · ${resultado.viagensNovas ?? 0} nova(s), ${resultado.viagensSubstituidas ?? 0} alterada(s) e substituída(s), ${resultado.viagensMantidas ?? 0} sem alteração (histórico mantido).`}
           </p>
           {resultado.viagensSemOrdem > 0 && (
             <p className="mt-1 text-good-600">{resultado.viagensSemOrdem} sem ordem cadastrada.</p>

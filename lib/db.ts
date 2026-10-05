@@ -744,17 +744,19 @@ export async function listNumerosOrdens(): Promise<string[]> {
 }
 
 /**
- * Grava as viagens do arquivo, substituindo as de mesma chave (data +
- * liberação + controle); as demais ficam como estão. Devolve quantas eram
- * novas e quantas substituíram uma já existente.
+ * Grava as viagens do arquivo. Para a mesma chave (data + liberação + controle) confere fazenda, talhão e
+ * tonelada: se algum mudou a viagem é substituída; se não, o histórico anterior é mantido (só completa
+ * veículo e frente quando estavam vazios). Devolve quantas eram novas, substituídas e mantidas.
  */
 export async function upsertViagens(
   viagens: { data: string; ordem: string; controle: string; fazendaCodigo: string; talhao: string; toneladas: number; hora: string; tara: number; veiculo: string; frente: string }[]
-): Promise<{ novas: number; substituidas: number }> {
+): Promise<{ novas: number; substituidas: number; mantidas: number }> {
   const pool = getPool();
   await prepararBanco(pool);
   const client = await pool.connect();
   let substituidas = 0;
+  let mantidas = 0;
+  const ALT = "((pes_viag.faz_cod, pes_viag.tlh, ROUND(pes_viag.ton, 3)) IS DISTINCT FROM (EXCLUDED.faz_cod, EXCLUDED.tlh, ROUND(EXCLUDED.ton, 3)))";
   try {
     await client.query("BEGIN");
     for (let i = 0; i < viagens.length; i += 5000) {
@@ -762,18 +764,27 @@ export async function upsertViagens(
       const dts = lote.map((v) => v.data);
       const ords = lote.map((v) => v.ordem);
       const ctls = lote.map((v) => v.controle);
-      const { rows } = await client.query<{ n: number }>(
-        `SELECT COUNT(*)::int AS n FROM pes_viag p
-           JOIN unnest($1::date[], $2::text[], $3::text[]) AS u(d, o, c) ON p.dt = u.d AND p.ord_num = u.o AND p.ctl = u.c`,
-        [dts, ords, ctls]
+      const { rows } = await client.query<{ n: number; alt: number }>(
+        `SELECT COUNT(*)::int AS n,
+                COUNT(*) FILTER (WHERE (p.faz_cod, p.tlh, ROUND(p.ton, 3)) IS DISTINCT FROM (u.f, u.t, ROUND(u.q, 3)))::int AS alt
+           FROM pes_viag p
+           JOIN unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[]) AS u(d, o, c, f, t, q)
+             ON p.dt = u.d AND p.ord_num = u.o AND p.ctl = u.c`,
+        [dts, ords, ctls, lote.map((v) => v.fazendaCodigo), lote.map((v) => v.talhao), lote.map((v) => v.toneladas)]
       );
-      substituidas += rows[0].n;
+      substituidas += rows[0].alt;
+      mantidas += rows[0].n - rows[0].alt;
       await client.query(
         `INSERT INTO pes_viag (dt, ord_num, ctl, faz_cod, tlh, ton, hsd, tara, veic, frt)
          SELECT * FROM unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::numeric[], $9::text[], $10::text[])
          ON CONFLICT (dt, ord_num, ctl) DO UPDATE SET
-           faz_cod = EXCLUDED.faz_cod, tlh = EXCLUDED.tlh, ton = EXCLUDED.ton, hsd = EXCLUDED.hsd, tara = EXCLUDED.tara,
-           veic = EXCLUDED.veic, frt = EXCLUDED.frt`,
+           faz_cod = CASE WHEN ${ALT} THEN EXCLUDED.faz_cod ELSE pes_viag.faz_cod END,
+           tlh = CASE WHEN ${ALT} THEN EXCLUDED.tlh ELSE pes_viag.tlh END,
+           ton = CASE WHEN ${ALT} THEN EXCLUDED.ton ELSE pes_viag.ton END,
+           hsd = CASE WHEN ${ALT} THEN EXCLUDED.hsd ELSE pes_viag.hsd END,
+           tara = CASE WHEN ${ALT} THEN EXCLUDED.tara ELSE pes_viag.tara END,
+           veic = CASE WHEN ${ALT} OR pes_viag.veic = '' THEN EXCLUDED.veic ELSE pes_viag.veic END,
+           frt = CASE WHEN ${ALT} OR pes_viag.frt = '' THEN EXCLUDED.frt ELSE pes_viag.frt END`,
         [
           dts,
           ords,
@@ -795,7 +806,7 @@ export async function upsertViagens(
   } finally {
     client.release();
   }
-  return { novas: viagens.length - substituidas, substituidas };
+  return { novas: viagens.length - substituidas - mantidas, substituidas, mantidas };
 }
 
 /**
@@ -1952,12 +1963,28 @@ export interface LinhaTerceiro {
   viagens: number;
 }
 
+export interface TotalTerceiro {
+  frente?: string;
+  data?: string;
+  ton: number;
+  viagens: number;
+}
+
+export interface ResultadoTerceiros {
+  linhas: LinhaTerceiro[];
+  frentes: string[];
+  semVeiculo: number;
+  porData: TotalTerceiro[];
+  porFrente: TotalTerceiro[];
+  geral: { ton: number; viagens: number };
+}
+
 /** Entrada de cana por frente (da ordem), data e caminhão, para o relatório de Colheita Terceiro; viagens de tara zerada não contam. */
 export async function entradaTerceiros(
   inicio: string,
   fim: string,
   frente: string
-): Promise<{ linhas: LinhaTerceiro[]; frentes: string[]; semVeiculo: number }> {
+): Promise<ResultadoTerceiros> {
   const pool = getPool();
   await prepararBanco(pool);
   const base = `FROM pes_viag v LEFT JOIN ord o ON o.num = v.ord_num
@@ -1965,15 +1992,37 @@ export async function entradaTerceiros(
   const nomeFrente = "COALESCE(NULLIF(o.frt, ''), NULLIF(v.frt, ''), 'SEM FRENTE')";
   const fr = await pool.query<{ f: string }>(`SELECT DISTINCT ${nomeFrente} AS f ${base} ORDER BY 1`, [inicio, fim]);
   const { rows } = await pool.query<LinhaTerceiro>(
-    `SELECT ${nomeFrente} AS frente, v.dt::text AS data, v.veic AS veiculo, SUM(v.ton)::float AS ton, COUNT(*)::int AS viagens
+    `SELECT ${nomeFrente} AS frente, v.dt::text AS data, v.veic AS veiculo, SUM(v.ton)::float AS ton, COUNT(DISTINCT v.ctl)::int AS viagens
        ${base} AND ($3 = '' OR ${nomeFrente} = $3)
       GROUP BY 1, v.dt, v.veic
       ORDER BY 1, v.dt, v.veic`,
+    [inicio, fim, frente]
+  );
+  // viagens = controles distintos; por isso os subtotais são contados à parte, nunca somados das linhas
+  const filtro = `${base} AND ($3 = '' OR ${nomeFrente} = $3)`;
+  const porData = await pool.query<TotalTerceiro>(
+    `SELECT ${nomeFrente} AS frente, v.dt::text AS data, SUM(v.ton)::float AS ton, COUNT(DISTINCT v.ctl)::int AS viagens
+       ${filtro} GROUP BY 1, v.dt`,
+    [inicio, fim, frente]
+  );
+  const porFrente = await pool.query<TotalTerceiro>(
+    `SELECT ${nomeFrente} AS frente, SUM(v.ton)::float AS ton, COUNT(DISTINCT v.ctl)::int AS viagens ${filtro} GROUP BY 1`,
+    [inicio, fim, frente]
+  );
+  const geral = await pool.query<TotalTerceiro>(
+    `SELECT SUM(v.ton)::float AS ton, COUNT(DISTINCT v.ctl)::int AS viagens ${filtro}`,
     [inicio, fim, frente]
   );
   const sv = await pool.query<{ n: number }>(
     `SELECT COUNT(*)::int AS n FROM pes_viag WHERE dt BETWEEN $1 AND $2 AND veic = ''`,
     [inicio, fim]
   );
-  return { linhas: rows, frentes: fr.rows.map((r) => r.f), semVeiculo: sv.rows[0].n };
+  return {
+    linhas: rows,
+    frentes: fr.rows.map((r) => r.f),
+    semVeiculo: sv.rows[0].n,
+    porData: porData.rows,
+    porFrente: porFrente.rows,
+    geral: { ton: geral.rows[0].ton ?? 0, viagens: geral.rows[0].viagens },
+  };
 }

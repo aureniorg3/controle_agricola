@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { fmtDateBR, fmtT, todayISO } from "@/lib/format";
 import { ehDataIso, ehTexto, usarPersistido } from "@/lib/usar-persistido";
-import type { LinhaTerceiro } from "@/lib/db";
+import type { LinhaTerceiro, ResultadoTerceiros } from "@/lib/db";
 
 const INPUT = "rounded-lg border border-line bg-surface px-3 py-2 text-[13px]";
 const ROTULO = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted";
@@ -16,6 +16,7 @@ export default function ColheitaTerceiroClient() {
   const [frente, setFrente] = usarPersistido("terceiro.frente", "", ehTexto);
   const [opcoesFrente, setOpcoesFrente] = useState<string[]>([]);
   const [linhas, setLinhas] = useState<LinhaTerceiro[]>([]);
+  const [totais, setTotais] = useState<Pick<ResultadoTerceiros, "porData" | "porFrente" | "geral">>({ porData: [], porFrente: [], geral: { ton: 0, viagens: 0 } });
   const [semVeiculo, setSemVeiculo] = useState(0);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -30,6 +31,7 @@ export default function ColheitaTerceiroClient() {
       setLinhas(json.linhas);
       setOpcoesFrente(json.frentes);
       setSemVeiculo(json.semVeiculo);
+      setTotais({ porData: json.porData, porFrente: json.porFrente, geral: json.geral });
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível carregar.");
     } finally {
@@ -52,8 +54,10 @@ export default function ColheitaTerceiroClient() {
     return Array.from(m.entries());
   }, [linhas]);
 
-  const soma = (ls: LinhaTerceiro[]) => ({ ton: ls.reduce((a, l) => a + l.ton, 0), viagens: ls.reduce((a, l) => a + l.viagens, 0) });
-  const geral = soma(linhas);
+  // viagens = controles distintos: os subtotais vêm contados do servidor (somar as linhas não bate)
+  const totData = (f: string, d: string) => totais.porData.find((t) => t.frente === f && t.data === d) ?? { ton: 0, viagens: 0 };
+  const totFrente = (f: string) => totais.porFrente.find((t) => t.frente === f) ?? { ton: 0, viagens: 0 };
+  const geral = totais.geral;
   const th = "px-3 py-2 text-left text-[11.5px] font-semibold uppercase tracking-wide";
   const num = "px-3 py-1.5 text-right tabular-nums";
 
@@ -120,7 +124,7 @@ export default function ColheitaTerceiroClient() {
             </thead>
             <tbody>
               {frentes.map(([frente, datas]) => {
-                const totF = soma(Array.from(datas.values()).flat());
+                const totF = totFrente(frente);
                 return (
                   <Fragment key={frente}>
                     <tr className="bg-navy-900/10 font-semibold">
@@ -130,7 +134,7 @@ export default function ColheitaTerceiroClient() {
                       <td className={num}>{dens(totF.ton, totF.viagens)}</td>
                     </tr>
                     {Array.from(datas.entries()).map(([data, ls]) => {
-                      const t = soma(ls);
+                      const t = totData(frente, data);
                       return (
                         <Fragment key={data}>
                           <tr className="bg-card font-semibold">
@@ -164,7 +168,7 @@ export default function ColheitaTerceiroClient() {
         </div>
       )}
       <p className="text-[11.5px] text-muted print:hidden">
-        Densidade = toneladas ÷ viagens. Viagens com tara zerada não contam. Frente conforme a ordem de corte da viagem.
+        Viagens = controles de pesagem do dia; densidade = toneladas ÷ controles. Viagens com tara zerada não contam. Frente conforme a ordem de corte da viagem.
       </p>
     </div>
   );

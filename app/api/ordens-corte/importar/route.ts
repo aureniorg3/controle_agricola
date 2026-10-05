@@ -159,8 +159,9 @@ export async function POST(req: NextRequest) {
   // 2) viagens da pesagem: substitui por data + liberação + controle, sem apagar o resto
   let novas = 0;
   let substituidas = 0;
+  let mantidas = 0;
   if (resPesagem) {
-    ({ novas, substituidas } = await upsertViagens(resPesagem.viagens));
+    ({ novas, substituidas, mantidas } = await upsertViagens(resPesagem.viagens));
     avisos.push(...resPesagem.avisos);
     if (resPesagem.ordensNaoCadastradas.size > 0) {
       avisos.push(
@@ -184,6 +185,7 @@ export async function POST(req: NextRequest) {
       viagens: resPesagem?.viagens.length ?? 0,
       novas,
       substituidas,
+      mantidas,
     },
   });
 
@@ -196,6 +198,7 @@ export async function POST(req: NextRequest) {
     totalViagens: resPesagem?.viagens.length ?? 0,
     viagensNovas: novas,
     viagensSubstituidas: substituidas,
+    viagensMantidas: mantidas,
     periodo: resPesagem?.periodoLido ? `${fmtBR(resPesagem.periodoLido.inicio)} a ${fmtBR(resPesagem.periodoLido.fim)}` : null,
     viagensSemOrdem: resPesagem?.semOrdem ?? 0,
     avisos,
