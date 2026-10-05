@@ -641,13 +641,13 @@ export default function OrdensCorteClient({
           {
             label: "Produção dia anterior",
             value: `${fmtT(kpisTopo.prodDiaAnteriorT)} t`,
-            sub: `Entrada de ${fmtDateBR(addDays(referencia, -1))}`,
+            sub: `Entrada de ${fmtDateBR(addDays(referencia, -1))} · todas as ordens`,
             tom: "blue",
           },
           {
             label: `Produção dia atual até ${rotuloHora}`,
             value: `${fmtT(kpisTopo.prodDiaAtualAte6hT)} t`,
-            sub: `Entrada de ${fmtDateBR(referencia)} até ${rotuloHora}`,
+            sub: `Entrada de ${fmtDateBR(referencia)} até ${rotuloHora} · todas as ordens`,
             tom: "blue",
           },
           {
@@ -733,13 +733,17 @@ export default function OrdensCorteClient({
         areaEncerradaHa += area;
       }
       areaColhidaHa += colhida;
-      for (const e of o.entradas) {
-        if (e.data === diaAnterior) prodDiaAnteriorT += e.toneladas;
-        if (e.data === referencia) prodDiaAtualAte6hT += e.toneladasAte6h;
-      }
       if (colhida > 0) {
         realT += calcAcumSafraT(o, referencia);
         realArea += colhida;
+      }
+    }
+    // A produção do dia é a da frente inteira (todas as ordens que batem com os filtros), a mesma do
+    // Resumo por frente e do Resumo diário — não só das ordens marcadas para aparecer nos cards.
+    for (const o of ordensFiltradasTodas) {
+      for (const e of o.entradas) {
+        if (e.data === diaAnterior) prodDiaAnteriorT += e.toneladas;
+        if (e.data === referencia) prodDiaAtualAte6hT += e.toneladasAte6h;
       }
     }
     const tchEstimado = estArea > 0 ? estPonderado / estArea : null;
@@ -760,7 +764,7 @@ export default function OrdensCorteClient({
           : null,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ordensFiltradas, referencia, historicoTch]);
+  }, [ordensFiltradas, ordensFiltradasTodas, referencia, historicoTch]);
 
   // Ordens cujo TCH realizado (ton acumulada ÷ área medida) foge do estimado.
   const divergencias = useMemo(() => {
@@ -973,14 +977,14 @@ export default function OrdensCorteClient({
             icon={<IconCaminhaoCana size={22} />}
             label="Produção dia anterior"
             value={`${fmtT(kpisTopo.prodDiaAnteriorT)} t`}
-            sub={`Entrada de ${fmtDateBR(addDays(referencia, -1))}`}
+            sub={`Entrada de ${fmtDateBR(addDays(referencia, -1))} · todas as ordens`}
           />
           <KpiCard
             tone="blue"
             icon={<IconRelogio size={22} />}
             label={`Produção dia atual até ${rotuloHora}`}
             value={`${fmtT(kpisTopo.prodDiaAtualAte6hT)} t`}
-            sub={`Entrada de ${fmtDateBR(referencia)} até ${rotuloHora}`}
+            sub={`Entrada de ${fmtDateBR(referencia)} até ${rotuloHora} · todas as ordens`}
           />
           <KpiCard
             tone="amber"

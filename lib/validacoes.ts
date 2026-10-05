@@ -175,6 +175,18 @@ export const VERIFICACOES: Verificacao[] = [
             FROM met_frt m WHERE NOT EXISTS (SELECT 1 FROM ord o WHERE o.frt = m.frt) GROUP BY m.frt ORDER BY m.frt`,
   },
   {
+    id: "ordem-com-entrada-nao-exibida",
+    modulo: "Colheita",
+    titulo: "Ordens com cana entregue que não estão marcadas para aparecer nos cards",
+    severidade: "info",
+    descricao: "A produção destas ordens entra nos resumos e nos totais do dia, mas o card da ordem não aparece em Ordens de Corte (ela não foi inserida na tela).",
+    acao: 'Em Ordens de Corte, use "Inserir Ordem" para incluir a ordem nos cards, se quiser acompanhá-la lá.',
+    sql: `SELECT o.num AS "Ordem", o.frt AS "Frente", o.sts AS "Status", COUNT(DISTINCT e.dt)::int AS "Dias com entrada", ROUND(SUM(e.ton), 2)::float AS "Toneladas (t)"
+            FROM ord o JOIN ent_dia e ON e.ord_num = o.num
+           WHERE o.sts = 'Aberta' AND NOT EXISTS (SELECT 1 FROM ord_vis v WHERE v.ord_num = o.num)
+           GROUP BY o.num, o.frt, o.sts ORDER BY o.num`,
+  },
+  {
     id: "ordem-fazenda-sem-cadastro",
     modulo: "Colheita",
     titulo: "Fazendas das ordens que não estão no cadastro de Fazendas",
