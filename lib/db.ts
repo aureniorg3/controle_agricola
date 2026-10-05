@@ -1952,21 +1952,28 @@ export interface LinhaTerceiro {
   viagens: number;
 }
 
-/** Entrada de cana dos terceiros (frentes "TERCEIRO - …") por frente, data e caminhão; viagens de tara zerada não contam. */
-export async function entradaTerceiros(inicio: string, fim: string): Promise<{ linhas: LinhaTerceiro[]; semVeiculo: number }> {
+/** Entrada de cana por frente (da ordem), data e caminhão, para o relatório de Colheita Terceiro; viagens de tara zerada não contam. */
+export async function entradaTerceiros(
+  inicio: string,
+  fim: string,
+  frente: string
+): Promise<{ linhas: LinhaTerceiro[]; frentes: string[]; semVeiculo: number }> {
   const pool = getPool();
   await prepararBanco(pool);
+  const base = `FROM pes_viag v LEFT JOIN ord o ON o.num = v.ord_num
+      WHERE v.dt BETWEEN $1 AND $2 AND COALESCE(v.tara, 0) > 0`;
+  const nomeFrente = "COALESCE(NULLIF(o.frt, ''), NULLIF(v.frt, ''), 'SEM FRENTE')";
+  const fr = await pool.query<{ f: string }>(`SELECT DISTINCT ${nomeFrente} AS f ${base} ORDER BY 1`, [inicio, fim]);
   const { rows } = await pool.query<LinhaTerceiro>(
-    `SELECT frt AS frente, dt::text AS data, veic AS veiculo, SUM(ton)::float AS ton, COUNT(*)::int AS viagens
-       FROM pes_viag
-      WHERE dt BETWEEN $1 AND $2 AND UPPER(frt) LIKE 'TERCEIR%' AND COALESCE(tara, 0) > 0
-      GROUP BY frt, dt, veic
-      ORDER BY frt, dt, veic`,
-    [inicio, fim]
+    `SELECT ${nomeFrente} AS frente, v.dt::text AS data, v.veic AS veiculo, SUM(v.ton)::float AS ton, COUNT(*)::int AS viagens
+       ${base} AND ($3 = '' OR ${nomeFrente} = $3)
+      GROUP BY 1, v.dt, v.veic
+      ORDER BY 1, v.dt, v.veic`,
+    [inicio, fim, frente]
   );
   const sv = await pool.query<{ n: number }>(
-    "SELECT COUNT(*)::int AS n FROM pes_viag WHERE dt BETWEEN $1 AND $2 AND frt = ''",
+    `SELECT COUNT(*)::int AS n FROM pes_viag WHERE dt BETWEEN $1 AND $2 AND veic = ''`,
     [inicio, fim]
   );
-  return { linhas: rows, semVeiculo: sv.rows[0].n };
+  return { linhas: rows, frentes: fr.rows.map((r) => r.f), semVeiculo: sv.rows[0].n };
 }

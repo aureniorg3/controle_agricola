@@ -13,5 +13,5 @@ export async function GET(req: NextRequest) {
   if (!iso.test(inicio) || !iso.test(fim) || inicio > fim) {
     return NextResponse.json({ error: "Informe um período válido." }, { status: 400 });
   }
-  return NextResponse.json(await entradaTerceiros(inicio, fim));
+  return NextResponse.json(await entradaTerceiros(inicio, fim, req.nextUrl.searchParams.get("frente") ?? ""));
 }

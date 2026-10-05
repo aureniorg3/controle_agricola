@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { fmtDateBR, fmtT, todayISO } from "@/lib/format";
-import { ehDataIso, usarPersistido } from "@/lib/usar-persistido";
+import { ehDataIso, ehTexto, usarPersistido } from "@/lib/usar-persistido";
 import type { LinhaTerceiro } from "@/lib/db";
 
 const INPUT = "rounded-lg border border-line bg-surface px-3 py-2 text-[13px]";
@@ -13,6 +13,8 @@ export default function ColheitaTerceiroClient() {
   const hoje = todayISO();
   const [inicio, setInicio] = usarPersistido("terceiro.inicio", `${hoje.slice(0, 8)}01`, ehDataIso);
   const [fim, setFim] = usarPersistido("terceiro.fim", hoje, ehDataIso);
+  const [frente, setFrente] = usarPersistido("terceiro.frente", "", ehTexto);
+  const [opcoesFrente, setOpcoesFrente] = useState<string[]>([]);
   const [linhas, setLinhas] = useState<LinhaTerceiro[]>([]);
   const [semVeiculo, setSemVeiculo] = useState(0);
   const [carregando, setCarregando] = useState(true);
@@ -22,17 +24,18 @@ export default function ColheitaTerceiroClient() {
     setCarregando(true);
     setErro(null);
     try {
-      const res = await fetch(`/api/colheita-terceiro?inicio=${inicio}&fim=${fim}`, { cache: "no-store" });
+      const res = await fetch(`/api/colheita-terceiro?inicio=${inicio}&fim=${fim}&frente=${encodeURIComponent(frente)}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar.");
       setLinhas(json.linhas);
+      setOpcoesFrente(json.frentes);
       setSemVeiculo(json.semVeiculo);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível carregar.");
     } finally {
       setCarregando(false);
     }
-  }, [inicio, fim]);
+  }, [inicio, fim, frente]);
 
   useEffect(() => {
     carregar();
@@ -70,6 +73,18 @@ export default function ColheitaTerceiroClient() {
             <label className={ROTULO}>Até</label>
             <input type="date" value={fim} onChange={(e) => e.target.value && setFim(e.target.value)} className={INPUT} />
           </div>
+          <div>
+            <label className={ROTULO}>Frente</label>
+            <select value={frente} onChange={(e) => setFrente(e.target.value)} className={`${INPUT} min-w-[170px]`}>
+              <option value="">Todas</option>
+              {frente && !opcoesFrente.includes(frente) && <option value={frente}>{frente}</option>}
+              {opcoesFrente.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             type="button"
             onClick={() => window.print()}
@@ -83,7 +98,7 @@ export default function ColheitaTerceiroClient() {
       {erro && <p className="rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[13px] text-alert-700">{erro}</p>}
       {!carregando && linhas.length === 0 && !erro && (
         <p className="rounded-md border border-line bg-card px-3 py-3 text-[13px] text-muted">
-          Nenhuma entrada de terceiros no período.
+          Nenhuma entrada no período para a frente escolhida.
           {semVeiculo > 0 &&
             ` Há ${semVeiculo} viagens importadas antes desta tela (sem veículo/frente): reimporte a pesagem do período em Ordens de Corte para que apareçam.`}
         </p>
@@ -149,7 +164,7 @@ export default function ColheitaTerceiroClient() {
         </div>
       )}
       <p className="text-[11.5px] text-muted print:hidden">
-        Densidade = toneladas ÷ viagens. Viagens com tara zerada não contam. Somente frentes “TERCEIRO – …” da pesagem importada.
+        Densidade = toneladas ÷ viagens. Viagens com tara zerada não contam. Frente conforme a ordem de corte da viagem.
       </p>
     </div>
   );
