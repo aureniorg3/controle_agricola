@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { getPool, prepararBanco } from "./db";
 import { gerarSemanas, segundaDaSemana, SEMANAS_POR_RODADA, somarDias, type LinhaResumoRodada, type RodadaCad, type SemanaRodada } from "./rodadas";
 import type { LinhaRodadaImportada } from "./rodadas-import";
+import { interpretar, montarIndice, type Interpretacao } from "./rodadas-ocorrencias";
 
 const NUMERICO = /^\d+$/;
 
@@ -821,4 +822,97 @@ export async function opcoesResumoRodadas(): Promise<{ rodadas: number[]; regioe
   );
   const r3 = await pool.query<{ v: number }>("SELECT DISTINCT sem AS v FROM rod_bol WHERE sem > 0 ORDER BY 1");
   return { rodadas: r1.rows.map((r) => r.v), regioes: r2.rows.map((r) => r.v), semanas: r3.rows.map((r) => r.v) };
+}
+
+// ---------------------------------------------------------------------------
+// Padronização das ocorrências importadas (texto livre -> itens do cadastro)
+// ---------------------------------------------------------------------------
+
+export interface PreviaPadronizacao {
+  /** linhas importadas ainda com a ocorrência só em texto */
+  linhas: number;
+  textos: number;
+  /** tudo reconhecido (nada sobra para "Outros") */
+  completas: number;
+  /** reconhecidas em parte: itens do cadastro + sobra em "Outros" */
+  parciais: number;
+  /** nenhum item reconhecido: o texto inteiro fica em "Outros" */
+  soOutros: number;
+  /** o texto não descreve ocorrência (ex.: "SEM OBSERVAÇÃO"): fica em branco */
+  semOcorrencia: number;
+  exemplos: { texto: string; linhas: number; itens: string[]; outros: string }[];
+  sobras: { texto: string; linhas: number }[];
+}
+
+async function textosPendentes(): Promise<{ t: string; n: number }[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ t: string; n: number }>(
+    `SELECT i.oco_txt AS t, COUNT(*)::int AS n
+       FROM rod_itm i JOIN rod_bol b ON b.bol = i.bol
+      WHERE b.ori = 'importacao' AND i.oco = '' AND i.oco_txt <> '' AND NOT (i.ext ? 'OCORRENCIA_ORIGINAL')
+      GROUP BY i.oco_txt`
+  );
+  return rows;
+}
+
+function classificar(textos: { t: string; n: number }[], cadastro: { cod: string; nm: string }[]) {
+  const indice = montarIndice(cadastro);
+  return textos.map((x) => ({ ...x, r: interpretar(x.t, indice) as Interpretacao }));
+}
+
+export async function previaPadronizarOcorrencias(): Promise<PreviaPadronizacao | { erro: string }> {
+  const cadastro = await listarCodigos("ocorrencias");
+  if (cadastro.length === 0) return { erro: "O Cadastro de Ocorrências está vazio. Cadastre ou importe as ocorrências antes de padronizar." };
+  const nomes = new Map(cadastro.map((c) => [c.cod, c.nm]));
+  const itens = classificar(await textosPendentes(), cadastro);
+  const prev: PreviaPadronizacao = { linhas: 0, textos: itens.length, completas: 0, parciais: 0, soOutros: 0, semOcorrencia: 0, exemplos: [], sobras: [] };
+  const sobras = new Map<string, number>();
+  for (const x of itens) {
+    prev.linhas += x.n;
+    if (x.r.nenhuma) prev.semOcorrencia += x.n;
+    else if (x.r.cods.length === 0) prev.soOutros += x.n;
+    else if (x.r.outros) prev.parciais += x.n;
+    else prev.completas += x.n;
+    if (x.r.outros) sobras.set(x.r.outros, (sobras.get(x.r.outros) ?? 0) + x.n);
+  }
+  prev.exemplos = [...itens]
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 40)
+    .map((x) => ({ texto: x.t, linhas: x.n, itens: x.r.cods.map((c) => `${c} · ${nomes.get(c) ?? c}`), outros: x.r.outros }));
+  prev.sobras = [...sobras].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([texto, linhas]) => ({ texto, linhas }));
+  return prev;
+}
+
+/**
+ * Converte a ocorrência em texto das linhas importadas para os itens do
+ * cadastro (o que não for reconhecido fica em "Outros"). O texto original é
+ * guardado em cada linha (OCORRENCIA_ORIGINAL), então nada se perde e a
+ * conversão não se repete sobre linhas já convertidas.
+ */
+export async function aplicarPadronizarOcorrencias(): Promise<{ linhas: number; textos: number } | { erro: string }> {
+  const cadastro = await listarCodigos("ocorrencias");
+  if (cadastro.length === 0) return { erro: "O Cadastro de Ocorrências está vazio. Cadastre ou importe as ocorrências antes de padronizar." };
+  const itens = classificar(await textosPendentes(), cadastro);
+  if (itens.length === 0) return { linhas: 0, textos: 0 };
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rowCount } = await client.query(
+      `UPDATE rod_itm i
+          SET oco = x.cods, oco_txt = x.outros, ext = i.ext || jsonb_build_object('OCORRENCIA_ORIGINAL', i.oco_txt)
+         FROM unnest($1::text[], $2::text[], $3::text[]) AS x(orig, cods, outros)
+        WHERE i.oco = '' AND i.oco_txt = x.orig AND NOT (i.ext ? 'OCORRENCIA_ORIGINAL')
+          AND i.bol IN (SELECT bol FROM rod_bol WHERE ori = 'importacao')`,
+      [itens.map((x) => x.t), itens.map((x) => x.r.cods.join(",")), itens.map((x) => x.r.outros)]
+    );
+    await client.query("COMMIT");
+    return { linhas: rowCount ?? 0, textos: itens.length };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }

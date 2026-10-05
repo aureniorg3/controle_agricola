@@ -36,6 +36,7 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [importarAberto, setImportarAberto] = useState(false);
+  const [padronizarAberto, setPadronizarAberto] = useState(false);
 
   const carregar = useCallback(
     async (comOpcoes = false) => {
@@ -97,6 +98,15 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
           <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
             Somente leitura
           </div>
+        )}
+        {podeGravar && (
+          <button
+            type="button"
+            onClick={() => setPadronizarAberto(true)}
+            className="rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+          >
+            Padronizar ocorrências
+          </button>
         )}
         {podeGravar && (
           <button
@@ -244,6 +254,14 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
         </div>
       </div>
 
+      {padronizarAberto && (
+        <PadronizarModal
+          onFechar={() => {
+            setPadronizarAberto(false);
+            carregar(true);
+          }}
+        />
+      )}
       {importarAberto && (
         <ImportarModal
           onFechar={() => {
@@ -252,6 +270,146 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+interface Previa {
+  linhas: number;
+  textos: number;
+  completas: number;
+  parciais: number;
+  soOutros: number;
+  semOcorrencia: number;
+  exemplos: { texto: string; linhas: number; itens: string[]; outros: string }[];
+  sobras: { texto: string; linhas: number }[];
+}
+
+/** Converte o texto livre das ocorrências importadas para os itens do Cadastro de Ocorrências (com prévia). */
+function PadronizarModal({ onFechar }: { onFechar: () => void }) {
+  const [previa, setPrevia] = useState<Previa | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [aplicando, setAplicando] = useState(false);
+  const [feito, setFeito] = useState<{ linhas: number; textos: number } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/rodadas/padronizar-ocorrencias", { cache: "no-store" })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => (ok ? setPrevia(j) : setErro(j.error ?? "Não foi possível montar a prévia.")))
+      .catch(() => setErro("Não foi possível montar a prévia."));
+  }, []);
+
+  async function aplicar() {
+    setAplicando(true);
+    setErro(null);
+    try {
+      const res = await fetch("/api/rodadas/padronizar-ocorrencias", { method: "POST" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível padronizar.");
+      setFeito({ linhas: j.linhas, textos: j.textos });
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível padronizar.");
+    } finally {
+      setAplicando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-3">
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-xl2 bg-card p-4 shadow-pop md:p-5">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-[15px] font-bold text-ink">Padronizar ocorrências importadas</h3>
+          <button type="button" onClick={onFechar} aria-label="Fechar" className="px-1 text-[20px] leading-none text-muted">
+            ×
+          </button>
+        </div>
+        <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
+          Lê o texto de ocorrência das linhas importadas da planilha (ex.: "COLONIÃO E MAMONA") e marca os itens do Cadastro de
+          Ocorrências (Colonião, Mamona). O que não for reconhecido vai para <b className="text-ink">Outros</b>. O texto original
+          de cada linha é guardado e a conversão pode ser rodada de novo sem repetir o que já foi feito.
+        </p>
+
+        {erro && <p className="mb-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
+        {!previa && !erro && <p className="text-[12.5px] text-muted">Analisando as ocorrências importadas…</p>}
+
+        {feito && (
+          <p className="mb-2 rounded-lg border border-good-500/30 bg-good-50 px-3 py-2 text-[12.5px] font-semibold text-good-700">
+            Pronto: {feito.linhas.toLocaleString("pt-BR")} linha(s) padronizada(s) a partir de {feito.textos.toLocaleString("pt-BR")} texto(s) diferente(s).
+          </p>
+        )}
+
+        {previa && !feito && (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {previa.linhas === 0 ? (
+              <p className="text-[12.5px] text-good-700">Nenhuma linha importada pendente: todas já estão padronizadas.</p>
+            ) : (
+              <>
+                <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-5">
+                  <Num rotulo="Linhas a padronizar" valor={previa.linhas} />
+                  <Num rotulo="Tudo reconhecido" valor={previa.completas} />
+                  <Num rotulo="Em parte (+ Outros)" valor={previa.parciais} />
+                  <Num rotulo="Só em Outros" valor={previa.soOutros} />
+                  <Num rotulo="Sem ocorrência" valor={previa.semOcorrencia} />
+                </div>
+                <p className="mb-1 text-[12px] font-semibold text-ink">Como ficariam os textos mais frequentes</p>
+                <div className="overflow-x-auto rounded-md border border-line">
+                  <table className="w-full text-[12px]">
+                    <thead>
+                      <tr className="border-b border-line bg-navy-900 text-left text-white">
+                        <th className="px-3 py-1.5 text-right font-semibold">Linhas</th>
+                        <th className="px-3 py-1.5 font-semibold">Texto importado</th>
+                        <th className="px-3 py-1.5 font-semibold">Itens do cadastro</th>
+                        <th className="px-3 py-1.5 font-semibold">Outros</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previa.exemplos.map((x, i) => (
+                        <tr key={i} className={`border-b border-line/60 align-top ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}>
+                          <td className="px-3 py-1 text-right tabular text-ink">{x.linhas}</td>
+                          <td className="min-w-[200px] px-3 py-1 text-ink">{x.texto.length > 90 ? `${x.texto.slice(0, 90)}…` : x.texto}</td>
+                          <td className="min-w-[200px] px-3 py-1 text-ink">{x.itens.length ? x.itens.join(", ") : <span className="text-muted">—</span>}</td>
+                          <td className="px-3 py-1 text-ink">{x.outros}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {previa.sobras.length > 0 && (
+                  <>
+                    <p className="mb-1 mt-3 text-[12px] font-semibold text-ink">O que ficaria em Outros (candidatos a novos itens do cadastro)</p>
+                    <p className="text-[12px] text-muted">{previa.sobras.map((x) => `${x.texto} (${x.linhas})`).join(" · ")}</p>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onFechar} className="rounded-lg border border-line px-4 py-2 text-[13px] font-semibold text-ink">
+            {feito ? "Fechar" : "Cancelar"}
+          </button>
+          {previa && previa.linhas > 0 && !feito && (
+            <button
+              type="button"
+              onClick={aplicar}
+              disabled={aplicando}
+              className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+            >
+              {aplicando ? "Padronizando…" : `Padronizar ${previa.linhas.toLocaleString("pt-BR")} linha(s)`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Num({ rotulo, valor }: { rotulo: string; valor: number }) {
+  return (
+    <div className="rounded-lg border border-line bg-surface px-3 py-2">
+      <div className="text-[10.5px] font-semibold uppercase tracking-wide text-muted">{rotulo}</div>
+      <div className="text-[17px] font-extrabold tabular text-navy-900">{valor.toLocaleString("pt-BR")}</div>
     </div>
   );
 }
