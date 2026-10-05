@@ -3,13 +3,16 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { fmtDateBR, fmtT, todayISO } from "@/lib/format";
 import { ehDataIso, ehTexto, usarPersistido } from "@/lib/usar-persistido";
+import { IconImprimir } from "@/components/icons";
+import { gerarRelatorioTerceiroPdf } from "@/lib/relatorio-terceiro-pdf";
 import type { LinhaTerceiro, ResultadoTerceiros } from "@/lib/db";
 
 const INPUT = "rounded-lg border border-line bg-surface px-3 py-2 text-[13px]";
 const ROTULO = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted";
 const dens = (ton: number, v: number) => (v > 0 ? fmtT(ton / v) : "–");
 
-export default function ColheitaTerceiroClient() {
+export default function ColheitaTerceiroClient({ nomeUsuario }: { nomeUsuario: string }) {
+  const [gerando, setGerando] = useState(false);
   const hoje = todayISO();
   const [inicio, setInicio] = usarPersistido("terceiro.inicio", `${hoje.slice(0, 8)}01`, ehDataIso);
   const [fim, setFim] = usarPersistido("terceiro.fim", hoje, ehDataIso);
@@ -91,10 +94,19 @@ export default function ColheitaTerceiroClient() {
           </div>
           <button
             type="button"
-            onClick={() => window.print()}
-            className="rounded-lg border border-line bg-surface px-3.5 py-2 text-[13px] font-semibold text-navy-800 hover:bg-card"
+            onClick={async () => {
+              setGerando(true);
+              try {
+                await gerarRelatorioTerceiroPdf({ inicio, fim, frenteFiltro: frente, linhas, ...totais, nomeUsuario });
+              } finally {
+                setGerando(false);
+              }
+            }}
+            disabled={gerando || linhas.length === 0}
+            className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
           >
-            Imprimir
+            <IconImprimir size={15} />
+            {gerando ? "Gerando…" : "Imprimir / PDF"}
           </button>
         </div>
       </header>
@@ -110,9 +122,6 @@ export default function ColheitaTerceiroClient() {
 
       {linhas.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-line">
-          <p className="hidden px-3 pt-3 text-[13px] font-semibold print:block">
-            Entrada de Cana — Terceiro · {fmtDateBR(inicio)} a {fmtDateBR(fim)}
-          </p>
           <table className="w-full min-w-[560px] text-[13px]">
             <thead className="bg-navy-900 text-white">
               <tr>

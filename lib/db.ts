@@ -1992,7 +1992,7 @@ export async function entradaTerceiros(
   const nomeFrente = "COALESCE(NULLIF(o.frt, ''), NULLIF(v.frt, ''), 'SEM FRENTE')";
   const fr = await pool.query<{ f: string }>(`SELECT DISTINCT ${nomeFrente} AS f ${base} ORDER BY 1`, [inicio, fim]);
   const { rows } = await pool.query<LinhaTerceiro>(
-    `SELECT ${nomeFrente} AS frente, v.dt::text AS data, v.veic AS veiculo, SUM(v.ton)::float AS ton, COUNT(DISTINCT v.ctl)::int AS viagens
+    `SELECT ${nomeFrente} AS frente, v.dt::text AS data, v.veic AS veiculo, SUM(v.ton)::float AS ton, COUNT(DISTINCT split_part(v.ctl, ' ', 1))::int AS viagens
        ${base} AND ($3 = '' OR ${nomeFrente} = $3)
       GROUP BY 1, v.dt, v.veic
       ORDER BY 1, v.dt, v.veic`,
@@ -2001,16 +2001,16 @@ export async function entradaTerceiros(
   // viagens = controles distintos; por isso os subtotais são contados à parte, nunca somados das linhas
   const filtro = `${base} AND ($3 = '' OR ${nomeFrente} = $3)`;
   const porData = await pool.query<TotalTerceiro>(
-    `SELECT ${nomeFrente} AS frente, v.dt::text AS data, SUM(v.ton)::float AS ton, COUNT(DISTINCT v.ctl)::int AS viagens
+    `SELECT ${nomeFrente} AS frente, v.dt::text AS data, SUM(v.ton)::float AS ton, COUNT(DISTINCT split_part(v.ctl, ' ', 1))::int AS viagens
        ${filtro} GROUP BY 1, v.dt`,
     [inicio, fim, frente]
   );
   const porFrente = await pool.query<TotalTerceiro>(
-    `SELECT ${nomeFrente} AS frente, SUM(v.ton)::float AS ton, COUNT(DISTINCT v.ctl)::int AS viagens ${filtro} GROUP BY 1`,
+    `SELECT ${nomeFrente} AS frente, SUM(v.ton)::float AS ton, COUNT(DISTINCT split_part(v.ctl, ' ', 1))::int AS viagens ${filtro} GROUP BY 1`,
     [inicio, fim, frente]
   );
   const geral = await pool.query<TotalTerceiro>(
-    `SELECT SUM(v.ton)::float AS ton, COUNT(DISTINCT v.ctl)::int AS viagens ${filtro}`,
+    `SELECT SUM(v.ton)::float AS ton, COUNT(DISTINCT split_part(v.ctl, ' ', 1))::int AS viagens ${filtro}`,
     [inicio, fim, frente]
   );
   const sv = await pool.query<{ n: number }>(
