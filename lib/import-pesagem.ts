@@ -318,6 +318,9 @@ export interface ViagemPesagem {
   hora: string;
   /** "Peso Tara" em kg — com tara zerada a viagem não é contabilizada nas entradas */
   tara: number;
+  /** Veículo (caminhão) e frente da pesagem — base do relatório de Colheita Terceiro */
+  veiculo: string;
+  frente: string;
 }
 
 export interface EntradaAgregada {
@@ -359,6 +362,9 @@ export async function lerViagensPesagem(
   let repetidasNoArquivo = 0;
   let semOrdem = 0;
   let periodoCabecalho: { inicio: string; fim: string } | null = null;
+  let colVeiculo = -1;
+  let colFrente = -1;
+  const norm = (v: unknown) => texto(v).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
   await paraCadaLinha(buffer, (l) => {
     const linhaAtual = numLinha++;
@@ -380,6 +386,8 @@ export async function lerViagensPesagem(
         l[4] === "Controle"
       ) {
         idxCabecalho = linhaAtual;
+        colVeiculo = l.findIndex((c) => /^(veiculo|cod\.? ?frota|codfrota|frota)/.test(norm(c)));
+        colFrente = l.findIndex((c) => norm(c) === "frente");
       }
       return;
     }
@@ -415,6 +423,8 @@ export async function lerViagensPesagem(
       toneladas: numeroBR(l[19]) / 1000, // Peso Líquido, em kg
       hora: texto(l[31]), // "HH:MM" — já é texto
       tara: numeroBR(l[18]), // Peso Tara, em kg
+      veiculo: colVeiculo >= 0 ? texto(l[colVeiculo]) : "",
+      frente: colFrente >= 0 ? texto(l[colFrente]) : "",
     });
   });
 

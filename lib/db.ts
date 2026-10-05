@@ -297,6 +297,8 @@ export function prepararBanco(pool: Pool): Promise<void> {
       );
       // tara (kg) do Relatório de Pesagem: viagem com tara zerada não entra nas entradas
       await pool.query("ALTER TABLE pes_viag ADD COLUMN IF NOT EXISTS tara numeric");
+      await pool.query("ALTER TABLE pes_viag ADD COLUMN IF NOT EXISTS veic text NOT NULL DEFAULT ''");
+      await pool.query("ALTER TABLE pes_viag ADD COLUMN IF NOT EXISTS frt text NOT NULL DEFAULT ''");
       await pool.query(
         `CREATE TABLE IF NOT EXISTS cad_itm (
            cad text NOT NULL, cod text NOT NULL, nm text NOT NULL DEFAULT '',
@@ -747,7 +749,7 @@ export async function listNumerosOrdens(): Promise<string[]> {
  * novas e quantas substituíram uma já existente.
  */
 export async function upsertViagens(
-  viagens: { data: string; ordem: string; controle: string; fazendaCodigo: string; talhao: string; toneladas: number; hora: string; tara: number }[]
+  viagens: { data: string; ordem: string; controle: string; fazendaCodigo: string; talhao: string; toneladas: number; hora: string; tara: number; veiculo: string; frente: string }[]
 ): Promise<{ novas: number; substituidas: number }> {
   const pool = getPool();
   await prepararBanco(pool);
@@ -767,10 +769,11 @@ export async function upsertViagens(
       );
       substituidas += rows[0].n;
       await client.query(
-        `INSERT INTO pes_viag (dt, ord_num, ctl, faz_cod, tlh, ton, hsd, tara)
-         SELECT * FROM unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::numeric[])
+        `INSERT INTO pes_viag (dt, ord_num, ctl, faz_cod, tlh, ton, hsd, tara, veic, frt)
+         SELECT * FROM unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::numeric[], $9::text[], $10::text[])
          ON CONFLICT (dt, ord_num, ctl) DO UPDATE SET
-           faz_cod = EXCLUDED.faz_cod, tlh = EXCLUDED.tlh, ton = EXCLUDED.ton, hsd = EXCLUDED.hsd, tara = EXCLUDED.tara`,
+           faz_cod = EXCLUDED.faz_cod, tlh = EXCLUDED.tlh, ton = EXCLUDED.ton, hsd = EXCLUDED.hsd, tara = EXCLUDED.tara,
+           veic = EXCLUDED.veic, frt = EXCLUDED.frt`,
         [
           dts,
           ords,
@@ -780,6 +783,8 @@ export async function upsertViagens(
           lote.map((v) => v.toneladas),
           lote.map((v) => v.hora),
           lote.map((v) => v.tara),
+          lote.map((v) => v.veiculo),
+          lote.map((v) => v.frente),
         ]
       );
     }
@@ -1937,4 +1942,31 @@ export async function getDb(): Promise<Database> {
     ultimaImportacao: meta?.ultima_importacao ? paraIso(meta.ultima_importacao) : undefined,
     ultimaAtualizacao: meta?.ultima_atualizacao ? paraIso(meta.ultima_atualizacao) : new Date().toISOString(),
   };
+}
+
+export interface LinhaTerceiro {
+  frente: string;
+  data: string;
+  veiculo: string;
+  ton: number;
+  viagens: number;
+}
+
+/** Entrada de cana dos terceiros (frentes "TERCEIRO - …") por frente, data e caminhão; viagens de tara zerada não contam. */
+export async function entradaTerceiros(inicio: string, fim: string): Promise<{ linhas: LinhaTerceiro[]; semVeiculo: number }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<LinhaTerceiro>(
+    `SELECT frt AS frente, dt::text AS data, veic AS veiculo, SUM(ton)::float AS ton, COUNT(*)::int AS viagens
+       FROM pes_viag
+      WHERE dt BETWEEN $1 AND $2 AND UPPER(frt) LIKE 'TERCEIR%' AND COALESCE(tara, 0) > 0
+      GROUP BY frt, dt, veic
+      ORDER BY frt, dt, veic`,
+    [inicio, fim]
+  );
+  const sv = await pool.query<{ n: number }>(
+    "SELECT COUNT(*)::int AS n FROM pes_viag WHERE dt BETWEEN $1 AND $2 AND frt = ''",
+    [inicio, fim]
+  );
+  return { linhas: rows, semVeiculo: sv.rows[0].n };
 }

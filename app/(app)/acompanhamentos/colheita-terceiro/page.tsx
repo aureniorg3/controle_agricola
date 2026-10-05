@@ -1,11 +1,7 @@
-import PlaceholderPage from "@/components/PlaceholderPage";
+import ColheitaTerceiroClient from "./ColheitaTerceiroClient";
+
+export const dynamic = "force-dynamic";
 
 export default function Page() {
-  return (
-    <PlaceholderPage
-      categoria="Acompanhamentos"
-      titulo="Colheita Terceiro"
-      descricao="Produção, contrato e valor medido dos prestadores de colheita terceirizada."
-    />
-  );
+  return <ColheitaTerceiroClient />;
 }
