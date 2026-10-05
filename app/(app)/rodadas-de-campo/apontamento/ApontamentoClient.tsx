@@ -48,6 +48,33 @@ interface ItemLista {
   nm: string;
 }
 
+interface BoletimVisto {
+  bol: number;
+  rod: number;
+  dt: string;
+  sem: number;
+  reg: string;
+  resp: string;
+  faz: string;
+  ori: string;
+  usr: string;
+  itens: { oco: string; ocoTxt: string; pre: string; niv: string; pri: string; tlh: string; area: number | null; rec: string }[];
+}
+interface RegistroLog {
+  id: number;
+  bol: number;
+  acao: string;
+  usuario: string;
+  em: string;
+  resumo: string;
+}
+
+/** "2026-10-05T08:41:20" -> "05/10/2026 08:41:20" */
+function fmtDataHora(iso: string): string {
+  const [d, h] = iso.split("T");
+  return `${fmtDateBR(d)} ${h ?? ""}`.trim();
+}
+
 /** Cor sugerida pela descrição do nível/prioridade (verde = baixo, âmbar = médio, vermelho = alto). */
 function corPorDescricao(nm: string): string {
   const t = nm.toLowerCase();
@@ -63,7 +90,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
 
   const [boletim, setBoletim] = useState<number | null>(null);
   // a data é a do lançamento no sistema (hoje); a semana é informada depois da rodada
-  const [dt] = useState(todayISO());
+  const [dt, setDt] = useState(todayISO());
   const [rod, setRod] = useState("");
   const [sem, setSem] = useState("");
   const [reg, setReg] = useState("");
@@ -86,6 +113,11 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  // boletim já lançado: buscado para alterar ou excluir
+  const [buscaBol, setBuscaBol] = useState("");
+  const [editando, setEditando] = useState<{ bol: number; usr: string } | null>(null);
+  const [importadoVisto, setImportadoVisto] = useState<BoletimVisto | null>(null);
+  const [logAberto, setLogAberto] = useState<{ bol?: number } | null>(null);
 
   const carregarBoletim = useCallback(async () => {
     const res = await fetch("/api/rodadas/apontamento", { cache: "no-store" });
@@ -253,6 +285,95 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     });
   }
 
+  /** consulta o código só para mostrar a descrição (sem recarregar talhões) */
+  async function registrarConsulta(cad: Cad, cod: string) {
+    const valor = cod.trim();
+    if (!valor) return;
+    const j = await chamar(cad, valor);
+    if (j) setConsultas((c) => ({ ...c, [`${cad}|${valor}`]: { nm: j.item?.nm ?? null, vazio: !j.cadastroComItens } }));
+  }
+
+  /** Busca um boletim lançado pelo número e o abre para alterar (os importados só podem ser vistos e excluídos). */
+  async function buscarBoletim() {
+    setErro(null);
+    setAviso(null);
+    const n = Number(buscaBol.trim());
+    if (!Number.isInteger(n) || n <= 0) return setErro("Informe o número do boletim.");
+    const res = await fetch(`/api/rodadas/apontamento?boletim=${n}`, { cache: "no-store" });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return setErro(j.error ?? "Boletim não encontrado.");
+    const b = j.boletim as BoletimVisto;
+    limpar(false);
+    if (b.ori !== "apontamento") {
+      setEditando(null);
+      setImportadoVisto(b);
+      return;
+    }
+    setImportadoVisto(null);
+    const primeiro = b.itens[0];
+    setEditando({ bol: b.bol, usr: b.usr });
+    setDt(b.dt);
+    setRod(String(b.rod));
+    setSem(String(b.sem));
+    setReg(b.reg);
+    setFaz(b.faz);
+    setPre(primeiro?.pre ?? "");
+    setNiv(primeiro?.niv ?? "");
+    setPri(primeiro?.pri ?? "");
+    setRec(primeiro?.rec ?? "");
+    const codigos = (primeiro?.oco ?? "").split(",").map((c) => c.trim()).filter(Boolean);
+    const sel: ItemLista[] = [];
+    for (const cod of codigos) {
+      const r = await chamar("ocorrencias", cod);
+      sel.push({ cod: r?.item?.cod ?? cod, nm: r?.item?.nm ?? "" });
+    }
+    setOcorrencias(sel);
+    // talhões da fazenda e, marcados, os do boletim
+    const base = b.faz.split("-")[0];
+    let lista: Talhao[] = [];
+    try {
+      const r = await fetch(`/api/rodadas/apontamento?talhoes_faz=${encodeURIComponent(base)}`, { cache: "no-store" });
+      const jj = await r.json();
+      if (r.ok) lista = jj.talhoes ?? [];
+    } catch {
+      /* usa só os talhões do boletim */
+    }
+    for (const it of b.itens) if (!lista.some((t) => t.tlh === it.tlh)) lista.push({ tlh: it.tlh, area: it.area });
+    setTalhoes(lista);
+    setMarcados(new Set(b.itens.map((i) => i.tlh)));
+    setTalhoesDe(base);
+    await Promise.all([
+      registrarConsulta("regiao", b.reg),
+      registrarConsulta("fazendas", b.faz),
+      registrarConsulta("presenca-infestacao", primeiro?.pre ?? ""),
+      registrarConsulta("nivel-infestacao", primeiro?.niv ?? ""),
+      registrarConsulta("prioridade", primeiro?.pri ?? ""),
+    ]);
+  }
+
+  function sairDoBoletim() {
+    limpar(false);
+    setDt(todayISO());
+    setEditando(null);
+    setImportadoVisto(null);
+    setBuscaBol("");
+  }
+
+  async function excluirBoletimAberto(bol: number) {
+    if (!window.confirm(`Excluir o boletim ${bol}? A exclusão fica registrada no log com data, hora e usuário.`)) return;
+    setErro(null);
+    const res = await fetch("/api/rodadas/apontamento", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bol }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return setErro(j.error ?? "Não foi possível excluir o boletim.");
+    sairDoBoletim();
+    setAviso(`Boletim ${bol} excluído.`);
+    await carregarBoletim();
+  }
+
   function limpar(manterCabecalho: boolean) {
     setFaz("");
     setPre("");
@@ -286,9 +407,10 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
     setSalvando(true);
     try {
       const res = await fetch("/api/rodadas/apontamento", {
-        method: "POST",
+        method: editando ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          bol: editando?.bol,
           rod: Number(rod),
           dt,
           sem: Number(sem),
@@ -304,10 +426,17 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error ?? "Não foi possível gravar o boletim.");
-      setAviso(`Boletim ${j.bol} gravado (semana ${j.sem}).`);
-      limpar(true);
-      await carregarBoletim();
-      setTimeout(() => focarDepoisDe("reg"), 50); // volta para a Fazenda
+      if (editando) {
+        sairDoBoletim();
+        setAviso(`Boletim ${j.bol} alterado (semana ${j.sem}). A alteração ficou registrada no log.`);
+        await carregarBoletim();
+        setTimeout(() => focar(0), 50);
+      } else {
+        setAviso(`Boletim ${j.bol} gravado (semana ${j.sem}).`);
+        limpar(true);
+        await carregarBoletim();
+        setTimeout(() => focarDepoisDe("reg"), 50); // volta para a Fazenda
+      }
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível gravar o boletim.");
     } finally {
@@ -423,6 +552,82 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
       </header>
 
       <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-5">
+        <section className="mb-4 rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className={ROTULO}>Buscar boletim lançado</label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={buscaBol}
+                  onChange={(e) => setBuscaBol(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      buscarBoletim();
+                    }
+                  }}
+                  inputMode="numeric"
+                  placeholder="Nº do boletim"
+                  className={`${INPUT_BASE} w-[150px]`}
+                  aria-label="Número do boletim a buscar"
+                />
+                <button
+                  type="button"
+                  onClick={buscarBoletim}
+                  className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card"
+                >
+                  <IconBusca size={13} />
+                  Buscar
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLogAberto({})}
+              className="rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card"
+            >
+              Log de alterações
+            </button>
+          </div>
+          {editando && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-700">
+              <span className="font-semibold">
+                Editando o boletim {editando.bol} · lançado por {editando.usr || "—"} em {fmtDateBR(dt)}.
+              </span>
+              <button type="button" onClick={() => setLogAberto({ bol: editando.bol })} className="ml-auto font-semibold underline">
+                Ver log deste boletim
+              </button>
+            </div>
+          )}
+          {importadoVisto && (
+            <div className="mt-3 rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] text-ink">
+              <p className="font-semibold">
+                Boletim {importadoVisto.bol} — veio da importação da planilha (não pode ser alterado aqui, só excluído).
+              </p>
+              <p className="mt-1 text-muted">
+                Rodada {importadoVisto.rod}, semana {importadoVisto.sem}, região {importadoVisto.reg || "—"}, fazenda {importadoVisto.faz},{" "}
+                {importadoVisto.itens.length} linha(s) de talhão, responsável {importadoVisto.resp || "—"}.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => excluirBoletimAberto(importadoVisto.bol)}
+                  disabled={!podeGravar}
+                  className="rounded-md border border-alert-500/50 bg-card px-3 py-1.5 text-[12.5px] font-semibold text-alert-700 hover:bg-alert-50 disabled:opacity-50"
+                >
+                  Excluir boletim
+                </button>
+                <button type="button" onClick={() => setLogAberto({ bol: importadoVisto.bol })} className="rounded-md border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-surface">
+                  Ver log
+                </button>
+                <button type="button" onClick={sairDoBoletim} className="rounded-md border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-surface">
+                  Fechar
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
         <div ref={formRef} onKeyDown={aoTeclar} className="space-y-4">
           <section className="rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
             <h2 className="mb-3 text-[14px] font-bold text-ink">Boletim de rodada de campo</h2>
@@ -431,7 +636,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
             <div className="grid grid-cols-6 gap-3 lg:grid-cols-[96px_132px_132px_112px_132px_minmax(0,1fr)]">
               <div className="col-span-3 lg:col-span-1">
                 <label className={ROTULO}>Boletim</label>
-                <input value={boletim ?? ""} readOnly tabIndex={-1} className={`${SOMENTE_LEITURA} text-center font-bold`} aria-label="Boletim (automático)" />
+                <input value={editando?.bol ?? boletim ?? ""} readOnly tabIndex={-1} className={`${SOMENTE_LEITURA} text-center font-bold`} aria-label="Boletim (automático)" />
               </div>
               <div className="col-span-3 lg:col-span-1">
                 <label className={ROTULO}>Data (lançamento)</label>
@@ -646,11 +851,30 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                 disabled={!podeGravar || salvando}
                 className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
               >
-                {salvando ? "Gravando…" : "Gravar (F2)"}
+                {salvando ? "Gravando…" : editando ? "Gravar alterações (F2)" : "Gravar (F2)"}
               </button>
+              {editando && (
+                <>
+                  <button
+                    type="button"
+                    onClick={sairDoBoletim}
+                    className="rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+                  >
+                    Cancelar edição
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => excluirBoletimAberto(editando.bol)}
+                    disabled={!podeGravar}
+                    className="rounded-lg border border-alert-500/50 bg-card px-3.5 py-2 text-[13px] font-semibold text-alert-700 shadow-card hover:bg-alert-50 disabled:opacity-50"
+                  >
+                    Excluir boletim
+                  </button>
+                </>
+              )}
               <button
                 type="button"
-                onClick={() => limpar(false)}
+                onClick={() => (editando ? sairDoBoletim() : limpar(false))}
                 disabled={!podeGravar}
                 className="rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
               >
@@ -666,6 +890,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
           </section>
         </div>
       </div>
+
+      {logAberto && <LogModal bol={logAberto.bol} onFechar={() => setLogAberto(null)} />}
 
       {seletor && (
         <Seletor
@@ -713,6 +939,69 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Log de inclusões, alterações e exclusões: data, hora e usuário de cada ação. */
+function LogModal({ bol, onFechar }: { bol?: number; onFechar: () => void }) {
+  const [linhas, setLinhas] = useState<RegistroLog[] | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/rodadas/apontamento?log=1${bol ? `&bol=${bol}` : ""}`, { cache: "no-store" })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => (ok ? setLinhas(j.log) : setErro(j.error ?? "Não foi possível carregar o log.")))
+      .catch(() => setErro("Não foi possível carregar o log."));
+  }, [bol]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-3">
+      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col rounded-xl2 bg-card p-4 shadow-pop md:p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-[15px] font-bold text-ink">{bol ? `Log do boletim ${bol}` : "Log de alterações dos boletins (últimos 200)"}</h3>
+          <button type="button" onClick={onFechar} aria-label="Fechar" className="px-1 text-[20px] leading-none text-muted">
+            ×
+          </button>
+        </div>
+        <div className="min-h-[120px] flex-1 overflow-auto rounded-md border border-line">
+          {erro ? (
+            <p className="px-3 py-4 text-[12.5px] text-alert-600">{erro}</p>
+          ) : linhas === null ? (
+            <p className="px-3 py-4 text-[12.5px] text-muted">Carregando…</p>
+          ) : linhas.length === 0 ? (
+            <p className="px-3 py-4 text-[12.5px] text-muted">Nenhum registro no log.</p>
+          ) : (
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-line bg-navy-900 text-left text-white">
+                  <th className="whitespace-nowrap px-3 py-2 font-semibold">Data e hora</th>
+                  <th className="px-3 py-2 font-semibold">Ação</th>
+                  <th className="px-3 py-2 font-semibold">Usuário</th>
+                  <th className="px-3 py-2 text-right font-semibold">Boletim</th>
+                  <th className="px-3 py-2 font-semibold">Detalhes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((l, i) => (
+                  <tr key={l.id} className={`border-b border-line/60 align-top ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-ink">{fmtDataHora(l.em)}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 font-semibold text-ink">{l.acao}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-ink">{l.usuario}</td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{l.bol}</td>
+                    <td className="min-w-[260px] px-3 py-1.5 text-muted">{l.resumo}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="mt-3 flex justify-end">
+          <button type="button" onClick={onFechar} className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white">
+            Fechar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

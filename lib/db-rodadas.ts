@@ -264,17 +264,26 @@ export async function talhoesDaFazenda(faz: string): Promise<TalhaoApontamento[]
   return [];
 }
 
-/**
- * Grava um boletim novo. O número do boletim é sempre o último + 1 (gravação
- * serializada, sem repetir). Rodada, data (dentro das semanas da rodada),
- * região, fazenda e todos os códigos são conferidos nos cadastros. Cada
- * talhão marcado vira uma linha do boletim, com as mesmas ocorrências,
- * presença, nível, prioridade e recomendação.
- */
-export async function gravarBoletim(b: BoletimApontamento, usuario: string): Promise<{ bol: number; sem: number } | { erro: string }> {
-  const pool = getPool();
-  await prepararBanco(pool);
+interface BoletimValidado {
+  sem: number;
+  reg: string;
+  faz: string;
+  pre: string;
+  niv: string;
+  pri: string;
+  ocos: string[];
+  rec: string;
+  talhoes: TalhaoApontamento[];
+  resp: string;
+}
 
+/**
+ * Confere um boletim antes de gravar (inclusão ou alteração): rodada e semana
+ * no calendário, região, fazenda e todos os códigos nos cadastros, ocorrências,
+ * recomendação (até 150 caracteres) e pelo menos um talhão. O responsável é o
+ * cadastrado para a região (Rodadas de Campo > Responsável Região).
+ */
+async function validarBoletim(b: BoletimApontamento): Promise<BoletimValidado | { erro: string }> {
   const semanas = await semanasDaRodada(b.rod);
   if (semanas.length === 0) return { erro: `A rodada ${b.rod} não está cadastrada.` };
   const sem = b.sem;
@@ -305,8 +314,89 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
   const talhoes = b.talhoes.filter((t) => t.tlh.trim());
   if (talhoes.length === 0) return { erro: "Marque pelo menos um talhão." };
 
-  // o responsável é o cadastrado para a região (Rodadas de Campo > Responsável Região)
   const resp = (await responsavelDaRegiao(reg.cod))?.nm ?? "";
+  return { sem, reg: reg.cod, faz: faz.cod, pre: pre.cod, niv: niv.cod, pri: pri.cod, ocos, rec, talhoes, resp };
+}
+
+// ---------------------------------------------------------------------------
+// Boletim lançado: consulta, alteração, exclusão e log
+// ---------------------------------------------------------------------------
+
+export interface BoletimCompleto {
+  bol: number;
+  rod: number;
+  dt: string;
+  sem: number;
+  reg: string;
+  resp: string;
+  faz: string;
+  /** "apontamento" (lançado no sistema) ou "importacao" (planilha) */
+  ori: string;
+  usr: string;
+  itens: { oco: string; ocoTxt: string; pre: string; niv: string; pri: string; tlh: string; area: number | null; rec: string }[];
+}
+
+export async function obterBoletim(bol: number): Promise<BoletimCompleto | null> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ bol: number; rod: number; dt: string; sem: number; reg: string; resp: string; faz: string; ori: string; usr: string }>(
+    "SELECT bol, rod, dt, sem, reg, resp, faz, ori, usr FROM rod_bol WHERE bol = $1",
+    [bol]
+  );
+  if (rows.length === 0) return null;
+  const { rows: itens } = await pool.query<{ oco: string; oco_txt: string; pre: string; niv: string; pri: string; tlh: string; area: number | null; rec: string }>(
+    "SELECT oco, oco_txt, pre, niv, pri, tlh, area::float AS area, rec FROM rod_itm WHERE bol = $1 ORDER BY seq",
+    [bol]
+  );
+  return {
+    ...rows[0],
+    itens: itens.map((i) => ({ oco: i.oco, ocoTxt: i.oco_txt, pre: i.pre, niv: i.niv, pri: i.pri, tlh: i.tlh, area: i.area, rec: i.rec })),
+  };
+}
+
+async function registrarLog(
+  client: PoolClient,
+  bol: number,
+  acao: "inclusao" | "alteracao" | "exclusao",
+  usuario: string,
+  antes: BoletimCompleto | null,
+  depois: BoletimCompleto | null
+) {
+  await client.query("INSERT INTO rod_log (bol, acao, usr, antes, depois) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb)", [
+    bol,
+    acao,
+    usuario,
+    antes ? JSON.stringify(antes) : null,
+    depois ? JSON.stringify(depois) : null,
+  ]);
+}
+
+async function lerBoletim(client: PoolClient, bol: number): Promise<BoletimCompleto | null> {
+  const { rows } = await client.query<{ bol: number; rod: number; dt: string; sem: number; reg: string; resp: string; faz: string; ori: string; usr: string }>(
+    "SELECT bol, rod, dt, sem, reg, resp, faz, ori, usr FROM rod_bol WHERE bol = $1",
+    [bol]
+  );
+  if (rows.length === 0) return null;
+  const { rows: itens } = await client.query<{ oco: string; oco_txt: string; pre: string; niv: string; pri: string; tlh: string; area: number | null; rec: string }>(
+    "SELECT oco, oco_txt, pre, niv, pri, tlh, area::float AS area, rec FROM rod_itm WHERE bol = $1 ORDER BY seq",
+    [bol]
+  );
+  return {
+    ...rows[0],
+    itens: itens.map((i) => ({ oco: i.oco, ocoTxt: i.oco_txt, pre: i.pre, niv: i.niv, pri: i.pri, tlh: i.tlh, area: i.area, rec: i.rec })),
+  };
+}
+
+/**
+ * Grava um boletim novo. O número do boletim é sempre o último + 1 (gravação
+ * serializada, sem repetir). Cada talhão marcado vira uma linha do boletim, com
+ * as mesmas ocorrências, presença, nível, prioridade e recomendação.
+ */
+export async function gravarBoletim(b: BoletimApontamento, usuario: string): Promise<{ bol: number; sem: number } | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const v = await validarBoletim(b);
+  if ("erro" in v) return v;
 
   const client = await pool.connect();
   try {
@@ -316,23 +406,124 @@ export async function gravarBoletim(b: BoletimApontamento, usuario: string): Pro
     const bol = rows[0].n;
     await client.query(
       `INSERT INTO rod_bol (bol, rod, dt, sem, reg, resp, faz, ori, usr) VALUES ($1,$2,$3,$4,$5,$6,$7,'apontamento',$8)`,
-      [bol, b.rod, b.dt, sem, reg.cod, resp, faz.cod, usuario]
+      [bol, b.rod, b.dt, v.sem, v.reg, v.resp, v.faz, usuario]
     );
-    for (let n = 0; n < talhoes.length; n++) {
-      const t = talhoes[n];
+    for (let n = 0; n < v.talhoes.length; n++) {
+      const t = v.talhoes[n];
       await client.query(
         `INSERT INTO rod_itm (bol, seq, oco, pre, niv, pri, tlh, area, rec) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [bol, n + 1, ocos.join(","), pre.cod, niv.cod, pri.cod, t.tlh.trim(), t.area, rec]
+        [bol, n + 1, v.ocos.join(","), v.pre, v.niv, v.pri, t.tlh.trim(), t.area, v.rec]
       );
     }
+    await registrarLog(client, bol, "inclusao", usuario, null, await lerBoletim(client, bol));
     await client.query("COMMIT");
-    return { bol, sem };
+    return { bol, sem: v.sem };
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
   } finally {
     client.release();
   }
+}
+
+/** Altera um boletim lançado no Apontamento (a data do lançamento não muda). Guarda no log o antes e o depois. */
+export async function atualizarBoletim(bol: number, b: BoletimApontamento, usuario: string): Promise<{ bol: number; sem: number } | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const atual = await obterBoletim(bol);
+  if (!atual) return { erro: `O boletim ${bol} não existe.` };
+  if (atual.ori !== "apontamento") return { erro: `O boletim ${bol} veio da importação da planilha e não pode ser alterado aqui (só excluído).` };
+  const v = await validarBoletim(b);
+  if ("erro" in v) return v;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const antes = await lerBoletim(client, bol);
+    await client.query("UPDATE rod_bol SET rod = $2, sem = $3, reg = $4, resp = $5, faz = $6 WHERE bol = $1", [bol, b.rod, v.sem, v.reg, v.resp, v.faz]);
+    await client.query("DELETE FROM rod_itm WHERE bol = $1", [bol]);
+    for (let n = 0; n < v.talhoes.length; n++) {
+      const t = v.talhoes[n];
+      await client.query(
+        `INSERT INTO rod_itm (bol, seq, oco, pre, niv, pri, tlh, area, rec) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [bol, n + 1, v.ocos.join(","), v.pre, v.niv, v.pri, t.tlh.trim(), t.area, v.rec]
+      );
+    }
+    await registrarLog(client, bol, "alteracao", usuario, antes, await lerBoletim(client, bol));
+    await client.query("COMMIT");
+    return { bol, sem: v.sem };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Exclui o boletim e todas as suas linhas. O log guarda o conteúdo que existia, com data, hora e usuário. */
+export async function excluirBoletim(bol: number, usuario: string): Promise<true | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const antes = await lerBoletim(client, bol);
+    if (!antes) {
+      await client.query("ROLLBACK");
+      return { erro: `O boletim ${bol} não existe.` };
+    }
+    await registrarLog(client, bol, "exclusao", usuario, antes, null);
+    await client.query("DELETE FROM rod_itm WHERE bol = $1", [bol]);
+    await client.query("DELETE FROM rod_bol WHERE bol = $1", [bol]);
+    await client.query("COMMIT");
+    return true;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export interface RegistroLog {
+  id: number;
+  bol: number;
+  acao: string;
+  usuario: string;
+  /** timestamp ISO */
+  em: string;
+  resumo: string;
+}
+
+const ROTULO_ACAO: Record<string, string> = { inclusao: "Inclusão", alteracao: "Alteração", exclusao: "Exclusão" };
+
+function descrever(b: BoletimCompleto | null): string {
+  if (!b) return "";
+  const tlhs = b.itens.map((i) => i.tlh).join(", ");
+  const oco = b.itens[0]?.oco || b.itens[0]?.ocoTxt || "";
+  return `Rodada ${b.rod}, semana ${b.sem}, região ${b.reg}, fazenda ${b.faz}, talhões ${tlhs || "—"}, ocorrência(s) ${oco || "—"}, prioridade ${b.itens[0]?.pri || "—"}, nível ${b.itens[0]?.niv || "—"}, presença ${b.itens[0]?.pre || "—"}`;
+}
+
+/** Log de inclusões, alterações e exclusões de boletins (do boletim informado, ou os mais recentes de todos). */
+export async function listarLogBoletins(bol?: number, limite = 200): Promise<RegistroLog[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ id: string; bol: number; acao: string; usr: string; em: string; antes: BoletimCompleto | null; depois: BoletimCompleto | null }>(
+    `SELECT id, bol, acao, usr, to_char(em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') AS em, antes, depois
+       FROM rod_log ${bol ? "WHERE bol = $2" : ""} ORDER BY em DESC, id DESC LIMIT $1`,
+    bol ? [limite, bol] : [limite]
+  );
+  return rows.map((r) => ({
+    id: Number(r.id),
+    bol: r.bol,
+    acao: ROTULO_ACAO[r.acao] ?? r.acao,
+    usuario: r.usr,
+    em: r.em,
+    resumo:
+      r.acao === "alteracao"
+        ? `Antes: ${descrever(r.antes)} | Depois: ${descrever(r.depois)}`
+        : descrever(r.acao === "exclusao" ? r.antes : r.depois),
+  }));
 }
 
 // ---------------------------------------------------------------------------

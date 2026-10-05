@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
 import {
+  atualizarBoletim,
   buscarCodigo,
+  excluirBoletim,
   gravarBoletim,
   listarCodigos,
+  listarLogBoletins,
+  obterBoletim,
   proximoBoletim,
   responsavelDaRegiao,
   talhoesDaFazenda,
+  type BoletimApontamento,
   type TalhaoApontamento,
 } from "@/lib/db-rodadas";
 import { podeEditar } from "@/lib/permissoes";
@@ -23,6 +28,18 @@ const CADASTROS_CONSULTA = new Set(["regiao", "fazendas", "ocorrencias", "nivel-
 export async function GET(req: NextRequest) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
+  const buscaBol = req.nextUrl.searchParams.get("boletim");
+  if (buscaBol !== null) {
+    const n = Number(buscaBol);
+    if (!Number.isInteger(n) || n <= 0) return NextResponse.json({ error: "Informe o número do boletim." }, { status: 400 });
+    const b = await obterBoletim(n);
+    if (!b) return NextResponse.json({ error: `Boletim ${n} não encontrado.` }, { status: 404 });
+    return NextResponse.json({ boletim: b });
+  }
+  if (req.nextUrl.searchParams.get("log") === "1") {
+    const n = Number(req.nextUrl.searchParams.get("bol"));
+    return NextResponse.json({ log: await listarLogBoletins(Number.isInteger(n) && n > 0 ? n : undefined) });
+  }
   const lista = req.nextUrl.searchParams.get("lista");
   if (lista) {
     if (!CADASTROS_CONSULTA.has(lista)) return NextResponse.json({ error: "Cadastro desconhecido." }, { status: 404 });
@@ -45,42 +62,64 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ boletim: await proximoBoletim() });
 }
 
+function lerBoletim(body: Record<string, unknown> | null): { erro: string } | { b: BoletimApontamento } {
+  const rod = Number(body?.rod);
+  const dt = typeof body?.dt === "string" ? body.dt : "";
+  if (!Number.isInteger(rod) || rod <= 0) return { erro: "Informe a rodada." };
+  if (!DATA.test(dt) || Number.isNaN(Date.parse(dt))) return { erro: "Informe a data." };
+  const sem = Number(body?.sem);
+  if (!Number.isInteger(sem) || sem <= 0) return { erro: "Informe a semana." };
+  const texto = (v: unknown) => (typeof v === "string" ? v : "");
+  const ocos: string[] = Array.isArray(body?.ocos) ? (body.ocos as unknown[]).slice(0, 50).map(texto).filter(Boolean) : [];
+  const talhoes: TalhaoApontamento[] = Array.isArray(body?.talhoes)
+    ? (body.talhoes as Record<string, unknown>[]).slice(0, 500).map((t) => ({
+        tlh: texto(t.tlh),
+        area: typeof t.area === "number" && Number.isFinite(t.area) ? t.area : null,
+      }))
+    : [];
+  return {
+    b: { rod, dt, sem, reg: texto(body?.reg), faz: texto(body?.faz), pre: texto(body?.pre), niv: texto(body?.niv), pri: texto(body?.pri), ocos, rec: texto(body?.rec), talhoes },
+  };
+}
+
 export async function POST(req: NextRequest) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
     return NextResponse.json({ error: "Você não tem permissão para lançar apontamentos." }, { status: 403 });
   }
-  const body = await req.json().catch(() => null);
-  const rod = Number(body?.rod);
-  const dt = typeof body?.dt === "string" ? body.dt : "";
-  if (!Number.isInteger(rod) || rod <= 0) return NextResponse.json({ error: "Informe a rodada." }, { status: 400 });
-  if (!DATA.test(dt) || Number.isNaN(Date.parse(dt))) return NextResponse.json({ error: "Informe a data." }, { status: 400 });
-  const sem = Number(body?.sem);
-  if (!Number.isInteger(sem) || sem <= 0) return NextResponse.json({ error: "Informe a semana." }, { status: 400 });
-  const texto = (v: unknown) => (typeof v === "string" ? v : "");
-  const ocos: string[] = Array.isArray(body?.ocos) ? body.ocos.slice(0, 50).map(texto).filter(Boolean) : [];
-  const talhoes: TalhaoApontamento[] = Array.isArray(body?.talhoes)
-    ? body.talhoes.slice(0, 500).map((t: Record<string, unknown>) => ({
-        tlh: texto(t.tlh),
-        area: typeof t.area === "number" && Number.isFinite(t.area) ? t.area : null,
-      }))
-    : [];
-  const r = await gravarBoletim(
-    {
-      rod,
-      dt,
-      sem,
-      reg: texto(body?.reg),
-      faz: texto(body?.faz),
-      pre: texto(body?.pre),
-      niv: texto(body?.niv),
-      pri: texto(body?.pri),
-      ocos,
-      rec: texto(body?.rec),
-      talhoes,
-    },
-    usuario.nome
-  );
+  const lido = lerBoletim(await req.json().catch(() => null));
+  if ("erro" in lido) return NextResponse.json({ error: lido.erro }, { status: 400 });
+  const r = await gravarBoletim(lido.b, usuario.nome);
   if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 400 });
   return NextResponse.json({ ok: true, ...r });
+}
+
+/** Altera um boletim lançado (grava no log quem, quando e o antes/depois). */
+export async function PUT(req: NextRequest) {
+  const usuario = await usuarioDaRequisicao(req);
+  if (!usuario || !podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para alterar apontamentos." }, { status: 403 });
+  }
+  const corpo = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const bol = Number(corpo?.bol);
+  if (!Number.isInteger(bol) || bol <= 0) return NextResponse.json({ error: "Informe o boletim." }, { status: 400 });
+  const lido = lerBoletim(corpo);
+  if ("erro" in lido) return NextResponse.json({ error: lido.erro }, { status: 400 });
+  const r = await atualizarBoletim(bol, lido.b, usuario.nome);
+  if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 400 });
+  return NextResponse.json({ ok: true, ...r });
+}
+
+/** Exclui um boletim (grava no log quem, quando e o conteúdo excluído). */
+export async function DELETE(req: NextRequest) {
+  const usuario = await usuarioDaRequisicao(req);
+  if (!usuario || !podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para excluir apontamentos." }, { status: 403 });
+  }
+  const corpo = await req.json().catch(() => null);
+  const bol = Number(corpo?.bol);
+  if (!Number.isInteger(bol) || bol <= 0) return NextResponse.json({ error: "Informe o boletim." }, { status: 400 });
+  const r = await excluirBoletim(bol, usuario.nome);
+  if (r !== true) return NextResponse.json({ error: r.erro }, { status: 404 });
+  return NextResponse.json({ ok: true });
 }

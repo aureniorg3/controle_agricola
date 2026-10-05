@@ -294,3 +294,16 @@ create table if not exists rod_itm (
   ext jsonb not null default '{}'::jsonb
 );
 create index if not exists idx_rod_itm_bol on rod_itm(bol);
+
+-- Log de inclusões, alterações e exclusões de boletins das Rodadas de Campo:
+-- quem fez (usr), quando (em) e o conteúdo do boletim antes e depois.
+create table if not exists rod_log (
+  id bigserial primary key,
+  bol integer not null,
+  acao text not null,
+  usr text not null default '',
+  em timestamptz not null default now(),
+  antes jsonb,
+  depois jsonb
+);
+create index if not exists idx_rod_log_bol on rod_log(bol, em);

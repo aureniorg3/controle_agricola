@@ -332,6 +332,14 @@ export function prepararBanco(pool: Pool): Promise<void> {
            ext jsonb NOT NULL DEFAULT '{}'::jsonb
          )`
       );
+      // log de inclusões, alterações e exclusões de boletins (quem, quando e o conteúdo antes/depois)
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS rod_log (
+           id bigserial PRIMARY KEY, bol integer NOT NULL, acao text NOT NULL, usr text NOT NULL DEFAULT '',
+           em timestamptz NOT NULL DEFAULT now(), antes jsonb, depois jsonb
+         )`
+      );
+      await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_log_bol ON rod_log(bol, em)");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_itm_bol ON rod_itm(bol)");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_bol_chave ON rod_bol(rod, dt, reg, sem, faz)");
       // toda rodada tem 8 semanas: as que vieram da importação com menos (ex.: rodada em andamento) seguem
