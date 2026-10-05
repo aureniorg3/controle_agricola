@@ -73,7 +73,17 @@ const SECTIONS: Section[] = [
           },
         ],
       },
-      { label: "Insumos", href: "/acompanhamentos/insumos", icon: IconInsumo },
+      {
+        label: "Insumos",
+        icon: IconInsumo,
+        children: [
+          { label: "Empréstimos", href: "/acompanhamentos/insumos/emprestimos" },
+          {
+            label: "Saldo Insumos",
+            children: [{ label: "Resumo", href: "/acompanhamentos/insumos/saldo/resumo" }],
+          },
+        ],
+      },
       { label: "Ordem de Serviço Agr.", href: "/acompanhamentos/os-agricola", icon: IconOrdemServico },
       { label: "Colheita Terceiro", href: "/acompanhamentos/colheita-terceiro", icon: IconCaminhaoCana },
       { label: "Painel de ocorrências", href: "/contencioso", icon: IconAlerta },

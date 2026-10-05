@@ -1,9 +1,5 @@
-import { usuarioAtual } from "@/lib/db";
-import InsumosClient from "./InsumosClient";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function Page() {
-  const usuario = await usuarioAtual();
-  return <InsumosClient perfil={usuario?.perfil ?? "leitura"} />;
+export default function Page() {
+  redirect("/acompanhamentos/insumos/saldo/resumo");
 }

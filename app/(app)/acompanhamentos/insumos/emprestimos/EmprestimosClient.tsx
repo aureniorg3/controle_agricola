@@ -88,7 +88,7 @@ function formDe(e: Emprestimo): Form {
   };
 }
 
-export default function InsumosClient({ perfil }: { perfil: PerfilUsuario }) {
+export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario }) {
   const podeGravar = podeEditar(perfil);
   const [lista, setLista] = useState<Emprestimo[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -243,20 +243,13 @@ export default function InsumosClient({ perfil }: { perfil: PerfilUsuario }) {
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden" translate="no">
       <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
         <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos</span>
-          <div className="truncate text-[15px] font-bold text-ink">Insumos</div>
+          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Insumos</span>
+          <div className="truncate text-[15px] font-bold text-ink">Empréstimos</div>
         </nav>
         <BotaoLog titulo="Log de Empréstimos de Insumos" filtro={{ modulo: "Insumos" }} />
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="mb-4 flex gap-1 border-b border-line">
-          <span className="border-b-2 border-navy-900 px-4 py-2 text-[13px] font-bold text-navy-900">Empréstimos</span>
-          <span className="px-4 py-2 text-[13px] text-muted/70" title="Em construção">
-            Saldo de insumos (em construção)
-          </span>
-        </div>
-
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {(["Aberto", "Devolvido", "Pago"] as StatusEmprestimo[]).map((s) => (
             <button
