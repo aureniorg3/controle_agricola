@@ -18,6 +18,7 @@ import {
   quinzenaRange,
   resumoDetalhadoPorOrdemFazenda,
   resumoDiarioMes,
+  mediaDiariaPorPeriodo,
   resumoPorFrente,
   type ResumoMensal,
   startOfMonth,
@@ -203,7 +204,7 @@ function TchComparativo({
           </div>
         )}
         <div className={`${linha} bg-amber-50`}>
-          <span className="text-ink">TCH Geral Realizado {safraAtual}</span>
+          <span className="text-ink">TCH Médio Realizado</span>
           <span className="flex items-center gap-2">
             {variacao !== null && (
               <span className={`text-[10.5px] ${variacao >= 0 ? "text-good-600" : "text-alert-600"}`}>
@@ -516,6 +517,12 @@ export default function OrdensCorteClient({
     [ordensFiltradas, ordensFiltradasTodas, referencia, metas, producao, primeiraEntradaPorFrente, horaCorte, frentesOrdenadas]
   );
 
+  // média de t por dia efetivo (só dias com entrada de cana), todas as frentes juntas
+  const mediaDiaria = useMemo(
+    () => mediaDiariaPorPeriodo(ordensFiltradasTodas, referencia, producao?.inicio),
+    [ordensFiltradasTodas, referencia, producao]
+  );
+
   const resumoTotais = useMemo(
     () =>
       resumoFrentes.reduce(
@@ -530,6 +537,8 @@ export default function OrdensCorteClient({
           semanaT: acc.semanaT + r.semanaT,
           diaAnteriorT: acc.diaAnteriorT + r.diaAnteriorT,
           diaAtualT: acc.diaAtualT + r.diaAtualT,
+          diasEfetivos: mediaDiaria.safra.dias,
+          mediaDiaEfetivoT: mediaDiaria.safra.media,
         }),
         {
           ordensSelecionadas: 0,
@@ -542,9 +551,11 @@ export default function OrdensCorteClient({
           semanaT: 0,
           diaAnteriorT: 0,
           diaAtualT: 0,
+          diasEfetivos: 0,
+          mediaDiaEfetivoT: 0,
         }
       ),
-    [resumoFrentes]
+    [resumoFrentes, mediaDiaria]
   );
 
   const metaTotais = useMemo(
@@ -657,6 +668,7 @@ export default function OrdensCorteClient({
         periodLabel: PERIODOS.find((p) => p.key === period)?.label ?? "Dia",
         resumoFrentes,
         resumoTotais,
+        mediaDiaria,
         metaTotais,
         kpis: [
           { label: "Ordens abertas", value: String(kpisTopo.abertas), sub: "Ordens selecionadas", tom: "green" },
@@ -1160,6 +1172,14 @@ export default function OrdensCorteClient({
                     Dia Atual
                     <div className="font-normal normal-case text-muted/70">{rotulosResumo.diaAtual} até {rotuloHora}</div>
                   </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Dias Efet.
+                    <div className="font-normal normal-case text-muted/70">safra</div>
+                  </th>
+                  <th className="px-4 py-2 text-right font-semibold">
+                    Ton Média Dia Efet.
+                    <div className="font-normal normal-case text-muted/70">safra ÷ dias efet.</div>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -1178,6 +1198,8 @@ export default function OrdensCorteClient({
                     <td className="px-4 py-1.5 text-right tabular font-semibold text-brand-700">
                       {fmtT(r.diaAtualT)}<MetaLinha real={r.diaAtualT} meta={r.meta.diaAtual} />
                     </td>
+                    <td className="px-3 py-1.5 text-right tabular text-ink">{r.diasEfetivos}</td>
+                    <td className="px-4 py-1.5 text-right tabular text-ink">{r.diasEfetivos > 0 ? fmtT(r.mediaDiaEfetivoT) : "–"}</td>
                   </tr>
                 ))}
                 <tr className="bg-surface font-bold text-ink">
@@ -1192,6 +1214,21 @@ export default function OrdensCorteClient({
                   <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.semanaT)}<MetaLinha real={resumoTotais.semanaT} meta={metaTotais.semana} /></td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtT(resumoTotais.diaAnteriorT)}<MetaLinha real={resumoTotais.diaAnteriorT} meta={metaTotais.diaAnterior} /></td>
                   <td className="px-4 py-1.5 text-right tabular text-brand-700">{fmtT(resumoTotais.diaAtualT)}<MetaLinha real={resumoTotais.diaAtualT} meta={metaTotais.diaAtual} /></td>
+                  <td className="px-3 py-1.5 text-right tabular">{resumoTotais.diasEfetivos}</td>
+                  <td className="px-4 py-1.5 text-right tabular">{resumoTotais.diasEfetivos > 0 ? fmtT(resumoTotais.mediaDiaEfetivoT) : "–"}</td>
+                </tr>
+                <tr className="border-t border-line bg-card text-ink">
+                  <td className="px-4 py-1.5 font-semibold" colSpan={4}>
+                    Média t entregue/dia
+                    <span className="ml-1 font-normal text-muted">(só dias com entrega de cana)</span>
+                  </td>
+                  {(["safra", "mesAnterior", "mesAtual", "quinzena", "semana", "diaAnterior", "diaAtual"] as const).map((k) => (
+                    <td key={k} className="px-3 py-1.5 text-right tabular font-semibold">
+                      {mediaDiaria[k].dias > 0 ? fmtT(mediaDiaria[k].media) : "–"}
+                      <div className="text-[10.5px] font-normal text-muted">{mediaDiaria[k].dias} dia(s)</div>
+                    </td>
+                  ))}
+                  <td colSpan={2} />
                 </tr>
               </tbody>
             </table>
@@ -1622,6 +1659,8 @@ function OrdemCard({
 }) {
   const m = calcOrdemMetrics(ordem, period, referencia);
   const areaColhidaHa = calcAreaColhidaHa(ordem);
+  // TCH médio realizado: tonelada entregue ÷ área colhida apontada
+  const tchMedio = areaColhidaHa > 0 ? Math.round((m.acumSafraT / areaColhidaHa) * 100) / 100 : 0;
   const progresso = m.areaTotalHa > 0 ? Math.min(100, Math.round((areaColhidaHa / m.areaTotalHa) * 100)) : 0;
   const diaAnteriorIso = addDays(referencia, -1);
   const totalDiaAnteriorT =
@@ -1732,7 +1771,7 @@ function OrdemCard({
             </div>
             <TchComparativo
               areaOrdemHa={m.areaTotalHa}
-              tchGeralAtual={m.tchGeralRealizado}
+              tchGeralAtual={tchMedio}
               safraAtual={safraAtual}
               safrasAnteriores={safrasAnteriores}
               historico={historico}
@@ -1770,10 +1809,10 @@ function OrdemCard({
 
             <div className="flex items-center justify-between rounded-lg bg-surface px-3 py-2.5">
               <div>
-                <div className="text-[10.5px] text-muted">TCH geral realizado</div>
-                <div className="text-[17px] font-bold tabular text-ink">{fmtTch(m.tchGeralRealizado)}</div>
+                <div className="text-[10.5px] text-muted">TCH médio realizado</div>
+                <div className="text-[17px] font-bold tabular text-ink">{fmtTch(tchMedio)}</div>
               </div>
-              <TchBadge tch={m.tchGeralRealizado} />
+              <TchBadge tch={tchMedio} />
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">

@@ -272,6 +272,10 @@ export interface FrenteResumo {
   diaAnteriorT: number;
   /** só a fração das entradas do dia de referência pesada até 06:00. */
   diaAtualT: number;
+  /** dias da safra (até o dia anterior) em que a frente entregou cana */
+  diasEfetivos: number;
+  /** tonelada da safra ÷ dias efetivos */
+  mediaDiaEfetivoT: number;
 }
 
 function round2(n: number): number {
@@ -333,8 +337,9 @@ export function resumoPorFrente(
     const desde = (r: { inicio: string; fim: string }) =>
       primeira === undefined ? { inicio: "9999-12-31", fim: "0000-01-01" } : { inicio: r.inicio > primeira ? r.inicio : primeira, fim: r.fim };
     return {
-      safra: round2(metaNoIntervalo(metas, frente, desde(safra))),
-      mesAnterior: round2(metaNoIntervalo(metas, frente, desde(mesAnterior))),
+      // a tela só compara com meta a partir do mês atual: safra e mês anterior ficam sem meta
+      safra: 0,
+      mesAnterior: 0,
       mesAtual: round2(metaNoIntervalo(metas, frente, desde(mesAtual))),
       quinzena: round2(metaNoIntervalo(metas, frente, desde(quinzena))),
       semana: round2(metaNoIntervalo(metas, frente, desde(semana))),
@@ -363,12 +368,15 @@ export function resumoPorFrente(
         semanaT: 0,
         diaAnteriorT: 0,
         diaAtualT: 0,
+        diasEfetivos: 0,
+        mediaDiaEfetivoT: 0,
       };
       map.set(frente, atual);
     }
     return atual;
   }
 
+  const diasPorFrente = new Map<string, Set<string>>();
   for (const ordem of ordensSelecionadas) {
     const atual = getOrInit(ordem.frente);
     atual.ordensSelecionadas += 1;
@@ -387,6 +395,11 @@ export function resumoPorFrente(
     atual.diaAtualT += ordem.entradas
       .filter((e) => e.data === referencia)
       .reduce((s, e) => s + e.toneladasAte6h, 0);
+    let dias = diasPorFrente.get(ordem.frente);
+    if (!dias) diasPorFrente.set(ordem.frente, (dias = new Set()));
+    for (const e of ordem.entradas) {
+      if (e.data >= safra.inicio && e.data <= safra.fim && e.toneladas > 0) dias.add(e.data);
+    }
   }
 
   return Array.from(map.values())
@@ -401,8 +414,59 @@ export function resumoPorFrente(
       semanaT: round2(r.semanaT),
       diaAnteriorT: round2(r.diaAnteriorT),
       diaAtualT: round2(r.diaAtualT),
+      diasEfetivos: diasPorFrente.get(r.frente)?.size ?? 0,
+      mediaDiaEfetivoT: (diasPorFrente.get(r.frente)?.size ?? 0) > 0 ? round2(r.safraT / diasPorFrente.get(r.frente)!.size) : 0,
     }))
     .sort((a, b) => a.frente.localeCompare(b.frente));
+}
+
+export interface MediaDiaria {
+  t: number;
+  /** dias do recorte em que alguma frente entregou cana */
+  dias: number;
+  /** t ÷ dias efetivos */
+  media: number;
+}
+
+/**
+ * Média de tonelada entregue por dia efetivo (só dias com entrada de cana) em cada recorte do resumo,
+ * somando todas as frentes. Mesmos recortes de `resumoPorFrente`.
+ */
+export function mediaDiariaPorPeriodo(
+  ordensTodas: OrdemCorte[],
+  referencia: string,
+  safraInicio?: string
+): Record<"safra" | "mesAnterior" | "mesAtual" | "quinzena" | "semana" | "diaAnterior" | "diaAtual", MediaDiaria> {
+  const ontem = addDays(referencia, -1);
+  const faixas = {
+    safra: { inicio: safraInicio ?? "0000-01-01", fim: ontem },
+    mesAnterior: mesAnteriorRange(referencia),
+    mesAtual: { inicio: startOfMonth(referencia), fim: ontem },
+    quinzena: { inicio: quinzenaRange(referencia).inicio, fim: ontem },
+    semana: { inicio: startOfWeekMonday(referencia), fim: ontem },
+    diaAnterior: { inicio: ontem, fim: ontem },
+    diaAtual: { inicio: referencia, fim: referencia },
+  };
+  const porDia = new Map<string, number>();
+  for (const o of ordensTodas) {
+    for (const e of o.entradas) {
+      const t = e.data === referencia ? e.toneladasAte6h : e.data < referencia ? e.toneladas : 0;
+      if (t > 0) porDia.set(e.data, (porDia.get(e.data) ?? 0) + t);
+    }
+  }
+  const res = {} as ReturnType<typeof mediaDiariaPorPeriodo>;
+  for (const [k, f] of Object.entries(faixas) as [keyof typeof faixas, { inicio: string; fim: string }][]) {
+    let t = 0;
+    let dias = 0;
+    for (const [data, v] of porDia) {
+      if (data >= f.inicio && data <= f.fim) {
+        t += v;
+        dias++;
+      }
+    }
+    res[k] = { t: round2(t), dias, media: dias > 0 ? round2(t / dias) : 0 };
+  }
+  return res;
 }
 
 export interface CelulaResumoMensal {

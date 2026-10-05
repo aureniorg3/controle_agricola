@@ -1,4 +1,4 @@
-import type { FrenteResumo, LinhaResumoDetalhado, MetasPorPeriodo, ResumoMensal } from "./period";
+import type { FrenteResumo, LinhaResumoDetalhado, MediaDiaria, MetasPorPeriodo, ResumoMensal } from "./period";
 import {
   addDays,
   calcAreaColhidaHa,
@@ -62,6 +62,8 @@ export interface DadosRelatorioCompleto {
   periodLabel: string;
   resumoFrentes: FrenteResumo[];
   resumoTotais: Omit<FrenteResumo, "frente" | "meta">;
+  /** média de t por dia efetivo em cada recorte do resumo (todas as frentes) */
+  mediaDiaria: Record<"safra" | "mesAnterior" | "mesAtual" | "quinzena" | "semana" | "diaAnterior" | "diaAtual", MediaDiaria>;
   /** meta somada de todas as frentes em cada período (linha Total geral) */
   metaTotais: MetasPorPeriodo;
   /** os 8 cards do topo da tela */
@@ -164,6 +166,8 @@ function montarCardOrdem(
 
   const m = calcOrdemMetrics(ordem, period, referencia);
   const areaColhidaHa = calcAreaColhidaHa(ordem);
+  // TCH médio realizado: tonelada entregue ÷ área colhida apontada
+  const tchMedio = areaColhidaHa > 0 ? round2(m.acumSafraT / areaColhidaHa) : 0;
   const progresso = m.areaTotalHa > 0 ? Math.min(100, Math.round((areaColhidaHa / m.areaTotalHa) * 100)) : 0;
   const diaAnteriorIso = addDays(referencia, -1);
   const totalDiaAnteriorT = round2(
@@ -195,7 +199,7 @@ function montarCardOrdem(
               },
             ]
           : []),
-        { texto: `TCH Geral Realizado ${tch.safraAtual}`, valor: fmtTch(m.tchGeralRealizado), fundo: [255, 243, 224] },
+        { texto: "TCH Médio Realizado", valor: fmtTch(tchMedio), fundo: [255, 243, 224] },
       ]
     : [];
   const alturaLinhaTch = 3.3;
@@ -437,12 +441,12 @@ function montarCardOrdem(
     doc.setFont("helvetica", "normal");
     doc.setFontSize(5.2);
     doc.setTextColor(...MUTED);
-    doc.text("TCH geral realizado", xr + 1.8, ry + 3.2);
+    doc.text("TCH médio realizado", xr + 1.8, ry + 3.2);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8.6);
     doc.setTextColor(...INK);
-    doc.text(fmtTch(m.tchGeralRealizado), xr + 1.8, ry + 8.2);
-    const t = m.tchGeralRealizado;
+    doc.text(fmtTch(tchMedio), xr + 1.8, ry + 8.2);
+    const t = tchMedio;
     const nivel: [string, [number, number, number], [number, number, number]] =
       t > 80
         ? ["Excelente", [232, 245, 233], [22, 100, 48]]
@@ -545,6 +549,8 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     `Semana\n${dm(semana.inicio)}-${dm(semana.fim)}`,
     `Dia Anterior\n${dm(addDays(dados.referencia, -1))}`,
     `Dia Atual\n${dm(dados.referencia)} até ${rotuloHora}`,
+    "Dias\nEfet.",
+    "Ton Média\nDia Efet.",
   ];
 
   // 8 cards do topo da tela, numa faixa só
@@ -624,12 +630,26 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     fmtT(r.semanaT),
     fmtT(r.diaAnteriorT),
     fmtT(r.diaAtualT),
+    String(r.diasEfetivos),
+    r.diasEfetivos > 0 ? fmtT(r.mediaDiaEfetivoT) : "–",
+  ];
+  const md = dados.mediaDiaria;
+  const linhaMedia = [
+    "Média t entregue/dia (dias com entrega)",
+    "",
+    "",
+    "",
+    ...(["safra", "mesAnterior", "mesAtual", "quinzena", "semana", "diaAnterior", "diaAtual"] as const).map((k) =>
+      md[k].dias > 0 ? `${fmtT(md[k].media)}\n${md[k].dias} dia(s)` : "–"
+    ),
+    "",
+    "",
   ];
 
   autoTable(doc, {
     startY: inicioTabela,
     head: [cabecalhoResumo],
-    body: [...dados.resumoFrentes.map(linhaResumo), linhaResumo(dados.resumoTotais)],
+    body: [...dados.resumoFrentes.map(linhaResumo), linhaResumo(dados.resumoTotais), linhaMedia],
     styles: { fontSize: 7, cellPadding: 1.6 },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], halign: "right" },
     columnStyles: { 0: { halign: "left", fontStyle: "bold" }, 1: { halign: "right" } },
@@ -644,6 +664,13 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
           data.cell.styles.fontStyle = "bold";
           data.cell.styles.fillColor = NAVY;
           data.cell.styles.textColor = [255, 255, 255];
+        } else if (data.row.index === dados.resumoFrentes.length + 1) {
+          data.cell.styles.fontStyle = "bold";
+          data.cell.styles.fillColor = ALT_ROW;
+          if (data.column.index === 0) {
+            data.cell.colSpan = 4;
+            data.cell.styles.halign = "left";
+          }
         } else if (data.row.index % 2 === 1) {
           data.cell.styles.fillColor = ALT_ROW;
         }
