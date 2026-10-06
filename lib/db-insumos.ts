@@ -8,6 +8,11 @@ import { nomeEmpresa, round2, type DepositoInfo, type LinhaArquivoSaldo, type Li
 
 let preparado: Promise<void> | null = null;
 
+/** Garante as tabelas do saldo (e a carga do histórico na primeira vez), para quem consulta direto o banco. */
+export async function prepararInsumos(pool: Pool): Promise<void> {
+  return preparar(pool);
+}
+
 interface Historico {
   itens: Record<string, [string, string, string, string]>;
   almox: Record<string, string>;

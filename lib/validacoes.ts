@@ -1,4 +1,6 @@
 import { getPool, prepararBanco } from "./db";
+import { prepararDosagens } from "./db-dosagens";
+import { prepararInsumos } from "./db-insumos";
 
 /**
  * Validações do sistema: cruzam os dados entre os módulos e listam o que não
@@ -427,6 +429,33 @@ export const VERIFICACOES: Verificacao[] = [
     sql: `SELECT b.rod AS "Rodada", b.sem AS "Semana", b.faz AS "Fazenda", COUNT(*)::int AS "Boletins", string_agg(b.bol::text, ', ' ORDER BY b.bol) AS "Números"
             FROM rod_bol b GROUP BY b.rod, b.sem, b.faz HAVING COUNT(*) > 1 ORDER BY b.rod, b.sem, b.faz`,
   },
+  // ------------------------------------------------------------------ Insumos
+  {
+    id: "dosagem-fora-do-cadastro",
+    modulo: "Insumos",
+    titulo: "Dosagens de insumos que não estão no cadastro Material e Insumos",
+    severidade: "atencao",
+    descricao: "O código da dosagem não existe no cadastro Material e Insumos, então a descrição e a unidade de medida não aparecem.",
+    acao: "Importe o cadastro atualizado em Configurações → Cadastros → Material e Insumos, ou exclua a dosagem em Insumos → Dosagens e lance de novo com o código certo.",
+    sql: `SELECT d.cod AS "Código", d.dmin::float AS "Dosagem mínima", d.dmax::float AS "Dosagem máxima", d.usr AS "Lançado por"
+            FROM ins_dos d
+           WHERE EXISTS (SELECT 1 FROM cad_itm WHERE cad = 'materiais-insumos')
+             AND NOT EXISTS (SELECT 1 FROM cad_itm c WHERE c.cad = 'materiais-insumos' AND c.cod = d.cod)
+           ORDER BY d.cod`,
+  },
+  {
+    id: "saldo-sem-dosagem",
+    modulo: "Insumos",
+    titulo: "Insumos com saldo e sem dosagem cadastrada",
+    severidade: "info",
+    descricao: "O insumo está no último saldo importado (depósitos 207 e 401) mas ainda não tem dosagem mínima e máxima.",
+    acao: "Lance a dosagem em Insumos → Dosagens. Se o insumo não é aplicado por hectare (ex.: diluente), pode ignorar.",
+    sql: `SELECT s.cod AS "Código", i.ds AS "Descrição", i.un AS "U.M.", ROUND(SUM(s.saldo), 3)::float AS "Saldo (último retrato)"
+            FROM ins_sld s JOIN ins_itm i ON i.cod = s.cod
+           WHERE s.dt = (SELECT MAX(dt) FROM ins_sld) AND s.almx IN (207, 401) AND s.saldo > 0
+             AND NOT EXISTS (SELECT 1 FROM ins_dos d WHERE d.cod = s.cod)
+           GROUP BY s.cod, i.ds, i.un ORDER BY i.ds`,
+  },
 ];
 
 async function executar(v: Verificacao): Promise<ResultadoVerificacao> {
@@ -446,6 +475,8 @@ async function executar(v: Verificacao): Promise<ResultadoVerificacao> {
 export async function executarValidacoes(): Promise<ResultadoValidacoes> {
   const pool = getPool();
   await prepararBanco(pool);
+  // tabelas dos módulos que se criam sob demanda precisam existir para as verificações rodarem
+  await Promise.all([prepararInsumos(pool), prepararDosagens(pool)]);
   const verificacoes: ResultadoVerificacao[] = [];
   for (const v of VERIFICACOES) verificacoes.push(await executar(v));
   return { executadoEm: new Date().toISOString(), verificacoes };

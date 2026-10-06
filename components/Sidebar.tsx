@@ -80,6 +80,7 @@ const SECTIONS: Section[] = [
         children: [
           { label: "Saldo Insumos", href: "/acompanhamentos/insumos/saldo" },
           { label: "Empréstimos", href: "/acompanhamentos/insumos/emprestimos" },
+          { label: "Dosagens", href: "/acompanhamentos/insumos/dosagens" },
         ],
       },
       { label: "Ordem de Serviço Agr.", href: "/acompanhamentos/os-agricola", icon: IconOrdemServico },
