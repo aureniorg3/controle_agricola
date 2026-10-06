@@ -192,7 +192,7 @@ tbody tr:hover {
   background-color: rgb(var(--c-card));
 }
 .dark .bg-amber-50 {
-  background-color: rgba(201, 138, 31, 0.16);
+  background-color: rgba(240, 180, 41, 0.2);
 }
 .dark .bg-good-50 {
   background-color: rgba(31, 122, 61, 0.22);
@@ -214,7 +214,7 @@ tbody tr:hover {
 }
 .dark .text-amber-600,
 .dark .text-amber-700 {
-  color: #e7b04e;
+  color: #f5c542;
 }
 .dark .text-alert-600,
 .dark .text-alert-700 {
@@ -222,12 +222,12 @@ tbody tr:hover {
 }
 .dark .text-good-600,
 .dark .text-good-700 {
-  color: #5fd39a;
+  color: #4fc98b;
 }
 .dark [style*="rgb(255, 255, 209)"],
 .dark [style*="rgb(255, 255, 232)"],
 .dark [style*="rgb(255, 246, 204)"] {
-  background-color: rgba(215, 160, 40, 0.16) !important;
+  background-color: rgba(240, 180, 41, 0.2) !important;
 }
 .dark svg [fill="#23396B"] {
   fill: #7fa8e8;
