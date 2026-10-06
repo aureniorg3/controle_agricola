@@ -23,6 +23,7 @@ const texto = (n: number | null) => (n === null ? "" : n.toLocaleString("pt-BR",
 export default function DosagensClient({ perfil }: { perfil: PerfilUsuario }) {
   const podeGravar = podeEditar(perfil);
   const [lista, setLista] = useState<Dosagem[]>([]);
+  const [cadastroImportado, setCadastroImportado] = useState(true);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = usarPersistido("insumos.dosagens.busca", "", ehTexto);
@@ -49,6 +50,7 @@ export default function DosagensClient({ perfil }: { perfil: PerfilUsuario }) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar as dosagens.");
       setLista(json.dosagens);
+      setCadastroImportado(json.cadastroImportado !== false);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível carregar as dosagens.");
     } finally {
@@ -93,7 +95,7 @@ export default function DosagensClient({ perfil }: { perfil: PerfilUsuario }) {
       if (novoCodAtual.current.trim() !== c) return; // o campo mudou enquanto a consulta voltava
       if (!res.ok || !json.item) {
         setNovoItem(null);
-        setNovoAviso({ texto: "Código não encontrado no cadastro Material e Insumos.", tom: "alerta" });
+        setNovoAviso({ texto: cadastroImportado ? "Código não encontrado no cadastro Material e Insumos." : "Importe o cadastro Material e Insumos para lançar.", tom: "alerta" });
         return;
       }
       setNovoItem(json.item);
@@ -219,6 +221,11 @@ export default function DosagensClient({ perfil }: { perfil: PerfilUsuario }) {
           </div>
         </div>
 
+        {!cadastroImportado && (
+          <p className="mb-3 rounded-md border border-line bg-card px-3 py-2 text-[12.5px] text-muted">
+            O cadastro Material e Insumos ainda não foi importado. As descrições e unidades aparecem depois da importação, em Configurações › Cadastros › Material e Insumos.
+          </p>
+        )}
         {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[13px] text-alert-700">{erro}</p>}
 
         <div className="overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
@@ -335,7 +342,7 @@ export default function DosagensClient({ perfil }: { perfil: PerfilUsuario }) {
                 return (
                   <tr key={d.cod} className={`border-t border-line/60 align-middle ${suja ? "bg-[#2D8A5A]/[0.06]" : ""}`}>
                     <td className="px-3 py-1.5 tabular text-muted">{d.cod}</td>
-                    <td className="px-3 py-1.5 text-ink">{d.noCadastro ? d.ds : <span className="text-amber-700">Fora do cadastro Material e Insumos</span>}</td>
+                    <td className="px-3 py-1.5 text-ink">{d.noCadastro ? d.ds : <span className={cadastroImportado ? "text-amber-700" : "text-muted"}>{cadastroImportado ? "Fora do cadastro Material e Insumos" : "Aguardando o cadastro"}</span>}</td>
                     <td className="px-3 py-1.5 text-muted">{d.un}</td>
                     {(["min", "max"] as const).map((campo) => (
                       <td key={campo} className="px-2 py-1">

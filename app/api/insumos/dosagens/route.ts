@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { excluirDosagem, itemCadastroMaterial, listarDosagens, obterDosagem, salvarDosagem } from "@/lib/db-dosagens";
+import { cadastroMaterialImportado, excluirDosagem, itemCadastroMaterial, listarDosagens, obterDosagem, salvarDosagem } from "@/lib/db-dosagens";
 import { podeEditar } from "@/lib/permissoes";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,8 @@ export async function GET(req: NextRequest) {
     const item = await itemCadastroMaterial(cod);
     return NextResponse.json({ item, dosagem: item ? await obterDosagem(item.cod) : null });
   }
-  return NextResponse.json({ dosagens: await listarDosagens() });
+  const [dosagens, cadastroImportado] = await Promise.all([listarDosagens(), cadastroMaterialImportado()]);
+  return NextResponse.json({ dosagens, cadastroImportado });
 }
 
 /** Inclui ou atualiza a dosagem de um insumo (mínima e máxima por hectare). */

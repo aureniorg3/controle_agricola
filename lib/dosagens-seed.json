@@ -1,0 +1,962 @@
+[
+ {
+  "cod": "806912",
+  "ds": "UREIA 45.00.00",
+  "un": "TN",
+  "max": 0.2
+ },
+ {
+  "cod": "1392165",
+  "ds": "ADUBO 16.06.20",
+  "un": "TN",
+  "max": 0.6
+ },
+ {
+  "cod": "1392177",
+  "ds": "ADUBO 05.25.25",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "1392189",
+  "ds": "ADUBO 20.00.00",
+  "un": "TN",
+  "max": 0.4
+ },
+ {
+  "cod": "1916348",
+  "ds": "ADUBO 21.00.00",
+  "un": "TN",
+  "max": 0.4
+ },
+ {
+  "cod": "1968282",
+  "ds": "ADUBO 16.00.20",
+  "un": "TN",
+  "max": 0.6
+ },
+ {
+  "cod": "1968294",
+  "ds": "ADUBO 25.00.25",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "1992430",
+  "ds": "ADUBO 16.00.20 UHF",
+  "un": "TN",
+  "max": 0.6
+ },
+ {
+  "cod": "2030524",
+  "ds": "UREIA 46.00.00",
+  "un": "TN",
+  "max": 0.2
+ },
+ {
+  "cod": "2053287",
+  "ds": "ADUBO 05.30.24",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "2053299",
+  "ds": "ADUBO 05.30.24 UHF",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "2055041",
+  "ds": "OXYFERTIL 6030F",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "2095932",
+  "ds": "ADUBO 06.27.24",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "2105767",
+  "ds": "ADUBO 06.27.24 UHF",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "2106206",
+  "ds": "ADUBO 06.30.24",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "2308757",
+  "ds": "ADUBO 16.04.22",
+  "un": "TN",
+  "max": 0.6
+ },
+ {
+  "cod": "2388388",
+  "ds": "ADUBO 06.30.24 UHF",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "2417820",
+  "ds": "ADUBO 16.06.20 BR 12",
+  "un": "TN",
+  "max": 0.6
+ },
+ {
+  "cod": "2461754",
+  "ds": "ADUBO 06.29.24",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "2524892",
+  "ds": "ADUBO 06.30.25",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "2608406",
+  "ds": "ADUBO 06.30.25 UHF",
+  "un": "TN",
+  "max": 0.5
+ },
+ {
+  "cod": "1167078",
+  "ds": "BIOZYME FERTILIZANTE FOLIAR MINERAL MISTO",
+  "un": "LT",
+  "max": 0.5
+ },
+ {
+  "cod": "1508994",
+  "ds": "ENERGY CANA",
+  "un": "LT",
+  "max": 4.5
+ },
+ {
+  "cod": "2129826",
+  "ds": "EXPERTGROW",
+  "un": "LT",
+  "max": 1.0
+ },
+ {
+  "cod": "2483609",
+  "ds": "VITAPHOL HUMICBOR FERTILIZANTE",
+  "un": "LT",
+  "max": 0.2
+ },
+ {
+  "cod": "2491448",
+  "ds": "VITAN",
+  "un": "LT",
+  "max": 0.034602
+ },
+ {
+  "cod": "2639038",
+  "ds": "PRO FORTH",
+  "un": "LT",
+  "max": 0.1
+ },
+ {
+  "cod": "2639040",
+  "ds": "SPEED FORTH",
+  "un": "LT",
+  "max": 0.1
+ },
+ {
+  "cod": "1354206",
+  "ds": "GESSO AGRICOLA",
+  "un": "TN",
+  "max": 1.0
+ },
+ {
+  "cod": "1354218",
+  "ds": "CALCARIO AGRICOLA",
+  "un": "TN",
+  "max": 2.0
+ },
+ {
+  "cod": "1609634",
+  "ds": "CALCARIO DOLOMITICO PRNT-95",
+  "un": "KG",
+  "max": 2.0
+ },
+ {
+  "cod": "804071",
+  "ds": "GLYPHOTAL ROUNDUP",
+  "un": "LT",
+  "max": 1.5
+ },
+ {
+  "cod": "858766",
+  "ds": "DINAMIC",
+  "un": "KG",
+  "max": 1.5
+ },
+ {
+  "cod": "858778",
+  "ds": "MAGNUS BR",
+  "un": "KG",
+  "max": 0.5
+ },
+ {
+  "cod": "905264",
+  "ds": "COMBINE / BUTIRON / FORTALEZA",
+  "un": "LT",
+  "max": 2.4
+ },
+ {
+  "cod": "983755",
+  "ds": "HEXARON / VELPAR K / DEMOLIDORBR",
+  "un": "KG",
+  "max": 2.5
+ },
+ {
+  "cod": "1025788",
+  "ds": "ARREIO CANA",
+  "un": "LT",
+  "max": 2.0
+ },
+ {
+  "cod": "1047255",
+  "ds": "HELMOXONE / GRAMOXONE / TOCHA",
+  "un": "LT",
+  "max": 2.0
+ },
+ {
+  "cod": "1131709",
+  "ds": "ARTYS",
+  "un": "LT",
+  "max": 4.0
+ },
+ {
+  "cod": "1132623",
+  "ds": "VOLCANE",
+  "un": "LT",
+  "max": 3.0
+ },
+ {
+  "cod": "1178672",
+  "ds": "SENCOR 480 G/L METRIBUZIM",
+  "un": "LT",
+  "max": 4.0
+ },
+ {
+  "cod": "1178684",
+  "ds": "UNIMARK 700 G/KG WG METRIBUZIM",
+  "un": "KG",
+  "max": 2.7
+ },
+ {
+  "cod": "1178775",
+  "ds": "GAMIT 500 / CLOMANEX 500",
+  "un": "LT",
+  "max": 1.2
+ },
+ {
+  "cod": "1178787",
+  "ds": "LUMICA / CALLISTO / MERISTO",
+  "un": "LT",
+  "max": 0.3
+ },
+ {
+  "cod": "1298124",
+  "ds": "GAMIT STAR",
+  "un": "LT",
+  "max": 1.2
+ },
+ {
+  "cod": "1299578",
+  "ds": "D.M.A. / AMINOL / 2.4.D 2,4-D, SAL DIMETILAMINA",
+  "un": "LT",
+  "max": 1.5
+ },
+ {
+  "cod": "1312352",
+  "ds": "PLATEAU",
+  "un": "KG",
+  "max": 0.25
+ },
+ {
+  "cod": "1312390",
+  "ds": "PROVENCE 750 WG",
+  "un": "KG",
+  "max": 0.12
+ },
+ {
+  "cod": "1350500",
+  "ds": "ALION SC500 INDAZIFLAN 50G/L",
+  "un": "LT",
+  "max": 0.2
+ },
+ {
+  "cod": "1357311",
+  "ds": "BORAL 500 SC",
+  "un": "LT",
+  "max": 1.6
+ },
+ {
+  "cod": "1425997",
+  "ds": "COACT",
+  "un": "KG",
+  "max": 0.126
+ },
+ {
+  "cod": "1426394",
+  "ds": "DUAL GOLD",
+  "un": "LT",
+  "max": 3.0
+ },
+ {
+  "cod": "1480832",
+  "ds": "MEGA",
+  "un": "LT",
+  "max": 8.0
+ },
+ {
+  "cod": "1500077",
+  "ds": "PREMERLIN 600 EC",
+  "un": "LT",
+  "max": 6.0
+ },
+ {
+  "cod": "1551620",
+  "ds": "TRIFLURALINA NORTOX",
+  "un": "LT",
+  "max": 2.0
+ },
+ {
+  "cod": "1552235",
+  "ds": "ATRAZINA NORTOX",
+  "un": "LT",
+  "max": 3.0
+ },
+ {
+  "cod": "1553458",
+  "ds": "DIURON NORTOX",
+  "un": "KG",
+  "max": 3.0
+ },
+ {
+  "cod": "1572696",
+  "ds": "UP STAGE CLOMAZONE",
+  "un": "LT",
+  "max": 2.2
+ },
+ {
+  "cod": "1612906",
+  "ds": "GLYPHOTAL",
+  "un": "LT",
+  "max": 5.0
+ },
+ {
+  "cod": "1612918",
+  "ds": "VELPAR K",
+  "un": "KG",
+  "max": 3.0
+ },
+ {
+  "cod": "1612931",
+  "ds": "ANCOSAR",
+  "un": "LT",
+  "max": 4.0
+ },
+ {
+  "cod": "1612943",
+  "ds": "LUMICA",
+  "un": "LT",
+  "max": 0.3
+ },
+ {
+  "cod": "1613169",
+  "ds": "FORTALEZA",
+  "un": "LT",
+  "max": 2.4
+ },
+ {
+  "cod": "1628756",
+  "ds": "HEXARON WG 4X5",
+  "un": "KG",
+  "max": 3.0
+ },
+ {
+  "cod": "1632840",
+  "ds": "AMINOL 806",
+  "un": "LT",
+  "max": 1.5
+ },
+ {
+  "cod": "1641293",
+  "ds": "FLUMYZIN 500 SC",
+  "un": "KG",
+  "max": 0.5
+ },
+ {
+  "cod": "1649607",
+  "ds": "ZARTAN",
+  "un": "KG",
+  "max": 15.0
+ },
+ {
+  "cod": "1650970",
+  "ds": "DIOX",
+  "un": "LT",
+  "max": 6.4
+ },
+ {
+  "cod": "1650981",
+  "ds": "DIURON NORTOX",
+  "un": "LT",
+  "max": 3.0
+ },
+ {
+  "cod": "1666680",
+  "ds": "HERBURON 500 BR",
+  "un": "LT",
+  "max": 6.4
+ },
+ {
+  "cod": "1728581",
+  "ds": "CLETODIM 240 EC",
+  "un": "LT",
+  "max": 1.5
+ },
+ {
+  "cod": "1745086",
+  "ds": "ZAPP QI 620",
+  "un": "LT",
+  "max": 4.2
+ },
+ {
+  "cod": "1751979",
+  "ds": "CONTAIN BR",
+  "un": "LT",
+  "max": 0.2
+ },
+ {
+  "cod": "1787081",
+  "ds": "MESOTRIONA NORTOX",
+  "un": "LT",
+  "max": 0.5
+ },
+ {
+  "cod": "1797293",
+  "ds": "REATOR 360 CS",
+  "un": "LT",
+  "max": 3.5
+ },
+ {
+  "cod": "1817000",
+  "ds": "FAMOSO",
+  "un": "LT",
+  "max": 4.0
+ },
+ {
+  "cod": "1819318",
+  "ds": "FLUMYZIN 500 SC",
+  "un": "LT",
+  "max": 0.5
+ },
+ {
+  "cod": "1830648",
+  "ds": "PROVENCE TOTAL",
+  "un": "LT",
+  "max": 0.3
+ },
+ {
+  "cod": "1890141",
+  "ds": "AMETRINA 500 SC RAINBOW",
+  "un": "LT",
+  "max": 3.0
+ },
+ {
+  "cod": "1947310",
+  "ds": "D.M.A 2,4-D",
+  "un": "LT",
+  "max": 1.5
+ },
+ {
+  "cod": "1972637",
+  "ds": "MIRANT",
+  "un": "LT",
+  "max": 1.5
+ },
+ {
+  "cod": "1973113",
+  "ds": "XEQUE MATE",
+  "un": "LT",
+  "max": 3.5
+ },
+ {
+  "cod": "1983088",
+  "ds": "SUNWARD",
+  "un": "KG",
+  "max": 0.35
+ },
+ {
+  "cod": "2023349",
+  "ds": "GROVER",
+  "un": "LT",
+  "max": 3.0
+ },
+ {
+  "cod": "2041170",
+  "ds": "FACERO",
+  "un": "LT",
+  "max": 5.0
+ },
+ {
+  "cod": "2066968",
+  "ds": "GESAPAX 500",
+  "un": "LT",
+  "max": 7.0
+ },
+ {
+  "cod": "2066970",
+  "ds": "PROOF",
+  "un": "LT",
+  "max": 5.0
+ },
+ {
+  "cod": "2139996",
+  "ds": "DONTOR",
+  "un": "LT",
+  "max": 4.0
+ },
+ {
+  "cod": "2143136",
+  "ds": "MAGNETO",
+  "un": "LT",
+  "max": 2.8
+ },
+ {
+  "cod": "2145029",
+  "ds": "COMBINE 500 SC",
+  "un": "LT",
+  "max": 2.4
+ },
+ {
+  "cod": "2203870",
+  "ds": "EUTONIS 800 WG",
+  "un": "KG",
+  "max": 1.2
+ },
+ {
+  "cod": "2205750",
+  "ds": "ENTONE",
+  "un": "KG",
+  "max": 1.5
+ },
+ {
+  "cod": "2233149",
+  "ds": "STINGER",
+  "un": "KG",
+  "max": 3.0
+ },
+ {
+  "cod": "2250147",
+  "ds": "VIANCE",
+  "un": "LT",
+  "max": 0.15
+ },
+ {
+  "cod": "2274723",
+  "ds": "OSBAR 500 WP",
+  "un": "KG",
+  "max": 0.25
+ },
+ {
+  "cod": "2280735",
+  "ds": "CALIPEN",
+  "un": "LT",
+  "max": 2.5
+ },
+ {
+  "cod": "2334331",
+  "ds": "PLEDGE",
+  "un": "LT",
+  "max": 1.0
+ },
+ {
+  "cod": "2375679",
+  "ds": "ROUNDUP",
+  "un": "LT",
+  "max": 4.5
+ },
+ {
+  "cod": "2375862",
+  "ds": "ZAPP WG 720",
+  "un": "KG",
+  "max": 3.5
+ },
+ {
+  "cod": "2401551",
+  "ds": "HEXAZINONA 250",
+  "un": "LT",
+  "max": 2.0
+ },
+ {
+  "cod": "2445815",
+  "ds": "TRICLON 201",
+  "un": "LT",
+  "max": 0.8
+ },
+ {
+  "cod": "2446327",
+  "ds": "DIRECT",
+  "un": "LT",
+  "max": 3.5
+ },
+ {
+  "cod": "2449110",
+  "ds": "RIDOVER",
+  "un": "KG",
+  "max": 3.0
+ },
+ {
+  "cod": "2474049",
+  "ds": "PICLORAM",
+  "un": "LT",
+  "max": 5.0
+ },
+ {
+  "cod": "2474050",
+  "ds": "METSULFURON",
+  "un": "KG",
+  "max": 0.03
+ },
+ {
+  "cod": "2490778",
+  "ds": "SUMYZIN 500 SC",
+  "un": "LT",
+  "max": 1.0
+ },
+ {
+  "cod": "2493111",
+  "ds": "FRENO 240",
+  "un": "LT",
+  "max": 0.45
+ },
+ {
+  "cod": "2496770",
+  "ds": "DEFENSAR",
+  "un": "LT",
+  "max": 4.0
+ },
+ {
+  "cod": "2534368",
+  "ds": "ROUNDUP 5KG",
+  "un": "KG",
+  "max": 3.5
+ },
+ {
+  "cod": "2540757",
+  "ds": "LUXOR",
+  "un": "LT",
+  "max": 4.0
+ },
+ {
+  "cod": "2573714",
+  "ds": "LINEAR",
+  "un": "LT",
+  "max": 1.5
+ },
+ {
+  "cod": "2642049",
+  "ds": "RELICTA",
+  "un": "LT",
+  "max": 0.4
+ },
+ {
+  "cod": "1584558",
+  "ds": "ATUMUS",
+  "un": "LT",
+  "max": 0.2
+ },
+ {
+  "cod": "1649590",
+  "ds": "FASTTRACK",
+  "un": "LT",
+  "max": 0.2
+ },
+ {
+  "cod": "2317620",
+  "ds": "TENSOR MAX",
+  "un": "LT",
+  "max": 0.2
+ },
+ {
+  "cod": "2399532",
+  "ds": "PROTAC",
+  "un": "KG",
+  "max": 0.05
+ },
+ {
+  "cod": "2475005",
+  "ds": "OCHIMA",
+  "un": "LT",
+  "max": 0.25
+ },
+ {
+  "cod": "758401",
+  "ds": "CONTROLE BIOLOGICO COTESIA FLAVIPES",
+  "un": "PC",
+  "max": 4.0
+ },
+ {
+  "cod": "835900",
+  "ds": "PRIORI XTRA",
+  "un": "LT",
+  "max": 0.5
+ },
+ {
+  "cod": "883426",
+  "ds": "ALTACOR BR",
+  "un": "KG",
+  "max": 0.45
+ },
+ {
+  "cod": "883529",
+  "ds": "ENGEO PLENO",
+  "un": "LT",
+  "max": 2.5
+ },
+ {
+  "cod": "1065695",
+  "ds": "MIREX-S MAX",
+  "un": "KG",
+  "max": 0.01
+ },
+ {
+  "cod": "1178738",
+  "ds": "ACTARA 750 SG",
+  "un": "KG",
+  "max": 0.33
+ },
+ {
+  "cod": "1178829",
+  "ds": "AMPLIGO BR",
+  "un": "LT",
+  "max": 0.2
+ },
+ {
+  "cod": "1276232",
+  "ds": "CERTERO",
+  "un": "LT",
+  "max": 0.08
+ },
+ {
+  "cod": "1312388",
+  "ds": "REGENT 800 WG",
+  "un": "KG",
+  "max": 0.5
+ },
+ {
+  "cod": "1392190",
+  "ds": "CURBIX",
+  "un": "LT",
+  "max": 3.0
+ },
+ {
+  "cod": "1581491",
+  "ds": "CARBOSULFANO",
+  "un": "LT",
+  "max": 4.5
+ },
+ {
+  "cod": "1605940",
+  "ds": "CONTROLE BIOLOGICO TRICHOGRAMA GALLOI",
+  "un": "UN",
+  "max": 48.0
+ },
+ {
+  "cod": "1650956",
+  "ds": "BARAO 800 WG",
+  "un": "KG",
+  "max": 0.25
+ },
+ {
+  "cod": "1880100",
+  "ds": "BELT SC480",
+  "un": "LT",
+  "max": 0.1
+ },
+ {
+  "cod": "1887300",
+  "ds": "MIMIC 240",
+  "un": "LT",
+  "max": 0.4
+ },
+ {
+  "cod": "1910449",
+  "ds": "REVOLUX",
+  "un": "LT",
+  "max": 1.75
+ },
+ {
+  "cod": "1944472",
+  "ds": "MALATHION 500 CE",
+  "un": "LT",
+  "max": 0.3
+ },
+ {
+  "cod": "1964896",
+  "ds": "DIAMANTEBR",
+  "un": "LT",
+  "max": 1.0
+ },
+ {
+  "cod": "1974506",
+  "ds": "KARATE ZEON 250 CS",
+  "un": "LT",
+  "max": 0.15
+ },
+ {
+  "cod": "2049582",
+  "ds": "METARRIL WP",
+  "un": "KG",
+  "max": 1.0
+ },
+ {
+  "cod": "2062641",
+  "ds": "DINNO",
+  "un": "KG",
+  "max": 0.75
+ },
+ {
+  "cod": "2077589",
+  "ds": "SPERTO",
+  "un": "KG",
+  "max": 1.6
+ },
+ {
+  "cod": "2226194",
+  "ds": "SEIZER 100 EC",
+  "un": "LT",
+  "max": 1.5
+ },
+ {
+  "cod": "2240877",
+  "ds": "TRICHODERMIL SC",
+  "un": "LT",
+  "max": 2.5
+ },
+ {
+  "cod": "2242928",
+  "ds": "MULTIFUNGI",
+  "un": "LT",
+  "max": 3.0
+ },
+ {
+  "cod": "2256332",
+  "ds": "METARHIZIUM ANISOPLIAE",
+  "un": "LT",
+  "max": 3.2
+ },
+ {
+  "cod": "2313080",
+  "ds": "FUSION",
+  "un": "LT",
+  "max": 0.05
+ },
+ {
+  "cod": "2315592",
+  "ds": "PRECISO",
+  "un": "LT",
+  "max": 3.95
+ },
+ {
+  "cod": "2411003",
+  "ds": "DILUENTE FITOFOG 100",
+  "un": "LT",
+  "max": 1.25
+ },
+ {
+  "cod": "2436681",
+  "ds": "OCTANE",
+  "un": "LT",
+  "max": 1.5
+ },
+ {
+  "cod": "2438288",
+  "ds": "UNIZEB GLORY",
+  "un": "KG",
+  "max": 2.0
+ },
+ {
+  "cod": "2463180",
+  "ds": "CONECT PLUS",
+  "un": "LT",
+  "max": 1.0
+ },
+ {
+  "cod": "2463192",
+  "ds": "CONECT NEUTRO",
+  "un": "LT",
+  "max": 0.05
+ },
+ {
+  "cod": "2566321",
+  "ds": "CIPERMETRINA NORTOX 250 EC",
+  "un": "LT",
+  "max": 0.3
+ },
+ {
+  "cod": "2568196",
+  "ds": "FIPRONIL 800 WG",
+  "un": "KG",
+  "max": 0.5
+ },
+ {
+  "cod": "2573702",
+  "ds": "BIFENTOL 200 CE",
+  "un": "LT",
+  "max": 0.1
+ },
+ {
+  "cod": "2626226",
+  "ds": "TAMIZ",
+  "un": "LT",
+  "max": 1.0
+ },
+ {
+  "cod": "2627632",
+  "ds": "BIOMAGNO",
+  "un": "LT",
+  "max": 3.0
+ },
+ {
+  "cod": "2634314",
+  "ds": "DETROIT WP",
+  "un": "KG",
+  "max": 0.5
+ },
+ {
+  "cod": "2636128",
+  "ds": "CARAVAN",
+  "un": "LT",
+  "max": 0.8
+ },
+ {
+  "cod": "1426278",
+  "ds": "ETHREL 720",
+  "un": "LT",
+  "max": 0.66
+ },
+ {
+  "cod": "1777919",
+  "ds": "MODDUS",
+  "un": "LT",
+  "max": 1.2
+ },
+ {
+  "cod": "1955627",
+  "ds": "IMPULSE 480 SC",
+  "un": "LT",
+  "max": 1.0
+ }
+]

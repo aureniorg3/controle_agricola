@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { auditar } from "./auditar";
 import { getPool, prepararBanco } from "./db";
 import { arredondarDose, normalizarCodigo, validarDosagem, type Dosagem, type ItemDosagem } from "./dosagens";
+import semente from "./dosagens-seed.json";
 
 let preparado: Promise<void> | null = null;
 
@@ -17,13 +18,67 @@ export async function prepararDosagens(pool: Pool): Promise<void> {
            atu_usr text, atu_em timestamptz
          )`
       )
-      .then(() => undefined)
+      .then(() => carregarBaseInicial(pool))
       .catch((err) => {
         preparado = null;
         throw err;
       });
   }
   await preparado;
+}
+
+const MARCA_CARGA = "Carga inicial · planilha BASE_INSU_DOSE";
+
+/**
+ * Carga única da dosagem que já existia na planilha "Saldo de Insumos" (aba BASE_INSU_DOSE, 160 insumos com dosagem
+ * informada): o valor entra como Dosagem Máxima e a mínima fica em branco. Roda uma vez só (o log guarda a marca) e
+ * nunca sobrescreve o que o usuário já lançou. Se falhar, a tela segue funcionando e a carga é tentada de novo depois.
+ */
+async function carregarBaseInicial(pool: Pool): Promise<void> {
+  try {
+    const marcada = async (exec: Pick<Pool, "query">) =>
+      ((await exec.query("SELECT 1 FROM aud_log WHERE modulo = 'Insumos' AND entidade = 'Dosagem' AND chave = $1 LIMIT 1", [MARCA_CARGA])).rowCount ?? 0) > 0;
+    if (await marcada(pool)) return;
+    const itens = semente as { cod: string; ds: string; un: string; max: number }[];
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // duas instâncias subindo juntas não carregam duas vezes
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('ins_dos_carga_inicial'))");
+      if (await marcada(client)) {
+        await client.query("ROLLBACK");
+        return;
+      }
+      const r = await client.query(
+        `INSERT INTO ins_dos (cod, dmax, usr)
+         SELECT c, d, 'Carga inicial' FROM unnest($1::text[], $2::numeric[]) AS u(c, d)
+         ON CONFLICT (cod) DO NOTHING`,
+        [itens.map((i) => i.cod), itens.map((i) => arredondarDose(i.max))]
+      );
+      await auditar(client, {
+        usuario: "Carga inicial",
+        modulo: "Insumos",
+        entidade: "Dosagem",
+        chave: MARCA_CARGA,
+        acao: "importacao",
+        depois: {
+          origem: "Saldo de Insumos - CRV-MG_V2.xlsx › BASE_INSU_DOSE",
+          carregadoComo: "Dosagem máxima (mínima em branco)",
+          insumosNaPlanilha: 223,
+          carregados: r.rowCount ?? 0,
+          semDosagemNaPlanilha: 63,
+        },
+      });
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error("Carga inicial das dosagens não concluída:", err);
+  }
 }
 
 const FMT_DATA = `'DD/MM/YYYY HH24:MI'`;
@@ -78,6 +133,13 @@ const SELECT = `SELECT d.cod, c.nm AS ds, c.dds->>'unidade_medida_consumo' AS un
        to_char(d.cri_em AT TIME ZONE 'America/Sao_Paulo', ${FMT_DATA}) AS cri_em, d.atu_usr,
        to_char(d.atu_em AT TIME ZONE 'America/Sao_Paulo', ${FMT_DATA}) AS atu_em
   FROM ins_dos d LEFT JOIN cad_itm c ON c.cad = 'materiais-insumos' AND c.cod = d.cod`;
+
+/** O cadastro Material e Insumos já tem itens importados? */
+export async function cadastroMaterialImportado(): Promise<boolean> {
+  const pool = getPool();
+  await prepararDosagens(pool);
+  return (await pool.query<{ tem: boolean }>("SELECT EXISTS (SELECT 1 FROM cad_itm WHERE cad = 'materiais-insumos') AS tem")).rows[0].tem;
+}
 
 export async function listarDosagens(): Promise<Dosagem[]> {
   const pool = getPool();
