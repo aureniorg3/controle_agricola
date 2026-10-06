@@ -11,11 +11,12 @@ const INPUT = "rounded-lg border border-line bg-surface px-3 py-2 text-[13px]";
 const ROTULO = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted";
 const dens = (ton: number, v: number) => (v > 0 ? fmtT(ton / v) : "–");
 
-export default function ColheitaTerceiroClient({ nomeUsuario }: { nomeUsuario: string }) {
+export default function ColheitaTerceiroClient({ nomeUsuario, ultimaData }: { nomeUsuario: string; ultimaData: string }) {
   const [gerando, setGerando] = useState(false);
-  const hoje = todayISO();
-  const [inicio, setInicio] = usarPersistido("terceiro.inicio", `${hoje.slice(0, 8)}01`, ehDataIso);
-  const [fim, setFim] = usarPersistido("terceiro.fim", hoje, ehDataIso);
+  // abre na última pesagem importada: do início do mês dela até ela
+  const fimInicial = ultimaData || todayISO();
+  const [inicio, setInicio] = useState(`${fimInicial.slice(0, 8)}01`);
+  const [fim, setFim] = useState(fimInicial);
   const [frente, setFrente] = usarPersistido("terceiro.frente", "", ehTexto);
   const [opcoesFrente, setOpcoesFrente] = useState<string[]>([]);
   const [linhas, setLinhas] = useState<LinhaTerceiro[]>([]);

@@ -47,9 +47,10 @@ export default function ConferenciaClient({
 
   const conferidas = useMemo(() => conferirLinhas(linhas, equiptos, ordens), [linhas, equiptos, ordens]);
 
-  // vazio = sem limite — assim um arquivo recém-importado aparece sem mexer no filtro
-  const [de, setDe] = usarPersistido("conferencia.de", "", ehTexto);
-  const [ate, setAte] = usarPersistido("conferencia.ate", "", ehTexto);
+  // abre na data mais recente importada; apagar a data tira o limite
+  const ultimaData = useMemo(() => linhas.reduce((m, l) => (l.data > m ? l.data : m), ""), [linhas]);
+  const [de, setDe] = useState(ultimaData);
+  const [ate, setAte] = useState(ultimaData);
   const [frenteFiltro, setFrenteFiltro] = usarPersistido("conferencia.frente", "todas", ehTexto);
   const [statusFiltro, setStatusFiltro] = usarPersistido<"todos" | "divergencias" | StatusConferencia>("conferencia.status", "todos", ehTexto as (v: unknown) => v is "todos" | "divergencias" | StatusConferencia);
   const [busca, setBusca] = usarPersistido("conferencia.busca", "", ehTexto);

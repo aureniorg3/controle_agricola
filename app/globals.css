@@ -6,6 +6,20 @@
 
 :root {
   color-scheme: light;
+  --c-surface: 247 248 250;
+  --c-card: 255 255 255;
+  --c-line: 232 235 240;
+  --c-ink: 28 36 48;
+  --c-muted: 107 117 134;
+}
+
+.dark {
+  color-scheme: dark;
+  --c-surface: 11 19 33;
+  --c-card: 19 31 51;
+  --c-line: 38 52 77;
+  --c-ink: 230 235 244;
+  --c-muted: 147 160 184;
 }
 
 html,
@@ -14,8 +28,8 @@ body {
 }
 
 body {
-  background: #f7f8fa;
-  color: #1c2430;
+  background: rgb(var(--c-surface));
+  color: rgb(var(--c-ink));
   letter-spacing: -0.003em;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -169,4 +183,64 @@ tbody tr:hover {
   .card-ordem-corpo {
     grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   }
+}
+
+/* ------------------------------------------------------------------
+   Tema escuro: o que ainda usa cores fixas ganha equivalente aqui.
+   ------------------------------------------------------------------ */
+.dark .bg-white {
+  background-color: rgb(var(--c-card));
+}
+.dark .bg-amber-50 {
+  background-color: rgba(201, 138, 31, 0.16);
+}
+.dark .bg-good-50 {
+  background-color: rgba(31, 122, 61, 0.22);
+}
+.dark .bg-alert-50 {
+  background-color: rgba(201, 74, 55, 0.2);
+}
+.dark .bg-brand-50 {
+  background-color: rgba(42, 107, 214, 0.18);
+}
+.dark .text-navy-900,
+.dark .text-navy-800,
+.dark .text-navy-700 {
+  color: #dbe6f7;
+}
+.dark .text-brand-700,
+.dark .text-brand-800 {
+  color: #8fb6f2;
+}
+.dark .text-amber-600,
+.dark .text-amber-700 {
+  color: #e7b04e;
+}
+.dark .text-alert-600,
+.dark .text-alert-700 {
+  color: #f08a78;
+}
+.dark .text-good-600,
+.dark .text-good-700 {
+  color: #5fd39a;
+}
+.dark [style*="rgb(255, 255, 209)"],
+.dark [style*="rgb(255, 255, 232)"],
+.dark [style*="rgb(255, 246, 204)"] {
+  background-color: rgba(215, 160, 40, 0.16) !important;
+}
+.dark svg [fill="#23396B"] {
+  fill: #7fa8e8;
+}
+.dark svg [stroke="#23396B"] {
+  stroke: #7fa8e8;
+}
+.dark tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #33425e;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #44567a;
 }

@@ -2026,3 +2026,12 @@ export async function entradaTerceiros(
     geral: { ton: geral.rows[0].ton ?? 0, viagens: geral.rows[0].viagens },
   };
 }
+
+
+/** Data da pesagem mais recente importada ("" se não houver). */
+export async function ultimaDataPesagem(): Promise<string> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ d: string | null }>("SELECT MAX(dt)::text AS d FROM pes_viag");
+  return rows[0]?.d ?? "";
+}

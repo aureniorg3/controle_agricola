@@ -250,9 +250,8 @@ export default function OrdensCorteClient({
 }) {
   const podeGravar = podeEditar(perfil);
   const [ordensBrutas, setOrdens] = useState<OrdemCorte[]>(initialOrdens);
-  const [referencia, setReferencia] = usarPersistido<string>(
-    "ordens.referencia",
-    () =>
+  // a data abre sempre na última entrada de cana importada (os demais filtros ficam lembrados)
+  const [referencia, setReferencia] = useState<string>(() =>
     ultimaDataComMovimento(
       producao
         ? initialOrdens.map((o) => ({
@@ -261,8 +260,6 @@ export default function OrdensCorteClient({
           }))
         : initialOrdens
     )
-    ,
-    ehDataIso
   );
   // horário de corte do "dia atual": 06:00, 12:00, 18:00 ou 00:00 (dia completo)
   const [horaCorte, setHoraCorte] = usarPersistido<HoraCorte>("ordens.horaCorte", 6, ehUmDe([6, 12, 18, 24] as const));

@@ -47,7 +47,8 @@ export default function TrocarSenhaForm({ nomeCompleto }: { nomeCompleto: string
     <div className="flex min-h-screen items-center justify-center bg-surface px-4">
       <div className="w-full max-w-[380px]">
         <div className="mb-6 flex flex-col items-center gap-3">
-          <img src="/logo-crv-azul.png" alt="CRV Industrial" className="h-auto w-64" />
+          <img src="/logo-crv-azul.png" alt="CRV Industrial" className="h-auto w-64 dark:hidden" />
+            <img src="/logo-crv-branca.png" alt="CRV Industrial" className="hidden h-auto w-64 dark:block" />
           <div className="text-center text-[12px] text-muted">
             Controle Agrícola · Unidade Capinópolis-MG
           </div>
