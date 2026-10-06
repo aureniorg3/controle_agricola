@@ -216,7 +216,7 @@ export default function Sidebar({
           title={item.label}
           onClick={onNavigate}
           className={`relative flex items-center justify-center rounded-md py-2 transition-colors ${
-            ativoCol ? "bg-white text-brand-600 shadow-card" : "text-slate-400 hover:bg-white/8 hover:text-white"
+            ativoCol ? "bg-[#2D8A5A]/10 text-[#2D8A5A]" : "text-slate-400 hover:bg-surface hover:text-ink"
           }`}
         >
           <Icon />
@@ -225,13 +225,13 @@ export default function Sidebar({
     }
 
     const classes = `relative flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-2 pr-2.5 text-[13px] font-medium transition-colors ${
-      ativo ? "bg-white text-navy-900 shadow-card" : "text-slate-300 hover:bg-white/8 hover:text-white"
+      ativo ? "bg-[#2D8A5A]/[0.08] text-navy-900" : "text-slate-600 hover:bg-surface hover:text-ink"
     }`;
     const conteudo = (
       <>
-        {ativo && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-600" />}
+        {ativo && <span className="absolute inset-y-2 left-0 w-[2px] rounded-full bg-[#2D8A5A]" />}
         {Icon && (
-          <span className={`flex-shrink-0 ${ativo ? "text-brand-600" : "text-slate-400"}`}>
+          <span className={`flex-shrink-0 ${ativo ? "text-[#2D8A5A]" : "text-slate-400"}`}>
             <Icon size={depth >= 2 ? 15 : 18} />
           </span>
         )}
@@ -268,14 +268,14 @@ export default function Sidebar({
               onClick={() => setAbertos((o) => ({ ...o, [chave]: !aberto }))}
               aria-label={aberto ? `Recolher ${item.label}` : `Expandir ${item.label}`}
               aria-expanded={aberto}
-              className="flex h-8 w-6 flex-shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-white/8 hover:text-white"
+              className="flex h-8 w-6 flex-shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-surface hover:text-ink"
             >
               {aberto ? <IconSetaBaixo size={14} /> : <IconSetaDireita size={14} />}
             </button>
           )}
         </div>
         {aberto && (
-          <div className="ml-[18px] mt-0.5 flex flex-col gap-0.5 border-l border-white/10 pl-1.5">
+          <div className="ml-[18px] mt-0.5 flex flex-col gap-0.5 border-l border-line pl-1.5">
             {item.children!.map((c) => renderItem(c, depth + 1, chave))}
           </div>
         )}
@@ -285,7 +285,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`flex h-full flex-shrink-0 flex-col bg-navy-950 text-slate-200 transition-all duration-150 ${
+      className={`flex h-full flex-shrink-0 flex-col border-r border-line bg-white text-ink transition-all duration-200 ${
         collapsed ? "w-[68px]" : "w-[260px]"
       }`}
     >
@@ -293,13 +293,13 @@ export default function Sidebar({
         <div className="flex items-start justify-between gap-2">
           {!collapsed && (
             <Link href="/" aria-label="Ir para o início" className="block min-w-0 flex-1">
-              <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-auto w-full" />
+              <img src="/logo-crv-azul.png" alt="CRV Industrial" className="h-auto w-full" />
             </Link>
           )}
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
-            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white/10 hover:text-white ${
+            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface hover:text-ink ${
               collapsed ? "" : "mt-1"
             }`}
             aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
@@ -310,7 +310,7 @@ export default function Sidebar({
 
         {!collapsed && (
           <label className="relative mt-3 block">
-            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500">
+            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted">
               <IconBusca size={15} />
             </span>
             <input
@@ -319,9 +319,9 @@ export default function Sidebar({
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar módulo…"
-              className="w-full rounded-md border border-white/10 bg-white/5 py-1.5 pl-8 pr-10 text-[12.5px] text-white placeholder:text-slate-500 focus:border-brand-600 focus:outline-none"
+              className="w-full rounded-md border border-line bg-surface py-1.5 pl-8 pr-10 text-[12.5px] text-ink placeholder:text-muted/70 focus:bg-white focus:outline-none"
             />
-            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-white/15 px-1 py-0.5 text-[9.5px] font-semibold text-slate-500">
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-line px-1 py-0.5 text-[9.5px] font-medium text-muted">
               Ctrl K
             </span>
           </label>
@@ -338,11 +338,11 @@ export default function Sidebar({
               onClick={onNavigate}
               className={`mb-2 mt-1 flex items-center gap-2.5 rounded-lg border py-2 pl-3 pr-2.5 text-[13px] font-semibold transition-colors ${
                 inicioAtivo
-                  ? "border-transparent bg-white text-navy-900 shadow-card"
-                  : "border-white/10 bg-white/10 text-white hover:bg-white/15"
+                  ? "border-transparent bg-[#2D8A5A]/[0.08] text-navy-900"
+                  : "border-line bg-white text-ink hover:bg-surface"
               } ${collapsed ? "justify-center" : ""}`}
             >
-              <span className={`flex-shrink-0 ${inicioAtivo ? "text-brand-600" : "text-white"}`}>
+              <span className={`flex-shrink-0 ${inicioAtivo ? "text-[#2D8A5A]" : "text-slate-500"}`}>
                 <IconPainel />
               </span>
               {!collapsed && <span className="truncate">{ITEM_INICIO.label}</span>}
@@ -352,7 +352,7 @@ export default function Sidebar({
         {secoesFiltradas.map((section) => (
           <div key={section.title} className="mb-1 mt-3 first:mt-1">
             {!collapsed && (
-              <div className="px-2.5 pb-1.5 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+              <div className="px-2.5 pb-1.5 text-[11px] font-medium text-slate-400">
                 {section.title}
               </div>
             )}
@@ -366,10 +366,10 @@ export default function Sidebar({
         )}
       </nav>
 
-      <div className="border-t border-white/10 px-2 py-3">
+      <div className="border-t border-line px-2 py-3">
         <div className={`flex items-center gap-2.5 rounded-md py-1 ${collapsed ? "justify-center" : "px-1"}`}>
           <div
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-600 text-[11px] font-bold text-white"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-navy-900 text-[11px] font-medium text-white"
             title={usuario ? `${usuario.nome} · ${usuario.email}` : undefined}
           >
             {usuario ? iniciais(usuario.nome) : "CA"}
@@ -377,14 +377,14 @@ export default function Sidebar({
           {!collapsed && (
             <>
               <div className="min-w-0 flex-1 leading-tight">
-                <div className="truncate text-[12.5px] font-semibold text-white">
+                <div className="truncate text-[12.5px] font-medium text-ink">
                   {usuario?.nome ?? "Controle Agrícola"}
                 </div>
-                <div className="truncate text-[11px] text-slate-400">
+                <div className="truncate text-[11px] text-muted">
                   {usuario?.email ?? "Unidade Capinópolis-MG"}
                 </div>
               </div>
-              <span className="flex-shrink-0 text-slate-500">
+              <span className="flex-shrink-0 text-slate-400">
                 <IconSetaDireita size={14} />
               </span>
             </>
@@ -396,7 +396,7 @@ export default function Sidebar({
             onClick={handleLogout}
             disabled={saindo}
             title="Sair do sistema"
-            className={`mt-2 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] font-medium text-slate-400 transition-colors hover:bg-white/8 hover:text-white disabled:opacity-60 ${
+            className={`mt-2 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted transition-colors hover:bg-surface hover:text-ink disabled:opacity-60 ${
               collapsed ? "justify-center" : ""
             }`}
           >

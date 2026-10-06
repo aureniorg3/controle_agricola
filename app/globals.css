@@ -14,23 +14,97 @@ body {
 }
 
 body {
-  background: #f3f5f9;
-  color: #141a24;
+  background: #f7f8fa;
+  color: #1c2430;
+  letter-spacing: -0.003em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* ------------------------------------------------------------------
+   Identidade: limpa, fluida, traço fino.
+   Ajustada nos tokens para valer em todas as telas: pesos mais leves,
+   rótulos em caixa normal, divisórias de 1px quase invisíveis e
+   transições curtas só nos elementos que respondem ao toque.
+   ------------------------------------------------------------------ */
+.font-extrabold,
+.font-bold {
+  font-weight: 600;
+}
+.font-semibold {
+  font-weight: 500;
+}
+.uppercase {
+  text-transform: none;
+}
+.tracking-wide,
+.tracking-wider,
+.tracking-widest {
+  letter-spacing: 0;
+}
+
+button,
+a,
+input,
+select,
+textarea,
+summary,
+tbody tr {
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: #2d8a5a !important;
+  box-shadow: 0 0 0 3px rgba(45, 138, 90, 0.12);
+}
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 1.5px solid #2d8a5a;
+  outline-offset: 2px;
+}
+
+/* tabelas: traço fino entre linhas e cabeçalho leve */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+tbody tr:hover {
+  background-color: rgba(23, 58, 120, 0.025);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #c7ceda;
+  background: #d6dbe4;
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #aeb7c8;
+  background: #bcc4d2;
 }
 
 .tabular {
@@ -39,7 +113,7 @@ body {
 
 @layer components {
   .input {
-    @apply w-full rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink placeholder:text-muted focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100;
+    @apply w-full rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink placeholder:text-muted/70 focus:outline-none;
   }
 }
 

@@ -44,16 +44,16 @@ export default function TrocarSenhaForm({ nomeCompleto }: { nomeCompleto: string
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-navy-950 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-surface px-4">
       <div className="w-full max-w-[380px]">
         <div className="mb-6 flex flex-col items-center gap-3">
-          <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-auto w-64" />
-          <div className="text-center text-[12px] text-brand-300">
+          <img src="/logo-crv-azul.png" alt="CRV Industrial" className="h-auto w-64" />
+          <div className="text-center text-[12px] text-muted">
             Controle Agrícola · Unidade Capinópolis-MG
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="rounded-xl2 border border-line bg-card p-6 shadow-pop">
+        <form onSubmit={handleSubmit} className="rounded-xl2 border border-line bg-card p-6 shadow-card">
           <h1 className="mb-1 text-[16px] font-bold text-ink">Trocar senha</h1>
           <p className="mb-5 text-[12.5px] text-muted">
             Olá, {nomeCompleto}. Essa é sua senha provisória — defina uma nova antes de continuar.
@@ -95,7 +95,7 @@ export default function TrocarSenhaForm({ nomeCompleto }: { nomeCompleto: string
           <button
             type="submit"
             disabled={carregando}
-            className="w-full rounded-lg bg-brand-600 px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-60"
+            className="w-full rounded-lg bg-navy-900 px-3 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-navy-800 disabled:opacity-60"
           >
             {carregando ? "Salvando..." : "Trocar senha e entrar"}
           </button>
