@@ -1,5 +1,5 @@
 import { fmtDateBR } from "./format";
-import { nomeEmpresa, precoMedio, type CelSaldo, type MatrizSaldo } from "./insumos-saldo";
+import { hectaresDoSaldo, nomeEmpresa, precoMedio, textoDosagem, textoHectares, type CelSaldo, type DosagemInsumo, type MatrizSaldo } from "./insumos-saldo";
 import { carregarImagemInfo } from "./relatorio-pdf";
 
 type Cor = [number, number, number];
@@ -22,6 +22,8 @@ export interface DadosRelatorioSaldo {
   matriz: MatrizSaldo;
   separar: boolean;
   topItens: { cod: string; ds: string; valor: number }[];
+  /** dosagem por hectare por código do insumo (coluna Dosagem e Hectares) */
+  dosagens: Record<string, DosagemInsumo>;
   nomeUsuario: string;
   movimento: {
     datas: string[];
@@ -68,25 +70,37 @@ export async function gerarRelatorioSaldoPdf(d: DadosRelatorioSaldo): Promise<vo
   const cab1: { content: string; colSpan?: number; styles?: object }[] = [{ content: `Data base: ${fmtDateBR(d.dtBase)}`, colSpan: 4, styles: { halign: "left" } }];
   for (const c of colunas) cab1.push({ content: `${c.rotulo}${c.sub ? ` · ${c.sub}` : ""}`, colSpan: 3, styles: { halign: "center" } });
   cab1.push({ content: "Total", colSpan: 3, styles: { halign: "center", fillColor: ORANGE } });
+  cab1.push({ content: "Aplicação", colSpan: 2, styles: { halign: "center", fillColor: GREEN } });
   const sub = ["Grupo", "Código", "Descrição do insumo", "UM"];
   for (let i = 0; i < colunas.length + 1; i++) sub.push("Qtd", "Preço médio", "Vl. total");
+  sub.push("Dosagem /ha", "Hectares");
 
   type Tipo = "item" | "subtotal" | "total";
   const tipos: Tipo[] = [];
   const corpo: string[][] = [];
   for (const g of grupos) {
     g.itens.forEach((it, i) => {
-      corpo.push([i === 0 ? g.grp.trim() : "", it.cod, it.ds, it.un.trim(), ...colunas.flatMap((c) => tresCels(it.cels[c.chave])), ...tresCels(it.total)]);
+      const dos = d.dosagens[it.cod];
+      corpo.push([
+        i === 0 ? g.grp.trim() : "",
+        it.cod,
+        it.ds,
+        it.un.trim(),
+        ...colunas.flatMap((c) => tresCels(it.cels[c.chave])),
+        ...tresCels(it.total),
+        textoDosagem(dos) || "–",
+        textoHectares(hectaresDoSaldo(it.total.qtd, dos)) || "–",
+      ]);
       tipos.push("item");
     });
-    corpo.push([`${g.grp.trim()} · ${g.grpDs.trim()} — total`, "", "", "", ...colunas.flatMap((c) => tresCels(g.cels[c.chave])), ...tresCels(g.total)]);
+    corpo.push([`${g.grp.trim()} · ${g.grpDs.trim()} — total`, "", "", "", ...colunas.flatMap((c) => tresCels(g.cels[c.chave])), ...tresCels(g.total), "", ""]);
     tipos.push("subtotal");
   }
-  corpo.push(["Total geral", "", "", "", ...colunas.flatMap((c) => tresCels(d.matriz.cels[c.chave])), ...tresCels(d.matriz.total)]);
+  corpo.push(["Total geral", "", "", "", ...colunas.flatMap((c) => tresCels(d.matriz.cels[c.chave])), ...tresCels(d.matriz.total), "", ""]);
   tipos.push("total");
 
   cabecalho();
-  const nCol = 4 + (colunas.length + 1) * 3;
+  const nCol = 4 + (colunas.length + 1) * 3 + 2;
   const colStyles: Record<number, object> = { 0: { cellWidth: 14 }, 1: { cellWidth: 15 }, 2: { cellWidth: 52 }, 3: { cellWidth: 9 } };
   for (let i = 4; i < nCol; i++) colStyles[i] = { halign: "right" };
   autoTable(doc, {

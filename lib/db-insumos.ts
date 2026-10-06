@@ -4,7 +4,8 @@ import { gunzipSync } from "node:zlib";
 import type { Pool, PoolClient } from "pg";
 import { auditar, dataBR } from "./auditar";
 import { getPool, prepararBanco } from "./db";
-import { nomeEmpresa, round2, type DepositoInfo, type LinhaArquivoSaldo, type LinhaSaldo, type PontoSerie, type ResultadoSaldo } from "./insumos-saldo";
+import { prepararDosagens } from "./db-dosagens";
+import { nomeEmpresa, round2, type DepositoInfo, type DosagemInsumo, type LinhaArquivoSaldo, type LinhaSaldo, type PontoSerie, type ResultadoSaldo } from "./insumos-saldo";
 
 let preparado: Promise<void> | null = null;
 
@@ -105,6 +106,7 @@ export interface FiltrosSaldo {
 export async function consultarSaldo(f: FiltrosSaldo): Promise<ResultadoSaldo> {
   const pool = getPool();
   await preparar(pool);
+  await prepararDosagens(pool);
   const datas = (await pool.query<{ d: string }>("SELECT DISTINCT dt::text AS d FROM ins_sld ORDER BY 1")).rows.map((r) => r.d);
   const dtBase = f.dtBase && datas.includes(f.dtBase) ? f.dtBase : (datas[datas.length - 1] ?? null);
 
@@ -152,7 +154,17 @@ export async function consultarSaldo(f: FiltrosSaldo): Promise<ResultadoSaldo> {
       )
     ).rows;
   }
-  return { datas, dtBase, depositos, grupos, linhas, serie, dtAnterior };
+  // dosagem por hectare dos insumos que aparecem na posição (para a coluna de hectares)
+  const dosagens: Record<string, DosagemInsumo> = {};
+  const cods = Array.from(new Set(linhas.map((l) => l.cod)));
+  if (cods.length > 0) {
+    const { rows } = await pool.query<{ cod: string; dmin: number | null; dmax: number | null }>(
+      "SELECT cod, dmin::float AS dmin, dmax::float AS dmax FROM ins_dos WHERE cod = ANY($1::text[])",
+      [cods]
+    );
+    for (const r of rows) dosagens[r.cod] = { min: r.dmin, max: r.dmax };
+  }
+  return { datas, dtBase, depositos, grupos, linhas, serie, dtAnterior, dosagens };
 }
 
 export interface ResultadoImportacaoSaldo {

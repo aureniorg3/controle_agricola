@@ -5,7 +5,7 @@ import BotaoLog from "@/components/BotaoLog";
 import { IconImprimir } from "@/components/icons";
 import { fmtDateBR } from "@/lib/format";
 import { addDays } from "@/lib/period";
-import { DEPOSITOS_PADRAO, EMPRESAS, montarMatriz, nomeEmpresa, precoMedio, type ResultadoSaldo } from "@/lib/insumos-saldo";
+import { DEPOSITOS_PADRAO, EMPRESAS, hectaresDoSaldo, montarMatriz, nomeEmpresa, precoMedio, textoDosagem, textoHectares, type ResultadoSaldo } from "@/lib/insumos-saldo";
 import { gerarRelatorioSaldoPdf } from "@/lib/relatorio-saldo-insumos-pdf";
 import { podeEditar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
@@ -151,6 +151,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
         separar,
         topItens,
         nomeUsuario,
+        dosagens: dados.dosagens ?? {},
         movimento: { datas: movimento.datas.slice(-10), lista: movimento.lista, delta: movimento.delta, totalPorData: movimento.totalPorData },
       });
     } finally {
@@ -159,7 +160,8 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
   }
 
   const cols = matriz.colunas;
-  const nColsDados = cols.length * 3 + 3;
+  // 4 colunas de identificação + 3 por empresa + 3 do total + dosagem e hectares
+  const nColsTotal = 4 + cols.length * 3 + 3 + 2;
   const th = "px-2 py-1.5 text-right text-[10.5px] font-semibold uppercase tracking-wide";
   const td = "px-2 py-1 text-right tabular";
   const maxGrupo = Math.max(1, ...matriz.grupos.map((g) => g.total.valor));
@@ -381,6 +383,9 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                 <th colSpan={3} className="border-l border-white/20 bg-orange-600 px-2 py-1.5 text-center text-[10.5px] font-semibold uppercase tracking-wide" style={{ background: "#D77B38" }}>
                   Total
                 </th>
+                <th colSpan={2} className="border-l border-white/20 px-2 py-1.5 text-center text-[10.5px] font-semibold uppercase tracking-wide" style={{ background: "#2D8A5A" }}>
+                  Aplicação
+                </th>
               </tr>
               <tr className="bg-surface text-muted">
                 <th className="px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide">Grupo</th>
@@ -394,19 +399,25 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                     <th className={th}>Vl. total</th>
                   </Fragment>
                 ))}
+                <th className={`${th} whitespace-nowrap border-l border-line`} title="Dosagem por hectare do cadastro (Insumos › Dosagens), na unidade do insumo">
+                  Dosagem /ha
+                </th>
+                <th className={`${th} whitespace-nowrap`} title="Quantidade total do saldo ÷ dosagem por hectare. Com a dosagem máxima é o mínimo de hectares; com a mínima também, mostra a faixa.">
+                  Hectares
+                </th>
               </tr>
             </thead>
             <tbody>
               {carregando && matriz.grupos.length === 0 && (
                 <tr>
-                  <td colSpan={nColsDados + 1} className="px-3 py-6 text-center text-muted">
+                  <td colSpan={nColsTotal} className="px-3 py-6 text-center text-muted">
                     Carregando…
                   </td>
                 </tr>
               )}
               {!carregando && matriz.grupos.length === 0 && (
                 <tr>
-                  <td colSpan={nColsDados + 1} className="px-3 py-6 text-center text-muted">
+                  <td colSpan={nColsTotal} className="px-3 py-6 text-center text-muted">
                     Nenhum insumo com saldo para os filtros escolhidos.
                   </td>
                 </tr>
@@ -432,6 +443,17 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                       <td className={`${td} border-l border-line/60 font-semibold`}>{celula(it.total.qtd)}</td>
                       <td className={`${td} font-semibold`}>{celula(precoMedio(it.total))}</td>
                       <td className={`${td} font-semibold`}>{celula(it.total.valor)}</td>
+                      {(() => {
+                        const dos = dados?.dosagens?.[it.cod];
+                        const dosagem = textoDosagem(dos);
+                        const hectares = textoHectares(hectaresDoSaldo(it.total.qtd, dos));
+                        return (
+                          <>
+                            <td className={`${td} whitespace-nowrap border-l border-line/60 ${dosagem ? "" : "text-muted/50"}`}>{dosagem || "—"}</td>
+                            <td className={`${td} whitespace-nowrap font-semibold ${hectares ? "" : "font-normal text-muted/50"}`}>{hectares || "—"}</td>
+                          </>
+                        );
+                      })()}
                     </tr>
                   ))}
                   <tr className="border-t border-line bg-amber-50 font-bold text-ink" style={{ background: "#FFF6CC" }}>
@@ -451,6 +473,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                     <td className={`${td} border-l border-line/60`}>{celula(g.total.qtd)}</td>
                     <td className={td}>{celula(precoMedio(g.total))}</td>
                     <td className={td}>{celula(g.total.valor)}</td>
+                    <td colSpan={2} className="border-l border-line/60" />
                   </tr>
                 </Fragment>
               ))}
@@ -472,13 +495,15 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                   <td className={`${td} border-l border-white/20`}>{celula(matriz.total.qtd)}</td>
                   <td className={td}>{celula(precoMedio(matriz.total))}</td>
                   <td className={td}>{celula(matriz.total.valor)}</td>
+                  <td colSpan={2} className="border-l border-white/20" />
                 </tr>
               )}
             </tbody>
           </table>
         </div>
         <p className="mb-4 text-[11.5px] text-muted">
-          Valor = saldo × custo médio de cada depósito; preço médio = valor ÷ quantidade. Quantidades na unidade de consumo do insumo.
+          Valor = saldo × custo médio de cada depósito; preço médio = valor ÷ quantidade. Quantidades na unidade de consumo do insumo. Hectares = quantidade total ÷ dosagem por hectare
+          (Insumos › Dosagens): com a dosagem máxima é o mínimo de hectares e, havendo mínima também, aparece a faixa.
         </p>
 
         {/* Movimentação diária */}

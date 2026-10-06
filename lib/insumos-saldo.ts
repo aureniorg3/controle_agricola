@@ -43,6 +43,46 @@ export interface ResultadoSaldo {
   serie: PontoSerie[];
   /** data anterior a `de` com saldo, para a primeira variação do período */
   dtAnterior: string | null;
+  /** dosagem por hectare (Insumos › Dosagens) dos insumos da posição, por código */
+  dosagens: Record<string, DosagemInsumo>;
+}
+
+/** Dosagem por hectare, na unidade de consumo do insumo; qualquer uma das duas pode faltar. */
+export interface DosagemInsumo {
+  min: number | null;
+  max: number | null;
+}
+
+const nfDose = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 4 });
+const nfHa = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** "0,3 – 0,5", "até 0,5" (só máxima) ou "mín. 0,3" (só mínima); vazio se não há dosagem. */
+export function textoDosagem(d: DosagemInsumo | undefined): string {
+  if (!d) return "";
+  const { min, max } = d;
+  if (min !== null && max !== null) return min === max ? nfDose(max) : `${nfDose(min)} – ${nfDose(max)}`;
+  if (max !== null) return `até ${nfDose(max)}`;
+  if (min !== null) return `mín. ${nfDose(min)}`;
+  return "";
+}
+
+/**
+ * Hectares que o saldo cobre: quantidade ÷ dosagem por hectare. Com a dosagem máxima é o piso (menos hectares);
+ * se houver mínima também, o teto é a quantidade ÷ mínima. Sem dosagem (ou sem saldo positivo) não há cálculo.
+ */
+export function hectaresDoSaldo(qtd: number, d: DosagemInsumo | undefined): { de: number; ate: number | null } | null {
+  if (!d || !(qtd > 0)) return null;
+  const alta = d.max !== null && d.max > 0 ? d.max : d.min !== null && d.min > 0 ? d.min : null;
+  if (alta === null) return null;
+  const de = qtd / alta;
+  const ate = d.max !== null && d.max > 0 && d.min !== null && d.min > 0 && d.min < d.max ? qtd / d.min : null;
+  return { de, ate };
+}
+
+/** "1.250,00" ou "1.250,00 – 2.083,33"; vazio se não há como calcular. */
+export function textoHectares(h: { de: number; ate: number | null } | null): string {
+  if (!h) return "";
+  return h.ate !== null ? `${nfHa(h.de)} – ${nfHa(h.ate)}` : nfHa(h.de);
 }
 
 export interface LinhaArquivoSaldo {
