@@ -369,8 +369,8 @@ export default function Sidebar({
           <div key={section.title} className="mb-1 mt-3 first:mt-1">
             {!collapsed && (
               <div className="flex items-center gap-2 px-2.5 pb-2">
-                <span className="text-[12px] font-semibold text-[#8FB5A6]">{section.title}</span>
-                <span className="h-px flex-1 bg-white/10" />
+                <span className="text-[12px] font-semibold text-[#E3B94D]">{section.title}</span>
+                <span className="h-px flex-1 bg-[#E3B94D]/20" />
               </div>
             )}
             <div className="flex flex-col gap-0.5">
