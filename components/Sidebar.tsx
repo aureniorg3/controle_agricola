@@ -305,18 +305,18 @@ export default function Sidebar({
         collapsed ? "w-[68px]" : "w-[260px]"
       }`}
     >
-      <div className="px-3 pb-3 pt-4">
-        <div className="flex items-start justify-between gap-2">
+      <div className="relative px-3 pb-3 pt-6">
+        <div className={collapsed ? "flex justify-center" : ""}>
           {!collapsed && (
-            <Link href="/" aria-label="Ir para o início" className="block min-w-0 flex-1">
+            <Link href="/" aria-label="Ir para o início" className="block">
               <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-auto w-full" />
             </Link>
           )}
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
-            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white/10 hover:text-white ${
-              collapsed ? "" : "mt-1"
+            className={`flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-white/10 hover:text-white ${
+              collapsed ? "" : "absolute right-2 top-1.5"
             }`}
             aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
           >
