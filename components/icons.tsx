@@ -381,3 +381,65 @@ export function IconOlhoOculto(p: IconProps) {
     </Svg>
   );
 }
+
+/* --------------------------------- painel --------------------------------- */
+
+export function IconCalendario(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.4" />
+      <path d="M3.5 10h17" />
+      <path d="M8 3v4M16 3v4" />
+      <path d="M7.5 14h2M11 14h2M14.5 14h2M7.5 17h2M11 17h2" />
+    </Svg>
+  );
+}
+
+export function IconCifrao(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M14.6 9.3c-.4-1-1.4-1.7-2.7-1.7-1.5 0-2.6.8-2.6 2 0 3 5.4 1.6 5.4 4.6 0 1.2-1.1 2-2.7 2-1.4 0-2.5-.7-2.9-1.8" />
+      <path d="M12 6v1.6M12 16.4V18" />
+    </Svg>
+  );
+}
+
+export function IconCamadas(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 3.5 3.5 8 12 12.5 20.5 8 12 3.5Z" />
+      <path d="M3.5 12 12 16.5 20.5 12" />
+      <path d="M3.5 16 12 20.5 20.5 16" />
+    </Svg>
+  );
+}
+
+export function IconGota(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 3.5c3.2 3.8 5.8 6.8 5.8 10a5.8 5.8 0 0 1-11.6 0c0-3.2 2.6-6.2 5.8-10Z" />
+      <path d="M9.2 14.2a2.9 2.9 0 0 0 2.5 2.6" />
+    </Svg>
+  );
+}
+
+export function IconTrocar(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M4 8h14.5" />
+      <path d="M15 4.5 18.5 8 15 11.5" />
+      <path d="M20 16H5.5" />
+      <path d="M9 12.5 5.5 16 9 19.5" />
+    </Svg>
+  );
+}
+
+export function IconGrafico(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M6 20v-7M12 20V6M18 20v-10" />
+      <path d="M3.5 20.5h17" />
+    </Svg>
+  );
+}
