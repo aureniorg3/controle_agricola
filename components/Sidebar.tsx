@@ -205,7 +205,7 @@ export default function Sidebar({
       <div className="relative px-3 pb-3 pt-6">
         <div className={collapsed ? "flex justify-center" : ""}>
           {!collapsed && (
-            <Link href="/" aria-label="Ir para o início" className="block">
+            <Link href="/painel" aria-label="Ir para o Início / Dashboard" className="block">
               <img src="/logo-crv-branca.png" alt="CRV Industrial" className="h-auto w-full" />
             </Link>
           )}

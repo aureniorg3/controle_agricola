@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { podeAcessar } from "@/lib/menu";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { IconMenu } from "./icons";
 import Sidebar from "./Sidebar";
 
@@ -42,16 +42,6 @@ export default function AppShell({ usuario, children }: { usuario?: UsuarioLogad
   const pathname = usePathname();
   const liberado = podeAcessar(pathname ?? "/", usuario?.perfil, usuario?.acessos ?? null);
 
-  // lembra a última tela aberta, para o sistema voltar nela ao entrar de novo
-  useEffect(() => {
-    if (!pathname || pathname === "/" || pathname === "/login" || pathname === "/trocar-senha" || !liberado) return;
-    try {
-      localStorage.setItem("ca_ultima_tela", pathname);
-    } catch {
-      /* sem armazenamento: abre na tela padrão */
-    }
-  }, [pathname, liberado]);
-
   return (
     <div className="app-shell-root flex h-screen w-full overflow-hidden bg-surface">
       {mobileAberto && (
@@ -79,7 +69,9 @@ export default function AppShell({ usuario, children }: { usuario?: UsuarioLogad
           >
             <IconMenu size={20} />
           </button>
-          <img src="/logo-crv-azul.png" alt="CRV Industrial" className="h-6 w-auto" />
+          <Link href="/painel" aria-label="Ir para o Início / Dashboard">
+            <img src="/logo-crv-azul.png" alt="CRV Industrial" className="h-6 w-auto" />
+          </Link>
         </div>
         {liberado ? children : <SemAcesso />}
       </div>

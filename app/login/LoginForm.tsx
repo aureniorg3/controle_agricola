@@ -28,9 +28,8 @@ export default function LoginForm() {
         setCarregando(false);
         return;
       }
-      const params = new URLSearchParams(window.location.search);
-      const next = params.get("next") || "/";
-      router.push(next);
+      // ao entrar, sempre o Início / Dashboard
+      router.push("/painel");
       router.refresh();
     } catch {
       setErro("Não foi possível conectar ao servidor.");

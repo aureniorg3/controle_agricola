@@ -35,7 +35,7 @@ export default function TrocarSenhaForm({ nomeCompleto }: { nomeCompleto: string
         setCarregando(false);
         return;
       }
-      router.push("/");
+      router.push("/painel");
       router.refresh();
     } catch {
       setErro("Não foi possível conectar ao servidor.");

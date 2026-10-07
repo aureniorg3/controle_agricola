@@ -12,7 +12,7 @@ export default async function LoginPage() {
   const usuario = uid ? await getUsuarioPorId(uid) : undefined;
 
   if (usuario) {
-    redirect(usuario.precisaTrocarSenha ? "/trocar-senha" : "/");
+    redirect(usuario.precisaTrocarSenha ? "/trocar-senha" : "/painel");
   }
 
   return <LoginForm />;

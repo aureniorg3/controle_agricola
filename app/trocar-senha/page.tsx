@@ -11,7 +11,7 @@ export default async function TrocarSenhaPage() {
     redirect("/login");
   }
   if (!usuario.precisaTrocarSenha) {
-    redirect("/");
+    redirect("/painel");
   }
 
   return <TrocarSenhaForm nomeCompleto={`${usuario.nome} ${usuario.sobrenome}`.trim()} />;
