@@ -12,6 +12,7 @@ import {
   startOfWeekMonday,
 } from "./period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev } from "./format";
+import { codigoFazendaBase, rotuloClima, type ClimaResp } from "./clima";
 import type { HistoricoTchOrdem, OrdemCorte, Periodo, TalhaoOrdem } from "./types";
 
 const EMPRESA = "CRV Industrial";
@@ -135,26 +136,7 @@ function desenharLinhaCard(
 }
 
 /** Clima da Zeus por fazenda (mesmo formato da rota /api/clima/chuva). */
-export interface ClimaRelatorio {
-  hoje: boolean;
-  fazendas: Record<
-    string,
-    {
-      pic: string;
-      anteriorMm: number | null;
-      dia: {
-        chuvaMm: number;
-        tMin: number | null;
-        tMax: number | null;
-        umidadeMed: number | null;
-        ventoMedKmh: number | null;
-        rajadaMaxKmh: number | null;
-        radiacaoWhm2: number | null;
-      } | null;
-      ultimaLeitura: string | null;
-    } | null
-  >;
-}
+export type ClimaRelatorio = ClimaResp;
 
 const fmtClima = (n: number | null | undefined, casas = 0) =>
   n == null ? "—" : n.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
@@ -286,7 +268,7 @@ function montarCardOrdem(
   ]);
   // rodapé de clima (Zeus): um bloco por fazenda, 2 linhas x 3 itens quando há leitura
   const climaFazendas = clima
-    ? gruposFazenda.map((g) => ({ g, c: clima.fazendas[g.fazendaCodigo.trim().split("-")[0].trim()] ?? null }))
+    ? gruposFazenda.map((g) => ({ g, c: clima.fazendas[codigoFazendaBase(g.fazendaCodigo)] ?? null }))
     : [];
   const temClima = climaFazendas.some((x) => x.c);
   const alturaLinhaClima = 6.6;
@@ -561,12 +543,7 @@ function montarCardOrdem(
       doc.text("CLIMA · ZEUS", xi, fy + 3);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(5);
-      doc.text(
-        clima.hoje ? `hoje${ultima ? ` · leitura até ${ultima.slice(11, 16)}` : ""}` : `histórico · ${fmtDateBR(referencia)}`,
-        xi + larguraInterna,
-        fy + 3,
-        { align: "right" }
-      );
+      doc.text(rotuloClima(clima, referencia, ultima), xi + larguraInterna, fy + 3, { align: "right" });
       fy += 4.2;
 
       const cw = larguraInterna / 3;
@@ -583,13 +560,15 @@ function montarCardOrdem(
           doc.setFont("helvetica", "normal");
           doc.setFontSize(5.4);
           doc.setTextColor(...MUTED);
-          doc.text(c ? "Sem leituras neste dia." : "Fazenda sem estação na Zeus.", xi, fy + 2.4);
+          doc.text(c ? "Sem leituras no período." : "Fazenda sem estação na Zeus.", xi, fy + 2.4);
           fy += 3.4 + 3;
           continue;
         }
         const itens: { icone: TipoIcone; rotulo: string; valor: string; unidade: string; destaque?: boolean }[] = [
-          { icone: "chuva", rotulo: "Chuva", valor: fmtClima(d.chuvaMm, 1), unidade: "mm", destaque: true },
-          { icone: "chuva", rotulo: "Dia anterior", valor: fmtClima(c.anteriorMm, 1), unidade: "mm" },
+          { icone: "chuva", rotulo: clima.periodo ? "Chuva acumulada" : "Chuva", valor: fmtClima(d.chuvaMm, 1), unidade: "mm", destaque: true },
+          clima.periodo
+            ? { icone: "chuva", rotulo: "Dias com chuva (≥1 mm)", valor: `${d.diasComChuva} de ${d.nDias}`, unidade: "" }
+            : { icone: "chuva", rotulo: "Dia anterior", valor: fmtClima(c.anteriorMm, 1), unidade: "mm" },
           {
             icone: "termometro",
             rotulo: "Temp. mín–máx",
@@ -603,7 +582,7 @@ function montarCardOrdem(
             valor: d.ventoMedKmh == null ? "—" : `${fmtClima(d.ventoMedKmh)} (${fmtClima(d.rajadaMaxKmh)})`,
             unidade: "km/h",
           },
-          { icone: "sol", rotulo: "Radiação", valor: fmtClima(d.radiacaoWhm2), unidade: "Wh/m²" },
+          { icone: "sol", rotulo: clima.periodo ? "Radiação (média/dia)" : "Radiação", valor: fmtClima(d.radiacaoWhm2), unidade: "Wh/m²" },
         ];
         itens.forEach((it, i) => {
           const ix = xi + (i % 3) * cw;

@@ -1,3 +1,6 @@
+import { addDays, startOfWeekMonday } from "./period";
+import { codigoFazendaBase, type ClimaAgregado } from "./clima";
+
 // Cliente da API ZeusAgro (CropNet) — só roda no servidor (credenciais em ZEUS_EMAIL / ZEUS_PASSWORD).
 // Pluviômetro = chuva (mm) da PIC (estação) ligada à fazenda: o "name" da fazenda na Zeus é o código da fazenda da CRV.
 
@@ -67,10 +70,6 @@ async function comCache<T>(chave: string, ttlMs: number, buscar: () => Promise<T
 
 const HORA = 3600_000;
 
-/** Código de fazenda da CRV sem o sufixo de sequência ("9001-1" -> "9001"). */
-export function codigoBase(codigo: string): string {
-  return codigo.trim().split("-")[0].trim();
-}
 
 interface PicZeus {
   picId: number;
@@ -80,7 +79,7 @@ interface PicZeus {
 
 /** PIC principal (primeira com status OK) da fazenda, ou null se a fazenda não existe na Zeus. */
 export async function picDaFazenda(codigo: string): Promise<PicZeus | null> {
-  const cod = codigoBase(codigo);
+  const cod = codigoFazendaBase(codigo);
   const fazendas = await comCache("fazendas", 6 * HORA, () => zeusGet<{ areaFarmId: number; name: string }[]>("/farm"));
   const faz = fazendas.find((f) => String(f.name).trim() === cod);
   if (!faz) return null;
@@ -121,6 +120,50 @@ interface Ponto {
 const nums = (a: (number | null | undefined)[]) => a.filter((x): x is number => typeof x === "number");
 const media = (a: number[]) => (a.length ? Math.round((a.reduce((s, x) => s + x, 0) / a.length) * 10) / 10 : null);
 const arred = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Clima diário de uma PIC num intervalo qualquer. A Zeus limita a janela a 7 dias,
+ * então busca semana a semana (segunda a domingo): cada semana fica em cache e é
+ * reaproveitada por qualquer data/período que a inclua.
+ */
+export async function climaDaPicPeriodo(picId: number, inicio: string, fim: string, hoje: string): Promise<ClimaPic> {
+  const semanas: [string, string][] = [];
+  for (let s = startOfWeekMonday(inicio); s <= fim && s <= hoje; s = addDays(s, 7)) {
+    const e = addDays(s, 6);
+    semanas.push([s, e > hoje ? hoje : e]);
+  }
+  const partes = await Promise.all(semanas.map(([s, e]) => climaDaPic(picId, s, e, hoje)));
+  const dias: Record<string, ClimaDia> = {};
+  let ultima: string | null = null;
+  for (const p of partes) {
+    Object.assign(dias, p.dias);
+    if (p.ultimaLeitura && (!ultima || p.ultimaLeitura > ultima)) ultima = p.ultimaLeitura;
+  }
+  return { dias, ultimaLeitura: ultima };
+}
+
+/** Resume os dias de inicio..fim (só os que têm leitura); null se não houver nenhum. */
+export function agregarClima(dias: Record<string, ClimaDia>, inicio: string, fim: string): ClimaAgregado | null {
+  const lista: ClimaDia[] = [];
+  for (let d = inicio; d <= fim; d = addDays(d, 1)) if (dias[d]) lista.push(dias[d]);
+  if (!lista.length) return null;
+  const ext = (a: (number | null)[], f: (...n: number[]) => number) => {
+    const v = nums(a);
+    return v.length ? f(...v) : null;
+  };
+  const rad = nums(lista.map((d) => d.radiacaoWhm2));
+  return {
+    chuvaMm: arred(lista.reduce((s, d) => s + d.chuvaMm, 0)),
+    diasComChuva: lista.filter((d) => d.chuvaMm >= 1).length,
+    nDias: lista.length,
+    tMin: ext(lista.map((d) => d.tMin), Math.min),
+    tMax: ext(lista.map((d) => d.tMax), Math.max),
+    umidadeMed: media(nums(lista.map((d) => d.umidadeMed))),
+    ventoMedKmh: media(nums(lista.map((d) => d.ventoMedKmh))),
+    rajadaMaxKmh: ext(lista.map((d) => d.rajadaMaxKmh), Math.max),
+    radiacaoWhm2: rad.length ? Math.round(rad.reduce((s, x) => s + x, 0) / rad.length) : null,
+  };
+}
 
 /** Clima diário da PIC entre duas datas (máx. 7 dias). Dias passados ficam em cache por 24 h; o dia corrente por 10 min. */
 export async function climaDaPic(picId: number, inicio: string, fim: string, hoje: string): Promise<ClimaPic> {
