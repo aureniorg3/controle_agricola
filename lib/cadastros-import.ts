@@ -1,4 +1,5 @@
-import { dataIso, lerLinhas, paraCadaLinha } from "./import-pesagem";
+import * as XLSX from "xlsx";
+import { dataIso, paraCadaLinha } from "./import-pesagem";
 import {
   normalizarTexto,
   type CadastroSpec,
@@ -86,15 +87,23 @@ export async function lerCadastroGrande(buffer: ArrayBuffer, spec: CadastroSpec)
 /** Lê a planilha de um cadastro: acha o cabeçalho, guarda todas as colunas por nome e junta repetidos pelo código. */
 export function lerCadastro(buffer: ArrayBuffer, spec: CadastroSpec): ResultadoCadastro {
   const res: ResultadoCadastro = { itens: [], linhasLidas: 0, repetidas: 0, avisos: [], erros: [] };
-  const linhas = lerLinhas(buffer);
-
+  // o cabeçalho do cadastro pode estar em qualquer aba (um arquivo com vários cadastros, um por aba)
+  const wb = XLSX.read(buffer, { type: "array", cellDates: true });
+  let linhas: unknown[][] = [];
   let idx = -1;
   let chaves: string[] = [];
-  for (let i = 0; i < Math.min(linhas.length, 25); i++) {
-    const candidatas = chavesDoCabecalho(linhas[i]);
-    if (spec.obrigatorias.every((k) => candidatas.includes(k))) {
-      idx = i;
-      chaves = candidatas;
+  for (const aba of wb.SheetNames) {
+    const daAba = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: "" }) as unknown[][];
+    for (let i = 0; i < Math.min(daAba.length, 25); i++) {
+      const candidatas = chavesDoCabecalho(daAba[i]);
+      if (spec.obrigatorias.every((k) => candidatas.includes(k))) {
+        idx = i;
+        chaves = candidatas;
+        break;
+      }
+    }
+    if (idx >= 0) {
+      linhas = daAba;
       break;
     }
   }

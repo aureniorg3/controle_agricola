@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Campo, ModalShell } from "@/components/ui";
 import { IconImportar } from "@/components/icons";
+import { BotaoExportar } from "@/app/(app)/acompanhamentos/os-agricola/comum";
 import { fmtDateBR, fmtHa } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { LinhaResumoRodada } from "@/lib/rodadas";
@@ -16,6 +17,7 @@ interface Opcoes {
   rodadas: number[];
   regioes: string[];
   semanas: number[];
+  usuarios: string[];
 }
 
 export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
@@ -25,6 +27,11 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
   const [sem, setSem] = usarPersistido("rodadas.resumo.sem", "", ehTexto);
   const [ori, setOri] = usarPersistido("rodadas.resumo.origem", "", ehTexto);
   const [busca, setBusca] = usarPersistido("rodadas.resumo.busca", "", ehTexto);
+  // data: todas | um dia | período (de/até)
+  const [modoData, setModoData] = usarPersistido("rodadas.resumo.modoData", "", ehUmDe(["", "dia", "periodo"] as const));
+  const [de, setDe] = usarPersistido("rodadas.resumo.de", "", ehTexto);
+  const [ate, setAte] = usarPersistido("rodadas.resumo.ate", "", ehTexto);
+  const [usr, setUsr] = usarPersistido("rodadas.resumo.usr", "", ehTexto);
   const [termo, setTermo] = useState("");
   const [pagina, setPagina] = useState(1);
   const [linhas, setLinhas] = useState<LinhaResumoRodada[]>([]);
@@ -49,7 +56,9 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
         if (sem) p.set("sem", sem);
         if (ori) p.set("ori", ori);
         if (termo) p.set("q", termo);
-        if (comOpcoes || !opcoes) p.set("opcoes", "1");
+        filtroData(p);
+        if (usr) p.set("usr", usr);
+        if (comOpcoes || !opcoes || !opcoes.usuarios) p.set("opcoes", "1");
         const res = await fetch(`/api/rodadas/resumo?${p}`, { cache: "no-store" });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar o resumo.");
@@ -66,8 +75,34 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pagina, rod, reg, sem, ori, termo]
+    [pagina, rod, reg, sem, ori, termo, modoData, de, ate, usr]
   );
+
+  function filtroData(p: URLSearchParams) {
+    if (modoData === "dia" && de) {
+      p.set("de", de);
+      p.set("ate", de);
+    } else if (modoData === "periodo") {
+      if (de) p.set("de", de);
+      if (ate) p.set("ate", ate);
+    }
+  }
+
+  /** todas as linhas do filtro atual (para exportar) */
+  async function todasAsLinhas(): Promise<LinhaResumoRodada[]> {
+    const p = new URLSearchParams({ todos: "1" });
+    if (rod) p.set("rod", rod);
+    if (reg) p.set("reg", reg);
+    if (sem) p.set("sem", sem);
+    if (ori) p.set("ori", ori);
+    if (termo) p.set("q", termo);
+    if (usr) p.set("usr", usr);
+    filtroData(p);
+    const res = await fetch(`/api/rodadas/resumo?${p}`, { cache: "no-store" });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error ?? "Não foi possível exportar.");
+    return json.linhas;
+  }
 
   useEffect(() => {
     carregar();
@@ -99,6 +134,32 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
             Somente leitura
           </div>
         )}
+        <BotaoExportar<LinhaResumoRodada>
+          nome="Resumo Rodadas de Campo"
+          buscar={todasAsLinhas}
+          colunas={[
+            { rotulo: "Boletim", valor: (l) => l.bol },
+            { rotulo: "Rodada", valor: (l) => l.rod },
+            { rotulo: "Data", valor: (l) => fmtDateBR(l.dt) },
+            { rotulo: "Semana", valor: (l) => l.sem || "" },
+            { rotulo: "Região", valor: (l) => l.reg },
+            { rotulo: "Descrição da Região", valor: (l) => l.regNm },
+            { rotulo: "Fazenda", valor: (l) => l.faz },
+            { rotulo: "Descrição da Fazenda", valor: (l) => l.fazNm },
+            { rotulo: "Talhão", valor: (l) => l.tlh },
+            { rotulo: "Área (ha)", valor: (l) => l.area },
+            { rotulo: "Ocorrência", valor: (l) => l.ocorrencia },
+            { rotulo: "Presença", valor: (l) => l.presenca },
+            { rotulo: "Nível", valor: (l) => l.nivel },
+            { rotulo: "Prioridade", valor: (l) => l.prioridade },
+            { rotulo: "Recomendação / Diagnóstico", valor: (l) => l.rec },
+            { rotulo: "Responsável", valor: (l) => l.resp },
+            { rotulo: "Origem", valor: (l) => l.origem },
+            { rotulo: "Lançado por", valor: (l) => l.lancadoPor },
+            { rotulo: "Atividade", valor: (l) => l.atividade },
+            { rotulo: "Executado", valor: (l) => l.executado },
+          ]}
+        />
         {podeGravar && (
           <button
             type="button"
@@ -159,6 +220,27 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
               <option value="">Todas as origens</option>
               <option value="apontamento">Apontamento</option>
               <option value="importacao">Importação</option>
+            </select>
+            <select value={modoData} onChange={(e) => mudar(() => setModoData(e.target.value as "" | "dia" | "periodo"))} className={FILTRO} aria-label="Data">
+              <option value="">Todas as datas</option>
+              <option value="dia">Data</option>
+              <option value="periodo">Período</option>
+            </select>
+            {modoData === "dia" && <input type="date" value={de} onChange={(e) => mudar(() => setDe(e.target.value))} className={FILTRO} aria-label="Data do boletim" />}
+            {modoData === "periodo" && (
+              <>
+                <input type="date" value={de} onChange={(e) => mudar(() => setDe(e.target.value))} className={FILTRO} aria-label="Data inicial" />
+                <span className="text-[12px] text-muted">até</span>
+                <input type="date" value={ate} onChange={(e) => mudar(() => setAte(e.target.value))} className={FILTRO} aria-label="Data final" />
+              </>
+            )}
+            <select value={usr} onChange={(e) => mudar(() => setUsr(e.target.value))} className={FILTRO} aria-label="Usuário">
+              <option value="">Todos os usuários</option>
+              {opcoes?.usuarios?.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
             </select>
             <input
               value={busca}

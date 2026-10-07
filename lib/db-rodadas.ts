@@ -740,6 +740,11 @@ export interface FiltroResumoRodadas {
   /** importacao | apontamento */
   ori?: string;
   q?: string;
+  /** data do boletim (de/até, inclusive) */
+  de?: string;
+  ate?: string;
+  /** usuário que lançou o boletim */
+  usr?: string;
 }
 
 export interface ResumoRodadas {
@@ -775,6 +780,9 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
   if (f.sem) add("b.sem = ?", f.sem);
   if (f.faz) add("b.faz = ?", f.faz);
   if (f.ori === "importacao" || f.ori === "apontamento") add("b.ori = ?", f.ori);
+  if (f.de) add("b.dt >= ?::date", f.de);
+  if (f.ate) add("b.dt <= ?::date", f.ate);
+  if (f.usr) add("b.usr = ?", f.usr);
   if (f.q && f.q.trim()) {
     params.push(`%${f.q.trim().replace(/[%_\\]/g, (c) => `\\${c}`)}%`);
     const pl = params.length;
@@ -835,7 +843,7 @@ export async function resumoRodadas(f: FiltroResumoRodadas, pagina: number, tama
   };
 }
 
-export async function opcoesResumoRodadas(): Promise<{ rodadas: number[]; regioes: string[]; semanas: number[] }> {
+export async function opcoesResumoRodadas(): Promise<{ rodadas: number[]; regioes: string[]; semanas: number[]; usuarios: string[] }> {
   const pool = getPool();
   await prepararBanco(pool);
   const r1 = await pool.query<{ v: number }>("SELECT DISTINCT rod AS v FROM rod_bol ORDER BY 1");
@@ -843,7 +851,8 @@ export async function opcoesResumoRodadas(): Promise<{ rodadas: number[]; regioe
     "SELECT reg AS v FROM (SELECT DISTINCT reg FROM rod_bol WHERE reg <> '') x ORDER BY NULLIF(regexp_replace(reg, '\\D', '', 'g'), '')::int NULLS LAST, reg"
   );
   const r3 = await pool.query<{ v: number }>("SELECT DISTINCT sem AS v FROM rod_bol WHERE sem > 0 ORDER BY 1");
-  return { rodadas: r1.rows.map((r) => r.v), regioes: r2.rows.map((r) => r.v), semanas: r3.rows.map((r) => r.v) };
+  const r4 = await pool.query<{ v: string }>("SELECT DISTINCT usr AS v FROM rod_bol WHERE usr <> '' ORDER BY 1");
+  return { rodadas: r1.rows.map((r) => r.v), regioes: r2.rows.map((r) => r.v), semanas: r3.rows.map((r) => r.v), usuarios: r4.rows.map((r) => r.v) };
 }
 
 // ---------------------------------------------------------------------------

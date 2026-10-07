@@ -85,7 +85,16 @@ export const SECOES_MENU: SecaoMenu[] = [
           { label: "Dosagens", href: "/acompanhamentos/insumos/dosagens" },
         ],
       },
-      { label: "Ordem de Serviço Agr.", href: "/acompanhamentos/os-agricola", icon: IconOrdemServico },
+      {
+        label: "Ordem de Serviço Agr.",
+        icon: IconOrdemServico,
+        children: [
+          { label: "Dashboard", href: "/acompanhamentos/os-agricola" },
+          { label: "Ordens de Serviço", href: "/acompanhamentos/os-agricola/ordens" },
+          { label: "Cadastro Responsáveis", href: "/acompanhamentos/os-agricola/responsaveis" },
+          { label: "Faixas Dias", href: "/acompanhamentos/os-agricola/faixas-dias" },
+        ],
+      },
       { label: "Colheita Terceiro", href: "/acompanhamentos/colheita-terceiro", icon: IconCaminhaoCana },
       { label: "Painel de ocorrências", href: "/contencioso", icon: IconAlerta },
       {

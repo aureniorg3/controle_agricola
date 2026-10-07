@@ -28,9 +28,9 @@ const CAMPOS: Record<keyof Omit<LinhaBaseOS, never>, string[]> = {
   obs: ["observacao", "obs"],
 };
 
-const vazio = (v: unknown) => v === null || v === undefined || (typeof v === "string" && (v.trim() === "" || v.trim() === "\\N"));
-const txt = (v: unknown) => (vazio(v) ? "" : typeof v === "number" ? String(Number.isInteger(v) ? v : v) : String(v).replace(/\s+/g, " ").trim());
-const num = (v: unknown): number | null => {
+export const vazio = (v: unknown) => v === null || v === undefined || (typeof v === "string" && (v.trim() === "" || v.trim() === "\\N"));
+export const txt = (v: unknown) => (vazio(v) ? "" : typeof v === "number" ? String(Number.isInteger(v) ? v : v) : String(v).replace(/\s+/g, " ").trim());
+export const num = (v: unknown): number | null => {
   if (vazio(v)) return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   const s = String(v).trim();
@@ -38,7 +38,7 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 /** número de série do Excel (dias desde 1899-12-30) ou "dd/mm/aaaa" → ISO */
-function dataIso(v: unknown): string | null {
+export function dataIso(v: unknown): string | null {
   if (vazio(v)) return null;
   if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
   if (typeof v === "number" && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 86400000)).toISOString().slice(0, 10);
@@ -48,7 +48,7 @@ function dataIso(v: unknown): string | null {
   return iso ? iso[1] : null;
 }
 /** a O.S. às vezes vem formatada como data no Excel (1 = 01/01/1900): volta a ser o número */
-function codigoOS(v: unknown): string {
+export function codigoOS(v: unknown): string {
   if (v instanceof Date && !Number.isNaN(v.getTime())) return String(Math.round((v.getTime() - Date.UTC(1899, 11, 30)) / 86400000));
   const n = num(v);
   return n !== null && Number.isInteger(n) ? String(n) : txt(v);

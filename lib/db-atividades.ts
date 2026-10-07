@@ -11,6 +11,8 @@ import {
   type OperacaoOS,
 } from "./atividades";
 import { getPool, prepararBanco } from "./db";
+import { prepararOSAgr } from "./db-os-agr";
+import { nomePosicao } from "./os-agr";
 
 let preparado: Promise<void> | null = null;
 
@@ -129,7 +131,7 @@ export async function consultarOS(os: string, excluirId?: number): Promise<Consu
   const pool = getPool();
   await prepararAtividades(pool);
   const cod = os.trim().replace(/^0+(?=\d)/, "");
-  const { rows } = await pool.query<{
+  let { rows } = await pool.query<{
     emp: string; os: string; prop_cod: string; prop_nm: string; tlh: string; area_tlh: number | null; area_rec: number | null;
     op_cod: string; op_ds: string; etapa_cod: string; etapa_ds: string; tipo_cod: string; tipo_ds: string; resp: string; sts: string; safra: string; dt_lanc: string | null; obs: string;
   }>(
@@ -139,6 +141,19 @@ export async function consultarOS(os: string, excluirId?: number): Promise<Consu
       ORDER BY op_cod, prop_cod, CASE WHEN tlh ~ '^[0-9]+$' THEN lpad(tlh, 8, '0') ELSE tlh END`,
     [cod]
   );
+  if (rows.length === 0) {
+    // sem a O.S. na base de Acompanhamento: usa a base de Ordem de Serviço Agr. (Relatório de Ordens de Serviço)
+    await prepararOSAgr(pool);
+    rows = (
+      await pool.query<(typeof rows)[number]>(
+        `SELECT emp, os, prop_cod, prop_nm, tlh || letra AS tlh, area_plant::float AS area_tlh, area_rec::float AS area_rec, op_cod, op_ds, etapa_cod, etapa_ds,
+                '' AS tipo_cod, '' AS tipo_ds, resp_nm AS resp, posicao AS sts, safra, dt_os::text AS dt_lanc, obs
+           FROM os_agr WHERE os = $1
+          ORDER BY op_cod, prop_cod, CASE WHEN tlh ~ '^[0-9]+$' THEN lpad(tlh, 8, '0') ELSE tlh END`,
+        [cod]
+      )
+    ).rows.map((r) => ({ ...r, sts: nomePosicao(r.sts) }));
+  }
   if (rows.length === 0) return null;
   const p = rows[0];
   const ops = new Map<string, OperacaoOS>();
@@ -163,7 +178,8 @@ export async function consultarOS(os: string, excluirId?: number): Promise<Consu
   for (const f of feitos.rows) (realizado[f.op_cod] ??= {})[chaveTalhao(f.prop_cod, f.tlh)] = round2(f.area);
   const tipos = (
     await pool.query<{ t: string }>(
-      `SELECT DISTINCT t FROM (SELECT NULLIF(tipo_ds, '') AS t FROM os_tlh UNION SELECT NULLIF(tipo_apl, '') FROM ap_dia) x WHERE t IS NOT NULL ORDER BY 1 LIMIT 200`
+      `SELECT DISTINCT t FROM (SELECT NULLIF(tipo_ds, '') AS t FROM os_tlh UNION SELECT NULLIF(tipo_apl, '') FROM ap_dia
+                                UNION SELECT NULLIF(nm, '') FROM cad_itm WHERE cad = 'tipo-aplicacao') x WHERE t IS NOT NULL ORDER BY 1 LIMIT 200`
     )
   ).rows.map((r) => r.t);
   return {

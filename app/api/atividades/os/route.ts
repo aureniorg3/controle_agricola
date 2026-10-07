@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   if (os === null) return NextResponse.json(await resumoBaseOS());
   const excluir = Number(req.nextUrl.searchParams.get("excluir"));
   const r = await consultarOS(os, Number.isInteger(excluir) && excluir > 0 ? excluir : undefined);
-  if (!r) return NextResponse.json({ error: `O.S. ${os} não encontrada na base. Importe a base de Acompanhamento de O.S. atualizada.` }, { status: 404 });
+  if (!r) return NextResponse.json({ error: `O.S. ${os} não encontrada. Importe a base de O.S. atualizada (aqui ou em Ordem de Serviço Agr. › Ordens de Serviço).` }, { status: 404 });
   return NextResponse.json(r);
 }
 

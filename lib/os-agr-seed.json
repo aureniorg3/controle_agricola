@@ -1,0 +1,553 @@
+{
+ "etapa": [
+  {
+   "cod": "100",
+   "nm": "PREPARO",
+   "dds": {
+    "codigo_da_etapa": 100,
+    "descricao_da_etapa": "PREPARO",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "101",
+   "nm": "PLANTIO - FUNDACAO",
+   "dds": {
+    "codigo_da_etapa": 101,
+    "descricao_da_etapa": "PLANTIO - FUNDACAO",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "102",
+   "nm": "PLANTIO - RENOVACAO",
+   "dds": {
+    "codigo_da_etapa": 102,
+    "descricao_da_etapa": "PLANTIO - RENOVACAO",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "103",
+   "nm": "TRATOS - CANA PLANTA",
+   "dds": {
+    "codigo_da_etapa": 103,
+    "descricao_da_etapa": "TRATOS - CANA PLANTA",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "104",
+   "nm": "TRATOS - CANA MUDA",
+   "dds": {
+    "codigo_da_etapa": 104,
+    "descricao_da_etapa": "TRATOS - CANA MUDA",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "105",
+   "nm": "TRATOS - CANA SOCA",
+   "dds": {
+    "codigo_da_etapa": 105,
+    "descricao_da_etapa": "TRATOS - CANA SOCA",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "107",
+   "nm": "COLHEITA",
+   "dds": {
+    "codigo_da_etapa": 107,
+    "descricao_da_etapa": "COLHEITA",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "108",
+   "nm": "REFLORESTAMENTO",
+   "dds": {
+    "codigo_da_etapa": 108,
+    "descricao_da_etapa": "REFLORESTAMENTO",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "109",
+   "nm": "INDUSTRIA/ADMINISTRACAO",
+   "dds": {
+    "codigo_da_etapa": 109,
+    "descricao_da_etapa": "INDUSTRIA/ADMINISTRACAO",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "110",
+   "nm": "SERVICOS A TERCEIROS",
+   "dds": {
+    "codigo_da_etapa": 110,
+    "descricao_da_etapa": "SERVICOS A TERCEIROS",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "111",
+   "nm": "SERVICOS EM OUTRAS CULTURAS",
+   "dds": {
+    "codigo_da_etapa": 111,
+    "descricao_da_etapa": "SERVICOS EM OUTRAS CULTURAS",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "112",
+   "nm": "IRRIGACAO",
+   "dds": {
+    "codigo_da_etapa": 112,
+    "descricao_da_etapa": "IRRIGACAO",
+    "ativa": "S"
+   }
+  },
+  {
+   "cod": "116",
+   "nm": "1ªAPLIC. DE VINHAÇA LOCALIZADA",
+   "dds": {
+    "codigo_da_etapa": 116,
+    "descricao_da_etapa": "1ªAPLIC. DE VINHAÇA LOCALIZADA",
+    "ativa": "S"
+   }
+  }
+ ],
+ "tipo-aplicacao": [
+  {
+   "cod": "1",
+   "nm": "PRÉ-EMERGENTE",
+   "dds": {
+    "codigo": 1,
+    "descricao": "PRÉ-EMERGENTE"
+   }
+  },
+  {
+   "cod": "2",
+   "nm": "PÓS-EMERGENTE",
+   "dds": {
+    "codigo": 2,
+    "descricao": "PÓS-EMERGENTE"
+   }
+  },
+  {
+   "cod": "3",
+   "nm": "CULTIVO MÍNIMO",
+   "dds": {
+    "codigo": 3,
+    "descricao": "CULTIVO MÍNIMO"
+   }
+  },
+  {
+   "cod": "4",
+   "nm": "APLICAÇÃO AÉREA",
+   "dds": {
+    "codigo": 4,
+    "descricao": "APLICAÇÃO AÉREA"
+   }
+  },
+  {
+   "cod": "5",
+   "nm": "COBERTURA",
+   "dds": {
+    "codigo": 5,
+    "descricao": "COBERTURA"
+   }
+  },
+  {
+   "cod": "6",
+   "nm": "FUNDAÇÃO",
+   "dds": {
+    "codigo": 6,
+    "descricao": "FUNDAÇÃO"
+   }
+  },
+  {
+   "cod": "7",
+   "nm": "MEIOZE",
+   "dds": {
+    "codigo": 7,
+    "descricao": "MEIOZE"
+   }
+  },
+  {
+   "cod": "8",
+   "nm": "REFORMA",
+   "dds": {
+    "codigo": 8,
+    "descricao": "REFORMA"
+   }
+  },
+  {
+   "cod": "9",
+   "nm": "BROCA FOLHA",
+   "dds": {
+    "codigo": 9,
+    "descricao": "BROCA FOLHA"
+   }
+  },
+  {
+   "cod": "10",
+   "nm": "BROCA HOMEM HORA",
+   "dds": {
+    "codigo": 10,
+    "descricao": "BROCA HOMEM HORA"
+   }
+  },
+  {
+   "cod": "11",
+   "nm": "BROCA POR HECTARE",
+   "dds": {
+    "codigo": 11,
+    "descricao": "BROCA POR HECTARE"
+   }
+  },
+  {
+   "cod": "14",
+   "nm": "APLICAÇÃO LOCALIZADA",
+   "dds": {
+    "codigo": 14,
+    "descricao": "APLICAÇÃO LOCALIZADA"
+   }
+  },
+  {
+   "cod": "15",
+   "nm": "ATIVIDADE EXEC. - AGRO RUBIATABA",
+   "dds": {
+    "codigo": 15,
+    "descricao": "ATIVIDADE EXEC. - AGRO RUBIATABA"
+   }
+  },
+  {
+   "cod": "16",
+   "nm": "ATIVIDADE EXEC. - PFCMO",
+   "dds": {
+    "codigo": 16,
+    "descricao": "ATIVIDADE EXEC. - PFCMO"
+   }
+  },
+  {
+   "cod": "17",
+   "nm": "ATIVIDADE EXEC. - AGRO URUACU",
+   "dds": {
+    "codigo": 17,
+    "descricao": "ATIVIDADE EXEC. - AGRO URUACU"
+   }
+  },
+  {
+   "cod": "18",
+   "nm": "ATIVIDADE EXEC. - CAPFO",
+   "dds": {
+    "codigo": 18,
+    "descricao": "ATIVIDADE EXEC. - CAPFO"
+   }
+  },
+  {
+   "cod": "45",
+   "nm": "IRRIGACAO",
+   "dds": {
+    "codigo": 45,
+    "descricao": "IRRIGACAO"
+   }
+  },
+  {
+   "cod": "50",
+   "nm": "OUTRAS APLIC - IRRIG AGUA",
+   "dds": {
+    "codigo": 50,
+    "descricao": "OUTRAS APLIC - IRRIG AGUA"
+   }
+  },
+  {
+   "cod": "51",
+   "nm": "OUTRAS APLIC - IRRIG VINHACA",
+   "dds": {
+    "codigo": 51,
+    "descricao": "OUTRAS APLIC - IRRIG VINHACA"
+   }
+  },
+  {
+   "cod": "52",
+   "nm": "DIVERSOS",
+   "dds": {
+    "codigo": 52,
+    "descricao": "DIVERSOS"
+   }
+  }
+ ],
+ "responsaveis-os": [
+  {
+   "cod": "601448",
+   "nm": "ALEX SOARES DA SILVA",
+   "dds": {
+    "area": "TRATOS CULTURAIS",
+    "matricula": 601448,
+    "nome_do_responsavel": "ALEX SOARES DA SILVA"
+   }
+  },
+  {
+   "cod": "601936",
+   "nm": "ALVARO ANCELMO DE MORAIS COUTINHO",
+   "dds": {
+    "area": "TRATOS CULTURAIS",
+    "matricula": 601936,
+    "nome_do_responsavel": "ALVARO ANCELMO DE MORAIS COUTINHO"
+   }
+  },
+  {
+   "cod": "10334",
+   "nm": "CARLOS JOSE GONCALVES DA SILVA",
+   "dds": {
+    "area": "TRATOS CULTURAIS",
+    "matricula": 10334,
+    "nome_do_responsavel": "CARLOS JOSE GONCALVES DA SILVA"
+   }
+  },
+  {
+   "cod": "359235",
+   "nm": "FAGNER RODRIGUES DA SILVA",
+   "dds": {
+    "area": "PREPARO E PLANTIO",
+    "matricula": 359235,
+    "nome_do_responsavel": "FAGNER RODRIGUES DA SILVA"
+   }
+  },
+  {
+   "cod": "10896",
+   "nm": "JOSE ANTONIO DOS REIS MORAIS",
+   "dds": {
+    "area": "TRATOS CULTURAIS",
+    "matricula": 10896,
+    "nome_do_responsavel": "JOSE ANTONIO DOS REIS MORAIS"
+   }
+  },
+  {
+   "cod": "601866",
+   "nm": "MANOEL MESSIAS DE OLIVEIRA",
+   "dds": {
+    "area": "TRATOS CULTURAIS",
+    "matricula": 601866,
+    "nome_do_responsavel": "MANOEL MESSIAS DE OLIVEIRA"
+   }
+  },
+  {
+   "cod": "359722",
+   "nm": "MARCOS TULIO GONCALVES RIBEIRO",
+   "dds": {
+    "area": "PESQUISA & DESENVOLVIMENTO",
+    "matricula": 359722,
+    "nome_do_responsavel": "MARCOS TULIO GONCALVES RIBEIRO"
+   }
+  },
+  {
+   "cod": "601034",
+   "nm": "RODRIGO CAVALCANTI DE MATOS GOUVEIA",
+   "dds": {
+    "area": "TRATOS CULTURAIS",
+    "matricula": 601034,
+    "nome_do_responsavel": "RODRIGO CAVALCANTI DE MATOS GOUVEIA"
+   }
+  },
+  {
+   "cod": "600241",
+   "nm": "SAMUEL DE JESUS SANTOS",
+   "dds": {
+    "area": "TRATOS CULTURAIS",
+    "matricula": 600241,
+    "nome_do_responsavel": "SAMUEL DE JESUS SANTOS"
+   }
+  },
+  {
+   "cod": "999999999",
+   "nm": "SILVIO JOSE DA SILVA",
+   "dds": {
+    "area": "PREPARO E PLANTIO",
+    "matricula": 999999999,
+    "nome_do_responsavel": "SILVIO JOSE DA SILVA"
+   }
+  },
+  {
+   "cod": "601015",
+   "nm": "MARIANA DE ARAUJO MUSSE",
+   "dds": {
+    "area": "PREPARO E PLANTIO",
+    "matricula": 601015,
+    "nome_do_responsavel": "MARIANA DE ARAUJO MUSSE"
+   }
+  },
+  {
+   "cod": "359929",
+   "nm": "ADRIANA CRISTINA CELESTINO",
+   "dds": {
+    "area": "PREPARO E PLANTIO",
+    "matricula": 359929,
+    "nome_do_responsavel": "ADRIANA CRISTINA CELESTINO"
+   }
+  },
+  {
+   "cod": "359252",
+   "nm": "ROGERIO GUIMARAES DA SILVA",
+   "dds": {
+    "area": "REFLORESTAMENTO",
+    "matricula": 359252,
+    "nome_do_responsavel": "ROGERIO GUIMARAES DA SILVA"
+   }
+  },
+  {
+   "cod": "602300",
+   "nm": "TAISSON PEREIRA SOUSA",
+   "dds": {
+    "area": "PESQUISA & DESENVOLVIMENTO",
+    "matricula": 602300,
+    "nome_do_responsavel": "TAISSON PEREIRA SOUSA"
+   }
+  },
+  {
+   "cod": "6024504",
+   "nm": "WESLEI SILVA ZAZENON",
+   "dds": {
+    "area": "TRATOS CULTURAIS",
+    "matricula": 6024504,
+    "nome_do_responsavel": "WESLEI SILVA ZAZENON"
+   }
+  },
+  {
+   "cod": "5000065",
+   "nm": "NEIDE APARECIDA MARTINS SOUTO",
+   "dds": {
+    "area": "JARDINAGEM",
+    "matricula": 5000065,
+    "nome_do_responsavel": "NEIDE APARECIDA MARTINS SOUTO"
+   }
+  },
+  {
+   "cod": "600781",
+   "nm": "MONISE SOUZA DIAS",
+   "dds": {
+    "area": "PREPARO E PLANTIO",
+    "matricula": 600781,
+    "nome_do_responsavel": "MONISE SOUZA DIAS"
+   }
+  },
+  {
+   "cod": "359616",
+   "nm": "MURILO JORGE ROCHA DO NASCIMENTO",
+   "dds": {
+    "area": "PREPARO E PLANTIO",
+    "matricula": 359616,
+    "nome_do_responsavel": "MURILO JORGE ROCHA DO NASCIMENTO"
+   }
+  },
+  {
+   "cod": "6024935",
+   "nm": "TAMIRIS RINALDI SILVA",
+   "dds": {
+    "area": "PREPARO E PLANTIO",
+    "matricula": 6024935,
+    "nome_do_responsavel": "TAMIRIS RINALDI SILVA"
+   }
+  },
+  {
+   "cod": "359558",
+   "nm": "IRANILDO ANTONIO DA SILVA",
+   "dds": {
+    "area": "PESQUISA & DESENVOLVIMENTO",
+    "matricula": 359558,
+    "nome_do_responsavel": "IRANILDO ANTONIO DA SILVA"
+   }
+  },
+  {
+   "cod": "5000842",
+   "nm": "MARCELO BARBOSA DOS SANTOS",
+   "dds": {
+    "area": "JARDINAGEM",
+    "matricula": 5000842,
+    "nome_do_responsavel": "MARCELO BARBOSA DOS SANTOS"
+   }
+  },
+  {
+   "cod": "6025095",
+   "nm": "ANTONIO DE ANDRADE MARQUES",
+   "dds": {
+    "area": "TRATOS CULTURAIS",
+    "matricula": 6025095,
+    "nome_do_responsavel": "ANTONIO DE ANDRADE MARQUES"
+   }
+  },
+  {
+   "cod": "6024936",
+   "nm": "JOHNNY SALVADOR DE OLIVEIRA CAMARGOS",
+   "dds": {
+    "area": "MONITORAMENTO",
+    "matricula": 6024936,
+    "nome_do_responsavel": "JOHNNY SALVADOR DE OLIVEIRA CAMARGOS"
+   }
+  },
+  {
+   "cod": "6025374",
+   "nm": "BRUNO MARQUES DA SILVA",
+   "dds": {
+    "area": "MONITORAMENTO",
+    "matricula": 6025374,
+    "nome_do_responsavel": "BRUNO MARQUES DA SILVA"
+   }
+  }
+ ],
+ "faixas-dias-os": [
+  {
+   "cod": "1",
+   "nm": "Até 7 dias",
+   "dds": {
+    "faixa": 1,
+    "descricao": "Até 7 dias",
+    "de_dias": 0,
+    "ate_dias": 7
+   }
+  },
+  {
+   "cod": "2",
+   "nm": "8 a 15 dias",
+   "dds": {
+    "faixa": 2,
+    "descricao": "8 a 15 dias",
+    "de_dias": 8,
+    "ate_dias": 15
+   }
+  },
+  {
+   "cod": "3",
+   "nm": "16 a 30 dias",
+   "dds": {
+    "faixa": 3,
+    "descricao": "16 a 30 dias",
+    "de_dias": 16,
+    "ate_dias": 30
+   }
+  },
+  {
+   "cod": "4",
+   "nm": "31 a 60 dias",
+   "dds": {
+    "faixa": 4,
+    "descricao": "31 a 60 dias",
+    "de_dias": 31,
+    "ate_dias": 60
+   }
+  },
+  {
+   "cod": "5",
+   "nm": "Acima de 60 dias",
+   "dds": {
+    "faixa": 5,
+    "descricao": "Acima de 60 dias",
+    "de_dias": 61,
+    "ate_dias": ""
+   }
+  }
+ ]
+}
