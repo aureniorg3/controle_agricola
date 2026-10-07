@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { excluirApontamento, listarApontamentos, salvarApontamento } from "@/lib/db-atividades";
+import { excluirApontamento, listarApontamentos, proximoBoletimAtividade, salvarApontamento } from "@/lib/db-atividades";
 import type { EntradaApontamento } from "@/lib/atividades";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -19,10 +19,12 @@ export async function GET(req: NextRequest) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
   const p = req.nextUrl.searchParams;
+  if (p.get("proximo") !== null) return NextResponse.json({ boletim: await proximoBoletimAtividade() });
   const de = p.get("de") ?? "";
   const ate = p.get("ate") ?? "";
   if (!ISO.test(de) || !ISO.test(ate) || de > ate) return NextResponse.json({ error: "Informe um período válido." }, { status: 400 });
-  return NextResponse.json({ apontamentos: await listarApontamentos({ de, ate, os: p.get("os") ?? "" }) });
+  const boletim = Number(p.get("boletim") ?? "");
+  return NextResponse.json({ apontamentos: await listarApontamentos({ de, ate, os: p.get("os") ?? "", boletim: Number.isInteger(boletim) && boletim > 0 ? boletim : undefined }) });
 }
 
 /** Inclui (sem id) ou altera (com id) um apontamento diário. */
@@ -34,6 +36,7 @@ export async function POST(req: NextRequest) {
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b) return NextResponse.json({ error: "Requisição inválida." }, { status: 400 });
   const entrada: EntradaApontamento = {
+    boletim: inteiro(b.boletim),
     dt: texto(b.dt),
     os: texto(b.os),
     opCod: texto(b.opCod),

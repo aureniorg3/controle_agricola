@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { gravarAreaColhidaDia, listarAreaColhidaDia } from "@/lib/db-area";
+import { gravarAreaColhidaDia, listarAreaColhidaDia, proximoBoletimArea } from "@/lib/db-area";
 import { podeEditar } from "@/lib/permissoes";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
   const p = req.nextUrl.searchParams;
+  if (p.get("proximo") !== null) return NextResponse.json({ boletim: await proximoBoletimArea() });
   const data = (v: string | null) => (v && DATA.test(v) ? v : undefined);
   const lancamentos = await listarAreaColhidaDia({ ord: p.get("ordem") || undefined, de: data(p.get("de")), ate: data(p.get("ate")) });
   return NextResponse.json({ lancamentos });
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
   if (itens.some((i) => !Number.isFinite(i.ha) || i.ha < 0)) {
     return NextResponse.json({ error: "Há área colhida que não é um número válido." }, { status: 400 });
   }
-  const r = await gravarAreaColhidaDia(ordem, dt, itens, usuario.nome);
+  const r = await gravarAreaColhidaDia(ordem, dt, itens, usuario.nome, Number(body?.boletim));
   if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 400 });
   return NextResponse.json({ ok: true, ...r });
 }

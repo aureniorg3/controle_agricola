@@ -20,6 +20,8 @@ export interface FazendaEmprestimo {
 
 export interface Emprestimo {
   id: number;
+  /** nº do boletim (null nos empréstimos da carga inicial) */
+  boletim: number | null;
   fornCod: string;
   fornNm: string;
   /** CPF ou CNPJ do destinatário */
@@ -53,6 +55,7 @@ export const round2 = (n: number) => Math.round(n * 100) / 100;
 export const totalItem = (qtd: number, vu: number) => round2(qtd * vu);
 
 export interface EntradaEmprestimo {
+  boletim: number | null;
   fornCod: string;
   fornNm: string;
   doc: string;
@@ -70,6 +73,8 @@ const DATA = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Confere o formulário e devolve o texto do erro (ou null). */
 export function validarEmprestimo(e: EntradaEmprestimo, exigirSolicitacao: boolean): string | null {
+  if (exigirSolicitacao && !(e.boletim && e.boletim > 0)) return "Informe o número do boletim.";
+  if (e.boletim !== null && (!Number.isInteger(e.boletim) || e.boletim <= 0)) return "Número do boletim inválido.";
   if (!e.fornNm.trim()) return "Informe o destinatário (fornecedor).";
   if (!e.fornCod.trim()) return "Informe a matrícula/código do fornecedor.";
   if (exigirSolicitacao && !(e.dtSol && DATA.test(e.dtSol))) return "Informe a data da solicitação.";

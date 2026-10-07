@@ -65,6 +65,8 @@ export interface TalhaoApontado {
 
 export interface ApontamentoDiario {
   id: number;
+  /** nº do boletim de campo (único) */
+  boletim: number | null;
   dt: string;
   os: string;
   opCod: string;
@@ -85,6 +87,7 @@ export interface ApontamentoDiario {
 }
 
 export interface EntradaApontamento {
+  boletim: number;
   dt: string;
   os: string;
   opCod: string;
@@ -104,6 +107,7 @@ const DATA = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Confere o formulário (sem consultar a base) e devolve o erro, ou null. */
 export function validarApontamento(e: EntradaApontamento): string | null {
+  if (!Number.isInteger(e.boletim) || e.boletim <= 0) return "Informe o número do boletim.";
   if (!DATA.test(e.dt) || Number.isNaN(Date.parse(e.dt))) return "Informe a data do apontamento.";
   if (!e.os.trim()) return "Informe a Ordem de Serviço.";
   if (!e.opCod.trim()) return "Escolha a operação.";

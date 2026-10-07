@@ -37,6 +37,7 @@ export default function AreaColhidaTab({
   const [dt, setDt] = useState(referencia);
   const [ordemNum, setOrdemNum] = useState(ordemInicial ?? "");
   const [valores, setValores] = useState<Record<string, string>>({});
+  const [boletim, setBoletim] = useState("");
   // lançar pela ordem (o total do dia é rateado entre os talhões) ou direto em cada talhão
   const [modo, setModo] = useState<"talhao" | "ordem">("talhao");
   const [totalOrdem, setTotalOrdem] = useState("");
@@ -76,6 +77,29 @@ export default function AreaColhidaTab({
       v[`${t.fazendaCodigo}|${t.talhao}`] = dia ? String(dia.ha).replace(".", ",") : "";
     }
     setValores(v);
+  }, [ordem, dt]);
+
+  useEffect(() => {
+    if (!ordem || !dt) return;
+    let ativo = true;
+    (async () => {
+      try {
+        const p = new URLSearchParams({ ordem: ordem.numero, de: dt, ate: dt });
+        const j = await (await fetch(`/api/area-colhida?${p}`, { cache: "no-store" })).json();
+        const usado = (j.lancamentos as ApontamentoArea[] | undefined)?.find((l) => l.boletim)?.boletim;
+        if (usado) {
+          if (ativo) setBoletim(String(usado));
+          return;
+        }
+        const prox = await (await fetch("/api/area-colhida?proximo=1", { cache: "no-store" })).json();
+        if (ativo) setBoletim(String(prox.boletim ?? ""));
+      } catch {
+        /* digita à mão */
+      }
+    })();
+    return () => {
+      ativo = false;
+    };
   }, [ordem, dt]);
 
   const carregarHistorico = useCallback(async () => {
@@ -138,6 +162,7 @@ export default function AreaColhidaTab({
     setAviso(null);
     if (!ordem) return setErro("Escolha a ordem.");
     if (!dt) return setErro("Informe a data.");
+    if (!boletim.trim() && totalDia > 0) return setErro("Informe o número do boletim.");
     for (const l of linhas) {
       const txt = (valores[l.chave] ?? "").trim();
       if (txt !== "" && (!Number.isFinite(numero(txt)) || numero(txt) < 0)) return setErro(`Talhão ${l.t.talhao}: informe um número válido.`);
@@ -150,13 +175,14 @@ export default function AreaColhidaTab({
         body: JSON.stringify({
           ordem: ordem.numero,
           dt,
+          boletim: Number(boletim || 0),
           itens: linhas.map((l) => ({ faz: l.t.fazendaCodigo, tlh: l.t.talhao, ha: l.dia })),
         }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error ?? "Não foi possível gravar.");
       setAviso(
-        `Área colhida de ${fmtDateBR(dt)} gravada na ordem ${ordem.numero}: ${j.incluidos} incluído(s), ${j.alterados} alterado(s), ${j.removidos} removido(s).`
+        `Boletim nº ${boletim} — área colhida de ${fmtDateBR(dt)} gravada na ordem ${ordem.numero}: ${j.incluidos} incluído(s), ${j.alterados} alterado(s), ${j.removidos} removido(s).`
       );
       await onSalvo();
       await carregarHistorico();
@@ -190,7 +216,7 @@ export default function AreaColhidaTab({
     const res = await fetch("/api/area-colhida", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ordem: l.ord, dt: l.dt, itens: [{ faz: l.faz, tlh: l.tlh, ha: 0 }] }),
+      body: JSON.stringify({ ordem: l.ord, dt: l.dt, boletim: l.boletim ?? 0, itens: [{ faz: l.faz, tlh: l.tlh, ha: 0 }] }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return setErro(j.error ?? "Não foi possível excluir.");
@@ -202,6 +228,7 @@ export default function AreaColhidaTab({
   function editarLancamento(l: ApontamentoArea) {
     setOrdemNum(l.ord);
     setDt(l.dt);
+    if (l.boletim) setBoletim(String(l.boletim));
     setAviso(null);
     setErro(null);
     raiz.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -210,7 +237,16 @@ export default function AreaColhidaTab({
   return (
     <div ref={raiz} onKeyDown={aoTeclar} className="space-y-4">
       <section className="caixa-form">
-        <h2 className="caixa-form-titulo">Apontamento da área colhida (dia a dia)</h2>
+        <div className="caixa-form-topo">
+          <div>
+            <h2 className="caixa-form-titulo">Apontamento da área colhida</h2>
+            <div className="text-[11.5px] text-muted">Hectares colhidos no dia, por talhão da ordem</div>
+          </div>
+          <label className="campo-boletim">
+            Boletim nº
+            <input value={boletim} onChange={(e) => setBoletim(e.target.value.replace(/\D/g, "").slice(0, 9))} disabled={!podeGravar} inputMode="numeric" aria-label="Número do boletim" />
+          </label>
+        </div>
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className={ROTULO}>Data</label>
@@ -248,9 +284,10 @@ export default function AreaColhidaTab({
           </p>
         </div>
 
+        {ordem && <div className="caixa-form-sub">Como lançar</div>}
         {ordem && (
-          <div className="mt-3 flex flex-wrap items-end gap-3">
-            <div className="flex rounded-lg bg-navy-900/5 p-1">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex rounded-lg border border-line bg-card p-1">
               {([
                 ["talhao", "Por talhão"],
                 ["ordem", "Por ordem (rateio)"],
@@ -260,7 +297,7 @@ export default function AreaColhidaTab({
                   type="button"
                   onClick={() => setModo(k)}
                   className={`rounded-md px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
-                    modo === k ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-white"
+                    modo === k ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-surface"
                   }`}
                 >
                   {rotulo}
@@ -298,7 +335,7 @@ export default function AreaColhidaTab({
                   type="button"
                   onClick={aplicarRateio}
                   disabled={!podeGravar}
-                  className="rounded-lg border border-line bg-surface px-3.5 py-2 text-[13px] font-semibold text-navy-800 hover:bg-card disabled:opacity-50"
+                  className="rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-medium text-navy-800 hover:bg-surface disabled:opacity-50"
                 >
                   Ratear pelos talhões
                 </button>
@@ -312,23 +349,24 @@ export default function AreaColhidaTab({
           </div>
         )}
 
+        {ordem && <div className="caixa-form-sub">Talhões da ordem · {linhas.length}</div>}
         {ordem && (
-          <div className="mt-3 overflow-x-auto rounded-md border border-line">
+          <div className="overflow-x-auto rounded-lg border border-line bg-card">
             <table className="w-full text-[12.5px]">
               <thead>
-                <tr className="border-b border-line bg-navy-900 text-left text-white">
-                  <th className="px-3 py-2 font-semibold">Fazenda</th>
-                  <th className="px-3 py-2 text-center font-semibold">Talhão</th>
-                  <th className="px-3 py-2 text-right font-semibold">Área (ha)</th>
-                  <th className="px-3 py-2 text-right font-semibold">Colhida até o dia anterior (ha)</th>
-                  <th className="px-3 py-2 text-right font-semibold">Colhida no dia (ha)</th>
-                  <th className="px-3 py-2 text-right font-semibold">Acumulada (ha)</th>
-                  <th className="px-3 py-2 text-right font-semibold">Saldo (ha)</th>
+                <tr className="border-b border-line bg-surface text-left text-muted">
+                  <th className="px-3 py-1.5 font-medium">Fazenda</th>
+                  <th className="px-3 py-1.5 text-center font-medium">Talhão</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Área (ha)</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Colhida até o dia anterior</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Colhida no dia (ha)</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Acumulada</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Saldo</th>
                 </tr>
               </thead>
               <tbody>
                 {linhas.map((l, i) => (
-                  <tr key={l.chave} className={`border-b border-line/60 ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}>
+                  <tr key={l.chave} className={`border-t border-line/60 ${i % 2 === 1 ? "bg-surface/40" : ""}`}>
                     <td className="px-3 py-1 text-ink">{l.t.fazendaCodigo}</td>
                     <td className="px-3 py-1 text-center font-semibold text-ink">{l.t.talhao}</td>
                     <td className="px-3 py-1 text-right tabular text-ink">{fmtHa(l.t.areaHa)}</td>
@@ -349,7 +387,7 @@ export default function AreaColhidaTab({
                     <td className={`px-3 py-1 text-right tabular ${l.saldo < -0.01 ? "font-semibold text-alert-600" : "text-muted"}`}>{fmtHa(l.saldo)}</td>
                   </tr>
                 ))}
-                <tr className="bg-navy-950 font-bold text-white">
+                <tr className="border-t border-line bg-surface font-semibold text-ink">
                   <td className="px-3 py-1.5" colSpan={2}>
                     Total
                   </td>
@@ -364,22 +402,22 @@ export default function AreaColhidaTab({
           </div>
         )}
 
-        {erro && <p className="mt-3 text-[12.5px] font-medium text-alert-600">{erro}</p>}
-        {aviso && <p className="mt-3 text-[12.5px] font-semibold text-good-700">{aviso}</p>}
+        {erro && <p className="mt-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
+        {aviso && <p className="mt-3 rounded-md border border-good-500/40 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">{aviso}</p>}
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        <p className="mt-2 text-[11.5px] text-muted">
+          Informe os hectares colhidos naquele dia (vazio ou 0 apaga o lançamento do dia). A área colhida até o dia anterior inclui o saldo lançado antes do
+          apontamento diário. Enter passa para o próximo talhão.
+        </p>
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
           <button
             type="button"
             onClick={gravar}
             disabled={!podeGravar || salvando || !ordem}
-            className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
+            className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
           >
-            {salvando ? "Gravando…" : "Gravar (F2)"}
+            {salvando ? "Gravando…" : "Gravar apontamento (F2)"}
           </button>
-          <span className="text-[11.5px] text-muted">
-            Informe os hectares colhidos <b>naquele dia</b> (vazio ou 0 apaga o lançamento do dia). A área "colhida até o dia anterior" inclui o saldo
-            lançado antes do apontamento diário. Enter passa para o próximo talhão.
-          </span>
         </div>
       </section>
 
@@ -409,7 +447,8 @@ export default function AreaColhidaTab({
         <div className="overflow-x-auto rounded-md border border-line">
           <table className="w-full text-[12px]">
             <thead>
-              <tr className="border-b border-line bg-navy-900 text-left text-white">
+              <tr className="border-b border-line bg-surface text-left text-muted">
+                <th className="px-3 py-2 font-medium">Boletim</th>
                 <th className="px-3 py-2 font-semibold">Data</th>
                 <th className="px-3 py-2 font-semibold">Ordem</th>
                 <th className="px-3 py-2 font-semibold">Fazenda</th>
@@ -427,6 +466,7 @@ export default function AreaColhidaTab({
                 const alterado = l.alteradoEm !== l.criadoEm;
                 return (
                   <tr key={`${l.ord}|${l.faz}|${l.tlh}|${l.dt}`} className={`border-b border-line/60 ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}>
+                    <td className="px-3 py-1 tabular font-medium text-ink">{l.boletim ?? "—"}</td>
                     <td className="whitespace-nowrap px-3 py-1 text-ink">{fmtDateBR(l.dt)}</td>
                     <td className="px-3 py-1 text-ink">{l.ord}</td>
                     <td className="px-3 py-1 text-ink">{l.fazNm ? `${l.faz} · ${l.fazNm}` : l.faz}</td>
@@ -458,7 +498,7 @@ export default function AreaColhidaTab({
               })}
               {!carregando && historico.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-muted">
+                  <td colSpan={11} className="px-4 py-8 text-center text-muted">
                     Nenhum lançamento de área colhida ainda.
                   </td>
                 </tr>

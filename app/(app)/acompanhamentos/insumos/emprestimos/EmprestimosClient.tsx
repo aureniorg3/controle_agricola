@@ -42,6 +42,7 @@ interface FazForm {
 }
 interface Form {
   id?: number;
+  boletim: string;
   fornCod: string;
   fornNm: string;
   doc: string;
@@ -60,6 +61,7 @@ const fazVazia = (): FazForm => ({ cod: "", nome: "", area: "" });
 
 function formVazio(): Form {
   return {
+    boletim: "",
     fornCod: "",
     fornNm: "",
     doc: "",
@@ -77,6 +79,7 @@ function formVazio(): Form {
 function formDe(e: Emprestimo): Form {
   return {
     id: e.id,
+    boletim: e.boletim ? String(e.boletim) : "",
     fornCod: e.fornCod,
     fornNm: e.fornNm,
     doc: e.doc,
@@ -161,6 +164,23 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
     return json;
   }
 
+  function irParaFormulario() {
+    setTimeout(() => document.getElementById("form-emprestimo")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  }
+
+  async function novoEmprestimo() {
+    setErroModal(null);
+    setForm(formVazio());
+    irParaFormulario();
+    try {
+      const res = await fetch("/api/emprestimos?proximo=1", { cache: "no-store" });
+      const json = await res.json();
+      if (res.ok) setForm((f) => (f && !f.id && !f.boletim ? { ...f, boletim: String(json.boletim) } : f));
+    } catch {
+      /* digita à mão */
+    }
+  }
+
   async function salvar() {
     if (!form) return;
     setSalvando(true);
@@ -168,6 +188,7 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
     try {
       await chamar("POST", {
         id: form.id,
+        boletim: form.boletim ? Number(form.boletim) : null,
         fornCod: form.fornCod,
         fornNm: form.fornNm,
         doc: form.doc,
@@ -302,206 +323,18 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {(["Aberto", "Devolvido", "Pago"] as StatusEmprestimo[]).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setFiltroStatus(filtroStatus === s ? "" : s)}
-              className={`rounded-xl2 border bg-card p-3 text-left shadow-card ${filtroStatus === s ? "border-navy-900" : "border-line"}`}
-            >
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                {s === "Aberto" ? "Em aberto" : s === "Devolvido" ? "Devolvidos" : "Pagos"}
-              </div>
-              <div className="text-[20px] font-bold tabular text-ink">{brl(resumo[s].valor)}</div>
-              <div className="text-[11.5px] text-muted">{resumo[s].n} empréstimo(s)</div>
-            </button>
-          ))}
-        </div>
-
-        <div className="mb-3 flex flex-wrap items-end gap-3">
-          <div className="min-w-[220px] flex-1">
-            <label className={ROTULO}>Buscar</label>
-            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Fornecedor, fazenda, insumo ou nº" className={INPUT} />
-          </div>
-          <div>
-            <label className={ROTULO}>Situação</label>
-            <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className={`${INPUT} min-w-[150px]`}>
-              <option value="">Todas</option>
-              <option value="Aberto">Em aberto</option>
-              <option value="Devolvido">Devolvido</option>
-              <option value="Pago">Pago</option>
-            </select>
-          </div>
-          {podeGravar && (
-            <button type="button" onClick={() => { setErroModal(null); setForm(formVazio()); }} className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-800">
-              + Novo empréstimo
-            </button>
-          )}
-        </div>
-
-        {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[13px] text-alert-700">{erro}</p>}
-
-        <div className="overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
-          <table className="w-full min-w-[900px] text-[12.5px]">
-            <thead>
-              <tr className="border-b border-line bg-surface text-left text-muted">
-                <th className="px-3 py-2 font-semibold">Nº</th>
-                <th className="px-3 py-2 font-semibold">Data Solicitação</th>
-                <th className="px-3 py-2 font-semibold">Data Saída</th>
-                <th className="px-3 py-2 font-semibold">Fornecedor</th>
-                <th className="px-3 py-2 font-semibold">Fazenda(s)</th>
-                <th className="px-3 py-2 font-semibold">Insumos</th>
-                <th className="px-3 py-2 text-right font-semibold">Valor total</th>
-                <th className="px-3 py-2 font-semibold">Situação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {carregando && (
-                <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-muted">
-                    Carregando…
-                  </td>
-                </tr>
-              )}
-              {!carregando && filtrada.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-muted">
-                    Nenhum empréstimo encontrado.
-                  </td>
-                </tr>
-              )}
-              {filtrada.map((e) => (
-                <Fragment key={e.id}>
-                  <tr className="cursor-pointer border-b border-line hover:bg-surface/60" onClick={() => setAberto(aberto === e.id ? null : e.id)}>
-                    <td className="px-3 py-2 tabular text-muted">{e.id}</td>
-                    <td className="px-3 py-2 tabular">{e.dtSol ? fmtDateBR(e.dtSol) : <span className="text-muted/60">—</span>}</td>
-                    <td className="px-3 py-2 tabular">{e.dt ? fmtDateBR(e.dt) : <span className="text-muted/60">—</span>}</td>
-                    <td className="px-3 py-2 font-semibold text-ink">
-                      {e.fornNm}
-                      <div className="text-[11px] font-normal text-muted">{e.fornCod}</div>
-                    </td>
-                    <td className="px-3 py-2">{e.faz.map((f) => `${f.cod}${f.nome ? ` · ${f.nome}` : ""}`).join(" / ")}</td>
-                    <td className="max-w-[260px] truncate px-3 py-2 text-muted">{e.itens.map((i) => i.nm).join(", ")}</td>
-                    <td className="px-3 py-2 text-right tabular font-semibold">{brl(e.total)}</td>
-                    <td className="px-3 py-2">
-                      <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${COR_STATUS[e.status]}`}>{e.status === "Aberto" ? "Em aberto" : e.status}</span>
-                      {e.dtBaixa && <div className="text-[11px] text-muted">em {fmtDateBR(e.dtBaixa)}</div>}
-                    </td>
-                  </tr>
-                  {aberto === e.id && (
-                    <tr className="border-b border-line bg-surface/40">
-                      <td colSpan={8} className="px-4 py-3">
-                        <table className="mb-3 w-full max-w-[860px] text-[12px]">
-                          <thead>
-                            <tr className="text-left text-muted">
-                              <th className="py-1 pr-3 font-semibold">Código</th>
-                              <th className="py-1 pr-3 font-semibold">Descrição</th>
-                              <th className="py-1 pr-3 font-semibold">U.M.</th>
-                              <th className="py-1 pr-3 text-right font-semibold">Dose</th>
-                              <th className="py-1 pr-3 text-right font-semibold">Qtd</th>
-                              <th className="py-1 pr-3 text-right font-semibold">Vl. unit.</th>
-                              <th className="py-1 text-right font-semibold">Vl. total</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {e.itens.map((i, k) => (
-                              <tr key={k} className="border-t border-line/60">
-                                <td className="py-1 pr-3 tabular">{i.cod}</td>
-                                <td className="py-1 pr-3">{i.nm}</td>
-                                <td className="py-1 pr-3">{i.um}</td>
-                                <td className="py-1 pr-3 text-right tabular">{i.dose !== null ? qt(i.dose) : ""}</td>
-                                <td className="py-1 pr-3 text-right tabular">{qt(i.qtd)}</td>
-                                <td className="py-1 pr-3 text-right tabular">{i.vu.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                <td className="py-1 text-right tabular">{brl(i.vt)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        <div className="mb-3 grid gap-x-8 gap-y-0.5 text-[12px] text-muted sm:grid-cols-2">
-                          <div>Destinatário: {e.fornCod} – {e.fornNm}{e.doc ? ` · ${e.doc}` : ""}</div>
-                          <div>Volume de {e.volTipo}: {e.vol || "—"}</div>
-                          <div>Área: {e.faz.map((f) => `${f.cod}: ${f.area !== null ? `${f.area.toLocaleString("pt-BR")} ha` : "—"}`).join(" · ")}</div>
-                          <div>Lançado por {e.usr} em {fmtDateBR(e.criEm.slice(0, 10))}{e.atuUsr ? ` · alterado por ${e.atuUsr} em ${fmtDateBR((e.atuEm ?? "").slice(0, 10))}` : ""}</div>
-                          {e.baixaObs && <div className="sm:col-span-2">Baixa: {e.baixaObs}</div>}
-                          {e.obs && <div className="sm:col-span-2">Obs.: {e.obs}</div>}
-                          {e.ref && <div className="sm:col-span-2">Origem: {e.ref}</div>}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" className={BOTAO} onClick={() => gerarComunicadoEmprestimoPdf(e)}>
-                            Gerar comunicado (PDF)
-                          </button>
-                          {podeGravar && (
-                            <>
-                              <button type="button" className={BOTAO} onClick={() => { setErroModal(null); setForm(formDe(e)); }}>
-                                Editar
-                              </button>
-                              {e.status === "Aberto" ? (
-                                <button type="button" className={BOTAO} onClick={() => { setErroModal(null); setBaixa({ e, tipo: "Devolvido", data: todayISO(), obs: "" }); }}>
-                                  Dar baixa (devolvido / pago)
-                                </button>
-                              ) : (
-                                <button type="button" className={BOTAO} onClick={() => reabrir(e)}>
-                                  Reabrir
-                                </button>
-                              )}
-                              <button type="button" className={`${BOTAO} text-alert-700`} onClick={() => excluir(e)}>
-                                Excluir
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {baixa && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl2 bg-card p-5 shadow-card">
-            <h2 className="text-[15px] font-bold text-ink">
-              Dar baixa — empréstimo #{baixa.e.id} · {baixa.e.fornNm}
-            </h2>
-            <p className="mt-1 text-[12px] text-muted">{brl(baixa.e.total)} · {baixa.e.faz.map((f) => f.cod).join(" / ")}</p>
-            <div className="mt-3 grid grid-cols-2 gap-3">
+        {form && (
+          <section id="form-emprestimo" className="caixa-form mb-5 scroll-mt-4">
+            <div className="caixa-form-topo">
               <div>
-                <label className={ROTULO}>Baixa por</label>
-                <select value={baixa.tipo} onChange={(ev) => setBaixa({ ...baixa, tipo: ev.target.value as "Devolvido" | "Pago" })} className={INPUT}>
-                  <option value="Devolvido">Devolução do insumo</option>
-                  <option value="Pago">Pagamento</option>
-                </select>
+                <h2 className="caixa-form-titulo">{form.id ? "Editando o empréstimo" : "Novo empréstimo"}</h2>
+                <div className="text-[11.5px] text-muted">Solicitação de empréstimo de insumos a fornecedor</div>
               </div>
-              <div>
-                <label className={ROTULO}>Data da baixa</label>
-                <input type="date" value={baixa.data} onChange={(ev) => setBaixa({ ...baixa, data: ev.target.value })} className={INPUT} />
-              </div>
-              <div className="col-span-2">
-                <label className={ROTULO}>Observação (NF, recibo, etc.)</label>
-                <input value={baixa.obs} onChange={(ev) => setBaixa({ ...baixa, obs: ev.target.value })} className={INPUT} />
-              </div>
+              <label className="campo-boletim">
+                Boletim nº
+                <input value={form.boletim} onChange={(e) => upd({ boletim: e.target.value.replace(/\D/g, "").slice(0, 9) })} inputMode="numeric" aria-label="Número do boletim" />
+              </label>
             </div>
-            {erroModal && <p className="mt-3 text-[12.5px] text-alert-700">{erroModal}</p>}
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className={BOTAO} onClick={() => setBaixa(null)}>
-                Cancelar
-              </button>
-              <button type="button" disabled={salvando} onClick={confirmarBaixa} className="rounded-lg bg-navy-900 px-4 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50">
-                {salvando ? "Gravando…" : "Confirmar baixa"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {form && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
-          <div className="my-4 w-full max-w-4xl rounded-xl2 bg-card p-5 shadow-card">
-            <h2 className="text-[16px] font-bold text-ink">{form.id ? `Editar empréstimo #${form.id}` : "Novo empréstimo — solicitação"}</h2>
             <datalist id="forn-cods">
               {Array.from(sugestoesForn.entries()).map(([c, v]) => (
                 <option key={c} value={c}>
@@ -517,7 +350,7 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
               ))}
             </datalist>
 
-            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <div>
                 <label className={ROTULO}>Data solicitação</label>
                 <input type="date" value={form.dtSol} onChange={(e) => upd({ dtSol: e.target.value })} className={INPUT} />
@@ -549,8 +382,8 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
               </div>
             </div>
 
-            <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted">Insumos emprestados</div>
-            <div className="mt-1 overflow-x-auto rounded-lg border border-line">
+            <div className="caixa-form-sub">Insumos emprestados</div>
+            <div className="overflow-x-auto rounded-lg border border-line bg-card">
               <table className="w-full min-w-[760px] text-[12.5px]">
                 <thead>
                   <tr className="bg-surface text-left text-muted">
@@ -634,8 +467,8 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
               + Insumo
             </button>
 
-            <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-muted">Local de aplicação</div>
-            <div className="mt-1 overflow-x-auto rounded-lg border border-line">
+            <div className="caixa-form-sub">Local de aplicação</div>
+            <div className="overflow-x-auto rounded-lg border border-line bg-card">
               <table className="w-full min-w-[520px] text-[12.5px]">
                 <thead>
                   <tr className="bg-surface text-left text-muted">
@@ -676,7 +509,8 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
               + Fazenda
             </button>
 
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="caixa-form-sub">Volume, assinaturas e observação</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div>
                 <label className={ROTULO}>Volume de</label>
                 <select value={form.volTipo} onChange={(e) => upd({ volTipo: e.target.value as "Calda" | "Insumo" })} className={INPUT}>
@@ -708,13 +542,208 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
               <button type="button" className={BOTAO} onClick={() => setForm(null)}>
                 Cancelar
               </button>
-              <button type="button" disabled={salvando} onClick={salvar} className="rounded-lg bg-navy-900 px-4 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50">
-                {salvando ? "Gravando…" : "Salvar"}
+              <button type="button" disabled={salvando} onClick={salvar} className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40">
+                {salvando ? "Gravando…" : form.id ? "Salvar alteração" : "Lançar empréstimo"}
+              </button>
+            </div>
+          </section>
+        )}
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {(["Aberto", "Devolvido", "Pago"] as StatusEmprestimo[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setFiltroStatus(filtroStatus === s ? "" : s)}
+              className={`rounded-xl2 border bg-card p-3 text-left shadow-card ${filtroStatus === s ? "border-navy-900" : "border-line"}`}
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                {s === "Aberto" ? "Em aberto" : s === "Devolvido" ? "Devolvidos" : "Pagos"}
+              </div>
+              <div className="text-[20px] font-bold tabular text-ink">{brl(resumo[s].valor)}</div>
+              <div className="text-[11.5px] text-muted">{resumo[s].n} empréstimo(s)</div>
+            </button>
+          ))}
+        </div>
+
+        <div className="mb-3 flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1">
+            <label className={ROTULO}>Buscar</label>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Fornecedor, fazenda, insumo ou nº" className={INPUT} />
+          </div>
+          <div>
+            <label className={ROTULO}>Situação</label>
+            <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className={`${INPUT} min-w-[150px]`}>
+              <option value="">Todas</option>
+              <option value="Aberto">Em aberto</option>
+              <option value="Devolvido">Devolvido</option>
+              <option value="Pago">Pago</option>
+            </select>
+          </div>
+          {podeGravar && (
+            <button type="button" onClick={novoEmprestimo} className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-800">
+              + Novo empréstimo
+            </button>
+          )}
+        </div>
+
+        {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[13px] text-alert-700">{erro}</p>}
+
+        <div className="overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
+          <table className="w-full min-w-[900px] text-[12.5px]">
+            <thead>
+              <tr className="border-b border-line bg-surface text-left text-muted">
+                <th className="px-3 py-2 font-semibold">Boletim</th>
+                <th className="px-3 py-2 font-semibold">Data Solicitação</th>
+                <th className="px-3 py-2 font-semibold">Data Saída</th>
+                <th className="px-3 py-2 font-semibold">Fornecedor</th>
+                <th className="px-3 py-2 font-semibold">Fazenda(s)</th>
+                <th className="px-3 py-2 font-semibold">Insumos</th>
+                <th className="px-3 py-2 text-right font-semibold">Valor total</th>
+                <th className="px-3 py-2 font-semibold">Situação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {carregando && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-6 text-center text-muted">
+                    Carregando…
+                  </td>
+                </tr>
+              )}
+              {!carregando && filtrada.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-6 text-center text-muted">
+                    Nenhum empréstimo encontrado.
+                  </td>
+                </tr>
+              )}
+              {filtrada.map((e) => (
+                <Fragment key={e.id}>
+                  <tr className="cursor-pointer border-b border-line hover:bg-surface/60" onClick={() => setAberto(aberto === e.id ? null : e.id)}>
+                    <td className="px-3 py-2 tabular font-medium text-ink">{e.boletim ?? <span className="text-muted">#{e.id}</span>}</td>
+                    <td className="px-3 py-2 tabular">{e.dtSol ? fmtDateBR(e.dtSol) : <span className="text-muted/60">—</span>}</td>
+                    <td className="px-3 py-2 tabular">{e.dt ? fmtDateBR(e.dt) : <span className="text-muted/60">—</span>}</td>
+                    <td className="px-3 py-2 font-semibold text-ink">
+                      {e.fornNm}
+                      <div className="text-[11px] font-normal text-muted">{e.fornCod}</div>
+                    </td>
+                    <td className="px-3 py-2">{e.faz.map((f) => `${f.cod}${f.nome ? ` · ${f.nome}` : ""}`).join(" / ")}</td>
+                    <td className="max-w-[260px] truncate px-3 py-2 text-muted">{e.itens.map((i) => i.nm).join(", ")}</td>
+                    <td className="px-3 py-2 text-right tabular font-semibold">{brl(e.total)}</td>
+                    <td className="px-3 py-2">
+                      <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${COR_STATUS[e.status]}`}>{e.status === "Aberto" ? "Em aberto" : e.status}</span>
+                      {e.dtBaixa && <div className="text-[11px] text-muted">em {fmtDateBR(e.dtBaixa)}</div>}
+                    </td>
+                  </tr>
+                  {aberto === e.id && (
+                    <tr className="border-b border-line bg-surface/40">
+                      <td colSpan={8} className="px-4 py-3">
+                        <table className="mb-3 w-full max-w-[860px] text-[12px]">
+                          <thead>
+                            <tr className="text-left text-muted">
+                              <th className="py-1 pr-3 font-semibold">Código</th>
+                              <th className="py-1 pr-3 font-semibold">Descrição</th>
+                              <th className="py-1 pr-3 font-semibold">U.M.</th>
+                              <th className="py-1 pr-3 text-right font-semibold">Dose</th>
+                              <th className="py-1 pr-3 text-right font-semibold">Qtd</th>
+                              <th className="py-1 pr-3 text-right font-semibold">Vl. unit.</th>
+                              <th className="py-1 text-right font-semibold">Vl. total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {e.itens.map((i, k) => (
+                              <tr key={k} className="border-t border-line/60">
+                                <td className="py-1 pr-3 tabular">{i.cod}</td>
+                                <td className="py-1 pr-3">{i.nm}</td>
+                                <td className="py-1 pr-3">{i.um}</td>
+                                <td className="py-1 pr-3 text-right tabular">{i.dose !== null ? qt(i.dose) : ""}</td>
+                                <td className="py-1 pr-3 text-right tabular">{qt(i.qtd)}</td>
+                                <td className="py-1 pr-3 text-right tabular">{i.vu.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td className="py-1 text-right tabular">{brl(i.vt)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div className="mb-3 grid gap-x-8 gap-y-0.5 text-[12px] text-muted sm:grid-cols-2">
+                          <div>Destinatário: {e.fornCod} – {e.fornNm}{e.doc ? ` · ${e.doc}` : ""}</div>
+                          <div>Volume de {e.volTipo}: {e.vol || "—"}</div>
+                          <div>Área: {e.faz.map((f) => `${f.cod}: ${f.area !== null ? `${f.area.toLocaleString("pt-BR")} ha` : "—"}`).join(" · ")}</div>
+                          <div>Lançado por {e.usr} em {fmtDateBR(e.criEm.slice(0, 10))}{e.atuUsr ? ` · alterado por ${e.atuUsr} em ${fmtDateBR((e.atuEm ?? "").slice(0, 10))}` : ""}</div>
+                          {e.baixaObs && <div className="sm:col-span-2">Baixa: {e.baixaObs}</div>}
+                          {e.obs && <div className="sm:col-span-2">Obs.: {e.obs}</div>}
+                          {e.ref && <div className="sm:col-span-2">Origem: {e.ref}</div>}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" className={BOTAO} onClick={() => gerarComunicadoEmprestimoPdf(e)}>
+                            Gerar comunicado (PDF)
+                          </button>
+                          {podeGravar && (
+                            <>
+                              <button type="button" className={BOTAO} onClick={() => { setErroModal(null); setForm(formDe(e)); irParaFormulario(); }}>
+                                Editar
+                              </button>
+                              {e.status === "Aberto" ? (
+                                <button type="button" className={BOTAO} onClick={() => { setErroModal(null); setBaixa({ e, tipo: "Devolvido", data: todayISO(), obs: "" }); }}>
+                                  Dar baixa (devolvido / pago)
+                                </button>
+                              ) : (
+                                <button type="button" className={BOTAO} onClick={() => reabrir(e)}>
+                                  Reabrir
+                                </button>
+                              )}
+                              <button type="button" className={`${BOTAO} text-alert-700`} onClick={() => excluir(e)}>
+                                Excluir
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {baixa && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl2 bg-card p-5 shadow-card">
+            <h2 className="text-[15px] font-bold text-ink">
+              Dar baixa — empréstimo #{baixa.e.id} · {baixa.e.fornNm}
+            </h2>
+            <p className="mt-1 text-[12px] text-muted">{brl(baixa.e.total)} · {baixa.e.faz.map((f) => f.cod).join(" / ")}</p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <label className={ROTULO}>Baixa por</label>
+                <select value={baixa.tipo} onChange={(ev) => setBaixa({ ...baixa, tipo: ev.target.value as "Devolvido" | "Pago" })} className={INPUT}>
+                  <option value="Devolvido">Devolução do insumo</option>
+                  <option value="Pago">Pagamento</option>
+                </select>
+              </div>
+              <div>
+                <label className={ROTULO}>Data da baixa</label>
+                <input type="date" value={baixa.data} onChange={(ev) => setBaixa({ ...baixa, data: ev.target.value })} className={INPUT} />
+              </div>
+              <div className="col-span-2">
+                <label className={ROTULO}>Observação (NF, recibo, etc.)</label>
+                <input value={baixa.obs} onChange={(ev) => setBaixa({ ...baixa, obs: ev.target.value })} className={INPUT} />
+              </div>
+            </div>
+            {erroModal && <p className="mt-3 text-[12.5px] text-alert-700">{erroModal}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className={BOTAO} onClick={() => setBaixa(null)}>
+                Cancelar
+              </button>
+              <button type="button" disabled={salvando} onClick={confirmarBaixa} className="rounded-lg bg-navy-900 px-4 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50">
+                {salvando ? "Gravando…" : "Confirmar baixa"}
               </button>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { baixarEmprestimo, excluirEmprestimo, listarEmprestimos, salvarEmprestimo } from "@/lib/db-emprestimos";
+import { baixarEmprestimo, excluirEmprestimo, listarEmprestimos, proximoBoletimEmprestimo, salvarEmprestimo } from "@/lib/db-emprestimos";
 import type { EntradaEmprestimo } from "@/lib/emprestimos";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -13,6 +13,7 @@ const dataOuNull = (v: unknown) => (typeof v === "string" && v ? v : null);
 function lerEntrada(b: Record<string, unknown>): EntradaEmprestimo {
   const lista = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
   return {
+    boletim: b.boletim === null || b.boletim === undefined || b.boletim === "" ? null : Number(b.boletim),
     fornCod: texto(b.fornCod),
     fornNm: texto(b.fornNm),
     doc: texto(b.doc),
@@ -41,6 +42,7 @@ function lerEntrada(b: Record<string, unknown>): EntradaEmprestimo {
 export async function GET(req: NextRequest) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
+  if (req.nextUrl.searchParams.get("proximo") !== null) return NextResponse.json({ boletim: await proximoBoletimEmprestimo() });
   return NextResponse.json({ emprestimos: await listarEmprestimos() });
 }
 

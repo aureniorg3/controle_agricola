@@ -11,9 +11,10 @@
   --c-line: 232 235 240;
   --c-ink: 28 36 48;
   --c-muted: 107 117 134;
-  /* caixa dos formulários de apontamento: tom claro e visível, sem escurecer */
-  --form-fundo: 238 245 241;
-  --form-borda: 203 224 212;
+  /* caixa dos formulários de apontamento: azul claro e visível, sem escurecer */
+  --form-fundo: 237 242 250;
+  --form-borda: 200 213 236;
+  --form-acento: 46 95 168;
 }
 
 .dark {
@@ -25,6 +26,7 @@
   --c-muted: 147 160 184;
   --form-fundo: 29 47 71;
   --form-borda: 52 78 112;
+  --form-acento: 127 168 232;
 }
 
 html,
@@ -80,13 +82,13 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: none;
-  border-color: #2d8a5a !important;
-  box-shadow: 0 0 0 3px rgba(45, 138, 90, 0.12);
+  border-color: rgb(var(--form-acento)) !important;
+  box-shadow: 0 0 0 3px rgb(var(--form-acento) / 0.14);
 }
 button:focus-visible,
 a:focus-visible,
 [tabindex]:focus-visible {
-  outline: 1.5px solid #2d8a5a;
+  outline: 1.5px solid rgb(var(--form-acento));
   outline-offset: 2px;
 }
 
@@ -250,12 +252,12 @@ tbody tr:hover {
   background: #44567a;
 }
 
-/* Caixa do formulário nas telas de apontamento: fundo claro esverdeado (no escuro, um tom acima do cartão),
-   filete verde à esquerda e campos brancos por cima, para o formulário se destacar do resto da tela. */
+/* Caixa do formulário nas telas de apontamento (modelo único): fundo azul-claro (no escuro, um tom acima do
+   cartão), filete azul à esquerda e campos brancos por cima, para o formulário se destacar do resto da tela. */
 .caixa-form {
   border-radius: 12px;
   border: 1px solid rgb(var(--form-borda));
-  border-left: 3px solid #2d8a5a;
+  border-left: 3px solid rgb(var(--form-acento));
   background: rgb(var(--form-fundo));
   padding: 1rem;
 }
@@ -276,5 +278,52 @@ tbody tr:hover {
   padding-top: 0.85rem;
   font-size: 12.5px;
   font-weight: 600;
-  color: #2d8a5a;
+  color: rgb(var(--form-acento));
+}
+.caixa-form-topo + .caixa-form-sub {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+/* cabeçalho da caixa: título à esquerda, nº do boletim à direita */
+.caixa-form-topo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+.caixa-form-topo .caixa-form-titulo {
+  margin-bottom: 0;
+}
+.campo-boletim {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--form-borda));
+  background: rgb(var(--c-card));
+  padding: 0.25rem 0.35rem 0.25rem 0.65rem;
+  font-size: 12px;
+  color: rgb(var(--c-muted));
+}
+.campo-boletim input {
+  width: 6.5rem;
+  border: 0;
+  background: transparent;
+  padding: 0.2rem 0.25rem;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--c-ink));
+}
+.campo-boletim input:focus-visible {
+  box-shadow: none;
+  outline: none;
+}
+.campo-boletim:focus-within {
+  border-color: rgb(var(--form-acento));
+  box-shadow: 0 0 0 3px rgb(var(--form-acento) / 0.15);
 }

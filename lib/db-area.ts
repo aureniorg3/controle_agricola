@@ -4,6 +4,8 @@ import { getPool, prepararBanco } from "./db";
 /** Apontamento diário da área colhida (por ordem, talhão e data), com usuário e log. */
 
 export interface ApontamentoArea {
+  /** nº do boletim (null nos lançamentos antigos) */
+  boletim: number | null;
   ord: string;
   faz: string;
   fazNm: string;
@@ -38,9 +40,9 @@ export async function listarAreaColhidaDia(f: FiltroArea, limite = 1000): Promis
   if (f.de) cond.push(`c.dt >= ${p(f.de)}::date`);
   if (f.ate) cond.push(`c.dt <= ${p(f.ate)}::date`);
   const { rows } = await pool.query<{
-    ord_num: string; faz_cod: string; faz_nm: string | null; tlh: string; dt: string; area: number; usr: string; cri: string; atu_usr: string; atu: string;
+    bol: number | null; ord_num: string; faz_cod: string; faz_nm: string | null; tlh: string; dt: string; area: number; usr: string; cri: string; atu_usr: string; atu: string;
   }>(
-    `SELECT c.ord_num, c.faz_cod, t.faz_nm, c.tlh, c.dt, c.area::float AS area, c.usr, ${HORA.replace("%C", "c.cri_em")} AS cri,
+    `SELECT c.bol, c.ord_num, c.faz_cod, t.faz_nm, c.tlh, c.dt, c.area::float AS area, c.usr, ${HORA.replace("%C", "c.cri_em")} AS cri,
             c.atu_usr, ${HORA.replace("%C", "c.atu_em")} AS atu
        FROM col_dia c
        LEFT JOIN tlh t ON t.ord_num = c.ord_num AND t.faz_cod = c.faz_cod AND t.tlh = c.tlh
@@ -50,6 +52,7 @@ export async function listarAreaColhidaDia(f: FiltroArea, limite = 1000): Promis
     params
   );
   return rows.map((r) => ({
+    boletim: r.bol,
     ord: r.ord_num,
     faz: r.faz_cod,
     fazNm: r.faz_nm ?? "",
@@ -81,10 +84,20 @@ export async function gravarAreaColhidaDia(
   ord: string,
   dt: string,
   itens: ItemArea[],
-  usuario: string
+  usuario: string,
+  boletim: number
 ): Promise<{ incluidos: number; alterados: number; removidos: number } | { erro: string }> {
   const pool = getPool();
   await prepararBanco(pool);
+  const comBoletim = Number.isInteger(boletim) && boletim > 0;
+  if (!comBoletim && itens.some((i) => i.ha > 0)) return { erro: "Informe o número do boletim." };
+  const { rows: usado } = await pool.query<{ ord_num: string; dt: string }>(
+    "SELECT ord_num, dt::text AS dt FROM col_dia WHERE bol = $1 AND NOT (ord_num = $2 AND dt = $3::date) LIMIT 1",
+    [boletim, ord, dt]
+  );
+  if (comBoletim && usado[0]) {
+    return { erro: `O boletim nº ${boletim} já foi usado na ordem ${usado[0].ord_num} em ${usado[0].dt.split("-").reverse().join("/")}. Confira o número.` };
+  }
   const { rows: tlhs } = await pool.query<{ faz_cod: string; tlh: string; area_ha: number; area_col_ha: number }>(
     "SELECT faz_cod, tlh, area_ha::float AS area_ha, area_col_ha::float AS area_col_ha FROM tlh WHERE ord_num = $1",
     [ord]
@@ -137,16 +150,18 @@ export async function gravarAreaColhidaDia(
           [ord, it.faz, it.tlh, dt, ha, usuario]
         );
         incluidos++;
-        await auditar(client, { usuario, modulo: "Colheita", entidade: "Área colhida", chave: chaveLog(ord, it.faz, it.tlh, dt), acao: "inclusao", depois: { ha } });
+        await auditar(client, { usuario, modulo: "Colheita", entidade: "Área colhida", chave: chaveLog(ord, it.faz, it.tlh, dt), acao: "inclusao", depois: { ha, boletim } });
       } else {
         await client.query(
           "UPDATE col_dia SET area = $5, atu_usr = $6, atu_em = now() WHERE ord_num = $1 AND faz_cod = $2 AND tlh = $3 AND dt = $4",
           [ord, it.faz, it.tlh, dt, ha, usuario]
         );
         alterados++;
-        await auditar(client, { usuario, modulo: "Colheita", entidade: "Área colhida", chave: chaveLog(ord, it.faz, it.tlh, dt), acao: "alteracao", antes: { ha: antes }, depois: { ha } });
+        await auditar(client, { usuario, modulo: "Colheita", entidade: "Área colhida", chave: chaveLog(ord, it.faz, it.tlh, dt), acao: "alteracao", antes: { ha: antes }, depois: { ha, boletim } });
       }
     }
+    // o boletim vale para todos os talhões da ordem nesse dia
+    if (comBoletim) await client.query("UPDATE col_dia SET bol = $3 WHERE ord_num = $1 AND dt = $2::date AND bol IS DISTINCT FROM $3", [ord, dt, boletim]);
     await client.query("COMMIT");
     return { incluidos, alterados, removidos };
   } catch (e) {
@@ -155,4 +170,11 @@ export async function gravarAreaColhidaDia(
   } finally {
     client.release();
   }
+}
+
+/** Próximo nº de boletim da área colhida (o maior lançado + 1). */
+export async function proximoBoletimArea(): Promise<number> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  return (await pool.query<{ n: number }>("SELECT (COALESCE(MAX(bol), 0) + 1)::int AS n FROM col_dia")).rows[0].n;
 }

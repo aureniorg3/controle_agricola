@@ -356,6 +356,8 @@ export function prepararBanco(pool: Pool): Promise<void> {
          )`
       );
       await pool.query("CREATE INDEX IF NOT EXISTS idx_col_dia_dt ON col_dia(dt)");
+      // nº do boletim do apontamento (um boletim = uma ordem num dia)
+      await pool.query("ALTER TABLE col_dia ADD COLUMN IF NOT EXISTS bol integer");
       // auditoria geral: quem, quando, o quê (antes e depois)
       await pool.query(
         `CREATE TABLE IF NOT EXISTS aud_log (

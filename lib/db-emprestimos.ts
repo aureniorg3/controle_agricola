@@ -35,6 +35,9 @@ async function preparar(pool: Pool): Promise<void> {
            atu_usr text, atu_em timestamptz
          )`
       );
+      // nº do boletim de cada empréstimo (único)
+      await pool.query("ALTER TABLE emp_cab ADD COLUMN IF NOT EXISTS bol integer");
+      await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_emp_cab_bol ON emp_cab (bol) WHERE bol IS NOT NULL");
       if (!existia) {
         for (const e of seed as unknown as SementeEmprestimo[]) {
           const itens = e.itens.map((i) => ({
@@ -88,6 +91,7 @@ interface SementeEmprestimo {
 
 interface Linha {
   id: number;
+  bol: number | null;
   forn_cod: string;
   forn_nm: string;
   doc: string;
@@ -112,6 +116,7 @@ interface Linha {
 function mapa(r: Linha): Emprestimo {
   return {
     id: r.id,
+    boletim: r.bol,
     fornCod: r.forn_cod,
     fornNm: r.forn_nm,
     doc: r.doc,
@@ -135,7 +140,7 @@ function mapa(r: Linha): Emprestimo {
   };
 }
 
-const COLUNAS = `id, forn_cod, forn_nm, doc, dt::text AS dt, dt_sol::text AS dt_sol, faz, vol, vol_tp, assin, itens, obs, st,
+const COLUNAS = `id, bol, forn_cod, forn_nm, doc, dt::text AS dt, dt_sol::text AS dt_sol, faz, vol, vol_tp, assin, itens, obs, st,
   dt_bx::text AS dt_bx, bx_obs, ref, usr, cri_em::text AS cri_em, atu_usr, atu_em::text AS atu_em`;
 
 export async function listarEmprestimos(): Promise<Emprestimo[]> {
@@ -152,6 +157,7 @@ async function obter(pool: Pool, id: number): Promise<Emprestimo | null> {
 
 const chaveLog = (e: Emprestimo) => `#${e.id} · ${e.fornNm} · ${e.faz.map((f) => f.cod).join("/")}`;
 const resumoLog = (e: Emprestimo) => ({
+  boletim: e.boletim,
   fornecedor: `${e.fornCod} ${e.fornNm}`,
   dataSolicitacao: e.dtSol ? dataBR(e.dtSol) : "",
   dataSaida: e.dt ? dataBR(e.dt) : "",
@@ -193,7 +199,11 @@ export async function salvarEmprestimo(entrada: EntradaEmprestimo, usuario: stri
   const erro = validarEmprestimo(e, id === undefined);
   if (erro) return { erro };
   const assin = e.assin.length ? e.assin : ASSINANTES_PADRAO;
-  const params = [e.fornCod, e.fornNm, e.doc, e.dt, e.dtSol, JSON.stringify(e.faz), e.vol, e.volTipo, JSON.stringify(assin), JSON.stringify(e.itensCalc), e.obs];
+  if (e.boletim !== null) {
+    const repetido = (await pool.query<{ id: number }>("SELECT id FROM emp_cab WHERE bol = $1 AND ($2::int IS NULL OR id <> $2::int) LIMIT 1", [e.boletim, id ?? null])).rows[0];
+    if (repetido) return { erro: `O boletim nº ${e.boletim} já está no empréstimo #${repetido.id}. Confira o número.` };
+  }
+  const params = [e.fornCod, e.fornNm, e.doc, e.dt, e.dtSol, JSON.stringify(e.faz), e.vol, e.volTipo, JSON.stringify(assin), JSON.stringify(e.itensCalc), e.obs, e.boletim];
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -201,8 +211,8 @@ export async function salvarEmprestimo(entrada: EntradaEmprestimo, usuario: stri
     let antesLog: ReturnType<typeof resumoLog> | undefined;
     if (id === undefined) {
       const r = await client.query<{ id: number }>(
-        `INSERT INTO emp_cab (forn_cod, forn_nm, doc, dt, dt_sol, faz, vol, vol_tp, assin, itens, obs, usr)
-         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10::jsonb,$11,$12) RETURNING id`,
+        `INSERT INTO emp_cab (forn_cod, forn_nm, doc, dt, dt_sol, faz, vol, vol_tp, assin, itens, obs, bol, usr)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13) RETURNING id`,
         [...params, usuario]
       );
       novoId = r.rows[0].id;
@@ -215,7 +225,7 @@ export async function salvarEmprestimo(entrada: EntradaEmprestimo, usuario: stri
       antesLog = resumoLog(atual);
       await client.query(
         `UPDATE emp_cab SET forn_cod=$1, forn_nm=$2, doc=$3, dt=$4, dt_sol=$5, faz=$6::jsonb, vol=$7, vol_tp=$8, assin=$9::jsonb,
-                itens=$10::jsonb, obs=$11, atu_usr=$12, atu_em=now() WHERE id=$13`,
+                itens=$10::jsonb, obs=$11, bol=$12, atu_usr=$13, atu_em=now() WHERE id=$14`,
         [...params, usuario, id]
       );
       novoId = id;
@@ -279,4 +289,11 @@ export async function excluirEmprestimo(id: number, usuario: string): Promise<tr
   await pool.query("DELETE FROM emp_cab WHERE id = $1", [id]);
   await auditar(pool, { usuario, modulo: "Insumos", entidade: "Empréstimo", chave: chaveLog(antes), acao: "exclusao", antes: resumoLog(antes) });
   return true;
+}
+
+/** Próximo nº de boletim de empréstimo (o maior lançado + 1). */
+export async function proximoBoletimEmprestimo(): Promise<number> {
+  const pool = getPool();
+  await preparar(pool);
+  return (await pool.query<{ n: number }>("SELECT (COALESCE(MAX(bol), 0) + 1)::int AS n FROM emp_cab")).rows[0].n;
 }

@@ -635,15 +635,21 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
 
         <div ref={formRef} onKeyDown={aoTeclar} className="space-y-4">
           <section className="caixa-form">
-            <h2 className="caixa-form-titulo">Boletim de rodada de campo</h2>
-
-            {/* Linha 1: Boletim · Data · Rodada · Semana · Região · Desc. Região */}
-            <div className="grid grid-cols-6 gap-3 lg:grid-cols-[96px_132px_132px_112px_132px_minmax(0,1fr)]">
-              <div className="col-span-3 lg:col-span-1">
-                <label className={ROTULO}>Boletim</label>
-                <input value={editando?.bol ?? boletim ?? ""} readOnly tabIndex={-1} className={`${SOMENTE_LEITURA} text-center font-bold`} aria-label="Boletim (automático)" />
+            <div className="caixa-form-topo">
+              <div>
+                <h2 className="caixa-form-titulo">{editando ? "Editando o boletim de rodada de campo" : "Novo boletim de rodada de campo"}</h2>
+                <div className="text-[11.5px] text-muted">{editando ? `Lançado por ${editando.usr || "—"}` : "O número é o último boletim + 1"}</div>
               </div>
-              <div className="col-span-3 lg:col-span-1">
+              <label className="campo-boletim">
+                Boletim nº
+                <input value={editando?.bol ?? boletim ?? ""} readOnly tabIndex={-1} aria-label="Número do boletim (automático)" />
+              </label>
+            </div>
+
+            {/* Rodada e região: Data · Rodada · Semana · Região · Desc. Região */}
+            <div className="caixa-form-sub">Rodada e região</div>
+            <div className="grid grid-cols-6 gap-3 lg:grid-cols-[132px_132px_112px_132px_minmax(0,1fr)]">
+              <div className="col-span-2 lg:col-span-1">
                 <label className={ROTULO}>Data (lançamento)</label>
                 <input type="date" value={dt} readOnly tabIndex={-1} className={SOMENTE_LEITURA} aria-label="Data do lançamento (automática)" />
               </div>
@@ -659,7 +665,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                 <label className={ROTULO}>Região</label>
                 {campoCodigo("reg", "w-[60px]")}
               </div>
-              <div className="col-span-6 lg:col-span-1">
+              <div className="col-span-4 lg:col-span-1">
                 <label className={ROTULO}>Desc. Região</label>
                 <input
                   value={regiaoNm || (reg.trim() && descricao("regiao", reg)?.vazio ? "(cadastro vazio)" : "")}
@@ -689,8 +695,9 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
               )}
             </p>
 
-            {/* Linha 2: Fazenda · Descrição · Presença · Nível · Prioridade */}
-            <div className="mt-2 grid grid-cols-3 gap-3 lg:grid-cols-[132px_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+            {/* Fazenda e infestação: Fazenda · Descrição · Presença · Nível · Prioridade */}
+            <div className="caixa-form-sub">Fazenda e infestação</div>
+            <div className="grid grid-cols-3 gap-3 lg:grid-cols-[132px_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
               <div className="col-span-1">
                 <label className={ROTULO}>Fazenda</label>
                 {campoCodigo("faz", "w-[58px] lg:w-[72px]")}
@@ -725,7 +732,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
             </div>
 
             {/* Ocorrência: todas na tela, em colunas; marque as que se aplicam */}
-            <div className="mt-3">
+            <div className="caixa-form-sub">Ocorrências e recomendação</div>
+            <div>
               <div className="mb-1 flex flex-wrap items-end justify-between gap-2">
                 <label className={ROTULO}>Ocorrência (marque uma ou mais)</label>
                 <div className="mb-1 flex items-center gap-1.5">
@@ -815,11 +823,9 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
                 className={INPUT}
               />
             </div>
-          </section>
 
-          <section className="caixa-form">
-            <div className="mb-3 flex flex-wrap items-center gap-3">
-              <h2 className="text-[14px] font-semibold text-ink">
+            <div className="caixa-form-sub flex flex-wrap items-center gap-3">
+              <h2 className="text-[12.5px] font-semibold">
                 Talhões{fazendaNm ? ` · ${faz.trim().split("-")[0]} ${fazendaNm}` : ""}
               </h2>
               {talhoes.length > 0 && (

@@ -24,6 +24,7 @@ const corStatus = (s: string) => (/encerr/i.test(s) ? "bg-surface text-muted" : 
 
 interface Form {
   id?: number;
+  boletim: string;
   dt: string;
   os: string;
   opCod: string;
@@ -36,7 +37,7 @@ interface Form {
   areas: Record<string, string>;
 }
 
-const formVazio = (): Form => ({ dt: todayISO(), os: "", opCod: "", solicitante: "", etapaCod: "", tipoAplicacao: "", numEquipamentos: "", numPessoas: "", obs: "", areas: {} });
+const formVazio = (): Form => ({ boletim: "", dt: todayISO(), os: "", opCod: "", solicitante: "", etapaCod: "", tipoAplicacao: "", numEquipamentos: "", numPessoas: "", obs: "", areas: {} });
 
 export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { perfil: PerfilUsuario; nomeUsuario: string }) {
   const podeGravar = podeEditar(perfil);
@@ -54,6 +55,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const [de, setDe] = useState(addDays(todayISO(), -6));
   const [ate, setAte] = useState(todayISO());
   const [filtroOS, setFiltroOS] = useState("");
+  const [filtroBoletim, setFiltroBoletim] = useState("");
   const [lista, setLista] = useState<ApontamentoDiario[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [aberto, setAberto] = useState<number | null>(null);
@@ -73,7 +75,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const carregarLista = useCallback(async () => {
     setCarregando(true);
     try {
-      const p = new URLSearchParams({ de, ate, os: filtroOS.trim() });
+      const p = new URLSearchParams({ de, ate, os: filtroOS.trim(), boletim: filtroBoletim.trim() });
       const res = await fetch(`/api/atividades/apontamentos?${p}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar os apontamentos.");
@@ -83,11 +85,23 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     } finally {
       setCarregando(false);
     }
-  }, [de, ate, filtroOS]);
+  }, [de, ate, filtroOS, filtroBoletim]);
+
+  /** sugere o próximo nº de boletim (pode ser trocado pelo do papel) */
+  const sugerirBoletim = useCallback(async () => {
+    try {
+      const res = await fetch("/api/atividades/apontamentos?proximo=1", { cache: "no-store" });
+      const json = await res.json();
+      if (res.ok) setForm((f) => (f.id || f.boletim ? f : { ...f, boletim: String(json.boletim) }));
+    } catch {
+      /* digita à mão */
+    }
+  }, []);
 
   useEffect(() => {
     carregarBase();
-  }, [carregarBase]);
+    sugerirBoletim();
+  }, [carregarBase, sugerirBoletim]);
   useEffect(() => {
     carregarLista();
   }, [carregarLista]);
@@ -149,6 +163,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     setForm(formVazio());
     setOsInfo(null);
     setErroOS(null);
+    sugerirBoletim();
     setTimeout(() => osRef.current?.focus(), 0);
   }
 
@@ -164,6 +179,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: form.id,
+          boletim: Number(form.boletim || 0),
           dt: form.dt,
           os: form.os,
           opCod: form.opCod,
@@ -178,7 +194,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Não foi possível salvar.");
-      setMsg({ texto: form.id ? `Apontamento #${form.id} alterado.` : `Apontamento #${json.id} lançado: ${nf(totalDia)} ha na O.S. ${form.os}.`, erro: false });
+      setMsg({ texto: form.id ? `Boletim nº ${form.boletim} alterado.` : `Boletim nº ${form.boletim} lançado: ${nf(totalDia)} ha na O.S. ${form.os}.`, erro: false });
       const dtLancada = form.dt;
       limpar();
       setForm((f) => ({ ...f, dt: dtLancada }));
@@ -198,6 +214,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     const areas = Object.fromEntries(a.talhoes.map((t) => [chaveTalhao(t.propCod, t.tlh), texto(t.area)]));
     const novo: Form = {
       id: a.id,
+      boletim: a.boletim ? String(a.boletim) : "",
       dt: a.dt,
       os: a.os,
       opCod: a.opCod,
@@ -215,12 +232,12 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   }
 
   async function excluir(a: ApontamentoDiario) {
-    if (!window.confirm(`Excluir o apontamento #${a.id} (O.S. ${a.os}, ${fmtDateBR(a.dt)})? A exclusão fica no log.`)) return;
+    if (!window.confirm(`Excluir o boletim nº ${a.boletim ?? a.id} (O.S. ${a.os}, ${fmtDateBR(a.dt)})? A exclusão fica no log.`)) return;
     const res = await fetch("/api/atividades/apontamentos", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a.id }) });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) return setMsg({ texto: json.error ?? "Não foi possível excluir.", erro: true });
     if (form.id === a.id) limpar();
-    setMsg({ texto: `Apontamento #${a.id} excluído.`, erro: false });
+    setMsg({ texto: `Boletim nº ${a.boletim ?? a.id} excluído.`, erro: false });
     carregarLista();
   }
 
@@ -251,9 +268,15 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
 
         {podeGravar && (
           <section className="caixa-form">
-            <div className="caixa-form-titulo flex flex-wrap items-center gap-2">
-              {form.id ? `Editando o apontamento #${form.id}` : "Novo apontamento"}
-              {nomeUsuario && <span className="text-[11.5px] font-normal text-muted">· lançado por {nomeUsuario}</span>}
+            <div className="caixa-form-topo">
+              <div>
+                <div className="caixa-form-titulo">{form.id ? "Editando o apontamento" : "Novo apontamento"}</div>
+                {nomeUsuario && <div className="text-[11.5px] text-muted">Lançado por {nomeUsuario}</div>}
+              </div>
+              <label className="campo-boletim">
+                Boletim nº
+                <input value={form.boletim} onChange={(e) => upd({ boletim: e.target.value.replace(/\D/g, "").slice(0, 9) })} inputMode="numeric" aria-label="Número do boletim" />
+              </label>
             </div>
 
             {/* Identificação */}
@@ -437,7 +460,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                   {form.id ? "Cancelar edição" : "Limpar"}
                 </button>
               )}
-              <button type="button" onClick={salvar} disabled={salvando || !op || totalDia <= 0} className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40">
+              <button type="button" onClick={salvar} disabled={salvando || !op || totalDia <= 0 || !form.boletim} className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40">
                 {salvando ? "Salvando…" : form.id ? "Salvar alteração" : "Lançar apontamento"}
               </button>
             </div>
@@ -456,15 +479,20 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               <label className={ROTULO}>Até</label>
               <input type="date" value={ate} onChange={(e) => e.target.value && setAte(e.target.value)} className={INPUT} />
             </div>
+            <div className="w-[120px]">
+              <label className={ROTULO}>Boletim</label>
+              <input value={filtroBoletim} onChange={(e) => setFiltroBoletim(e.target.value.replace(/\D/g, ""))} className={INPUT} placeholder="Qualquer" />
+            </div>
             <div className="w-[130px]">
               <label className={ROTULO}>O.S.</label>
               <input value={filtroOS} onChange={(e) => setFiltroOS(e.target.value.replace(/\D/g, ""))} className={INPUT} placeholder="Todas" />
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-[12.5px]">
+            <table className="w-full min-w-[960px] text-[12.5px]">
               <thead>
                 <tr className="border-b border-line bg-surface text-left text-muted">
+                  <th className="px-3 py-1.5 font-medium">Boletim</th>
                   <th className="px-3 py-1.5 font-medium">Data</th>
                   <th className="px-3 py-1.5 font-medium">O.S.</th>
                   <th className="px-3 py-1.5 font-medium">Operação</th>
@@ -481,21 +509,22 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               <tbody>
                 {carregando && (
                   <tr>
-                    <td colSpan={11} className="px-3 py-6 text-center text-muted">
+                    <td colSpan={12} className="px-3 py-6 text-center text-muted">
                       Carregando…
                     </td>
                   </tr>
                 )}
                 {!carregando && lista.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-3 py-6 text-center text-muted">
+                    <td colSpan={12} className="px-3 py-6 text-center text-muted">
                       Nenhum apontamento no período.
                     </td>
                   </tr>
                 )}
                 {lista.map((a) => (
                   <Fragment key={a.id}>
-                    <tr className={`border-t border-line/60 ${form.id === a.id ? "bg-[#2D8A5A]/[0.07]" : ""}`}>
+                    <tr className={`border-t border-line/60 ${form.id === a.id ? "bg-[#2E5FA8]/[0.08]" : ""}`}>
+                      <td className="px-3 py-1.5 tabular font-medium text-ink">{a.boletim ?? "—"}</td>
                       <td className="px-3 py-1.5 tabular">{fmtDateBR(a.dt)}</td>
                       <td className="px-3 py-1.5 tabular font-medium text-ink">
                         <button type="button" className="hover:underline" onClick={() => setAberto(aberto === a.id ? null : a.id)} title="Ver talhões">
@@ -532,7 +561,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                     </tr>
                     {aberto === a.id && (
                       <tr className="bg-surface/60">
-                        <td colSpan={11} className="px-4 py-2 text-[12px] text-muted">
+                        <td colSpan={12} className="px-4 py-2 text-[12px] text-muted">
                           {a.talhoes.map((t) => `${t.propCod}-${t.tlh}: ${nf(t.area)} ha`).join(" · ")}
                           {a.obs ? ` · Obs.: ${a.obs}` : ""}
                         </td>
@@ -542,7 +571,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 ))}
                 {lista.length > 0 && (
                   <tr className="border-t border-line bg-surface font-semibold">
-                    <td colSpan={8} className="px-3 py-1.5">
+                    <td colSpan={9} className="px-3 py-1.5">
                       {lista.length} apontamento(s)
                     </td>
                     <td className="px-3 py-1.5 text-right tabular">{nf(totalLista)}</td>

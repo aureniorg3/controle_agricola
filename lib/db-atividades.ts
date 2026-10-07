@@ -42,6 +42,9 @@ export async function prepararAtividades(pool: Pool): Promise<void> {
          )`
       );
       await pool.query("CREATE INDEX IF NOT EXISTS idx_ap_dia_dt ON ap_dia (dt)");
+      // nº do boletim de campo: único entre os apontamentos
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS bol integer");
+      await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_ap_dia_bol ON ap_dia (bol) WHERE bol IS NOT NULL");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_ap_dia_os ON ap_dia (os, op_cod)");
       await pool.query(
         `CREATE TABLE IF NOT EXISTS ap_dia_tlh (
@@ -185,11 +188,11 @@ const FMT = `'DD/MM/YYYY HH24:MI'`;
 
 async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params: unknown[]): Promise<ApontamentoDiario[]> {
   const { rows } = await exec.query<{
-    id: number; dt: string; os: string; op_cod: string; op_ds: string; solic: string; etapa_cod: string; etapa_ds: string; tipo_apl: string;
+    id: number; bol: number | null; dt: string; os: string; op_cod: string; op_ds: string; solic: string; etapa_cod: string; etapa_ds: string; tipo_apl: string;
     n_eqp: number; n_pes: number; obs: string; usr: string; cri_em: string; atu_usr: string | null; atu_em: string | null;
     talhoes: { propCod: string; propNm: string; tlh: string; areaTlh: number | null; area: number }[] | null;
   }>(
-    `SELECT a.id, a.dt::text AS dt, a.os, a.op_cod, a.op_ds, a.solic, a.etapa_cod, a.etapa_ds, a.tipo_apl, a.n_eqp, a.n_pes, a.obs, a.usr,
+    `SELECT a.id, a.bol, a.dt::text AS dt, a.os, a.op_cod, a.op_ds, a.solic, a.etapa_cod, a.etapa_ds, a.tipo_apl, a.n_eqp, a.n_pes, a.obs, a.usr,
             to_char(a.cri_em AT TIME ZONE 'America/Sao_Paulo', ${FMT}) AS cri_em, a.atu_usr,
             to_char(a.atu_em AT TIME ZONE 'America/Sao_Paulo', ${FMT}) AS atu_em,
             (SELECT json_agg(json_build_object('propCod', t.prop_cod, 'propNm', t.prop_nm, 'tlh', t.tlh, 'areaTlh', t.area_tlh::float, 'area', t.area::float)
@@ -203,6 +206,7 @@ async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params
     const talhoes = r.talhoes ?? [];
     return {
       id: r.id,
+      boletim: r.bol,
       dt: r.dt,
       os: r.os,
       opCod: r.op_cod,
@@ -224,10 +228,19 @@ async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params
   });
 }
 
-export async function listarApontamentos(f: { de: string; ate: string; os: string }): Promise<ApontamentoDiario[]> {
+export async function listarApontamentos(f: { de: string; ate: string; os: string; boletim?: number }): Promise<ApontamentoDiario[]> {
   const pool = getPool();
   await prepararAtividades(pool);
+  // buscando um boletim, ele aparece em qualquer data
+  if (f.boletim) return lerApontamentos(pool, "a.bol = $1", [f.boletim]);
   return lerApontamentos(pool, "a.dt BETWEEN $1::date AND $2::date AND ($3 = '' OR a.os = $3)", [f.de, f.ate, f.os.trim()]);
+}
+
+/** Próximo nº de boletim (o maior lançado + 1), sugerido no formulário. */
+export async function proximoBoletimAtividade(): Promise<number> {
+  const pool = getPool();
+  await prepararAtividades(pool);
+  return (await pool.query<{ n: number }>("SELECT (COALESCE(MAX(bol), 0) + 1)::int AS n FROM ap_dia")).rows[0].n;
 }
 
 export async function obterApontamento(id: number, exec?: Pick<Pool, "query">): Promise<ApontamentoDiario | null> {
@@ -236,8 +249,9 @@ export async function obterApontamento(id: number, exec?: Pick<Pool, "query">): 
   return (await lerApontamentos(exec ?? pool, "a.id = $1", [id]))[0] ?? null;
 }
 
-const chaveLog = (a: ApontamentoDiario) => `#${a.id} · O.S. ${a.os} · ${dataBR(a.dt)}`;
+const chaveLog = (a: ApontamentoDiario) => `Boletim ${a.boletim ?? `#${a.id}`} · O.S. ${a.os} · ${dataBR(a.dt)}`;
 const resumoLog = (a: ApontamentoDiario) => ({
+  boletim: a.boletim,
   data: dataBR(a.dt),
   os: a.os,
   operacao: `${a.opCod} ${a.opDs}`.trim(),
@@ -269,18 +283,22 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
     }
   }
   const etapa = op.etapaCod === e.etapaCod || !e.etapaCod ? { cod: op.etapaCod, ds: op.etapaDs } : { cod: e.etapaCod, ds: "" };
+  const repetido = (
+    await pool.query<{ id: number }>("SELECT id FROM ap_dia WHERE bol = $1 AND ($2::int IS NULL OR id <> $2::int) LIMIT 1", [e.boletim, id ?? null])
+  ).rows[0];
+  if (repetido) return { erro: `O boletim nº ${e.boletim} já foi lançado (apontamento #${repetido.id}). Confira o número.` };
 
   const client: PoolClient = await pool.connect();
   try {
     await client.query("BEGIN");
     let novoId = id;
     let antes: ApontamentoDiario | null = null;
-    const valores = [e.dt, os.os, op.cod, op.ds, e.solicitante.trim(), etapa.cod, etapa.ds, e.tipoAplicacao.trim(), e.numEquipamentos, e.numPessoas, e.obs.trim().slice(0, 300)];
+    const valores = [e.boletim, e.dt, os.os, op.cod, op.ds, e.solicitante.trim(), etapa.cod, etapa.ds, e.tipoAplicacao.trim(), e.numEquipamentos, e.numPessoas, e.obs.trim().slice(0, 300)];
     if (id === undefined) {
       novoId = (
         await client.query<{ id: number }>(
-          `INSERT INTO ap_dia (dt, os, op_cod, op_ds, solic, etapa_cod, etapa_ds, tipo_apl, n_eqp, n_pes, obs, usr)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+          `INSERT INTO ap_dia (bol, dt, os, op_cod, op_ds, solic, etapa_cod, etapa_ds, tipo_apl, n_eqp, n_pes, obs, usr)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
           [...valores, usuario]
         )
       ).rows[0].id;
@@ -291,8 +309,8 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
         return { erro: "Apontamento não encontrado." };
       }
       await client.query(
-        `UPDATE ap_dia SET dt=$1, os=$2, op_cod=$3, op_ds=$4, solic=$5, etapa_cod=$6, etapa_ds=$7, tipo_apl=$8, n_eqp=$9, n_pes=$10, obs=$11,
-                atu_usr=$12, atu_em=now() WHERE id=$13`,
+        `UPDATE ap_dia SET bol=$1, dt=$2, os=$3, op_cod=$4, op_ds=$5, solic=$6, etapa_cod=$7, etapa_ds=$8, tipo_apl=$9, n_eqp=$10, n_pes=$11, obs=$12,
+                atu_usr=$13, atu_em=now() WHERE id=$14`,
         [...valores, usuario, id]
       );
       await client.query("DELETE FROM ap_dia_tlh WHERE ap_id = $1", [id]);
