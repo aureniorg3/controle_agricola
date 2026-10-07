@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auditar } from "@/lib/auditar";
 import { deleteUsuario, getPool, getUsuarioPorId, updateUsuario, usuarioDaRequisicao } from "@/lib/db";
-import { ehAdmin } from "@/lib/permissoes";
+import { ehAdmin, PERFIS } from "@/lib/permissoes";
 import { PerfilUsuario, Usuario } from "@/lib/types";
 
-const PERFIS_VALIDOS: PerfilUsuario[] = ["leitura", "gravacao", "admin"];
+const PERFIS_VALIDOS: PerfilUsuario[] = PERFIS;
 // letras minúsculas, números, ponto, underscore e hífen — sem espaços/acentos
 const USUARIO_REGEX = /^[a-z0-9._-]{3,30}$/;
 

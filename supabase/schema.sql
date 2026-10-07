@@ -42,10 +42,12 @@ create table if not exists usr (
   eml text not null unique,
   usr text not null,
   sen_hsh text not null,
-  prf text not null check (prf in ('leitura', 'gravacao', 'admin')),
+  prf text not null check (prf in ('leitura', 'analista1', 'analista2', 'gravacao', 'admin')),
   atv boolean not null default true,
   prc_trc_sen boolean not null default false,
-  cri_em timestamptz not null default now()
+  cri_em timestamptz not null default now(),
+  -- telas liberadas (Parâmetros → Usuários); nulo = todas
+  ace jsonb
 );
 create unique index if not exists idx_usr_usr_lower on usr (lower(usr));
 

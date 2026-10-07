@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
 import { atualizarSemanas, criarRodada, excluirRodada, listarRodadasCad } from "@/lib/db-rodadas";
 import { gerarSemanas } from "@/lib/rodadas";
-import { podeEditar } from "@/lib/permissoes";
+import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +19,9 @@ export async function POST(req: NextRequest) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
     return NextResponse.json({ error: "Você não tem permissão para cadastrar rodadas." }, { status: 403 });
+  }
+  if (!podeIncluirCadastro(usuario.perfil)) {
+    return NextResponse.json({ error: "Seu perfil não inclui itens novos nos cadastros; peça a um usuário com perfil Gravação ou Administrador." }, { status: 403 });
   }
   const body = await req.json().catch(() => null);
   const rod = Number(body?.rod);

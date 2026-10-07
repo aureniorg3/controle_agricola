@@ -6,7 +6,7 @@ import { Campo } from "@/components/ui";
 import BotaoLog from "@/components/BotaoLog";
 import { fmtDataHora } from "@/components/AuditoriaModal";
 import { fmtDateBR } from "@/lib/format";
-import { podeEditar } from "@/lib/permissoes";
+import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 import { escolherSafraVigente } from "@/lib/safra-cadastro";
 import type { PerfilUsuario, SafraCadastro, TipoSafra } from "@/lib/types";
 
@@ -31,6 +31,7 @@ export default function SafrasClient({
 }) {
   const router = useRouter();
   const podeGravar = podeEditar(perfil);
+  const podeIncluir = podeIncluirCadastro(perfil);
   const [form, setForm] = useState(VAZIO);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
@@ -120,7 +121,7 @@ export default function SafrasClient({
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        {podeGravar && (
+        {podeGravar && (podeIncluir || editandoId) && (
           <form onSubmit={salvar} className="mb-5 rounded-xl2 border border-line bg-card p-4 shadow-card">
             <h2 className="mb-3 text-[14px] font-bold text-ink">{editandoId ? "Editar safra" : "Cadastrar safra"}</h2>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr]">

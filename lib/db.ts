@@ -113,6 +113,7 @@ function buildAdminPadrao(): Usuario {
     ativo: true,
     precisaTrocarSenha: false,
     criadoEm: new Date().toISOString(),
+    acessos: null,
   };
 }
 
@@ -138,7 +139,7 @@ const COLS_ENT =
   "ton_ate_6h AS toneladas_ate_6h, ton_ate_12h AS toneladas_ate_12h, ton_ate_18h AS toneladas_ate_18h, vgn AS viagens";
 const COLS_USR =
   "id, nm AS nome, snm AS sobrenome, eml AS email, usr AS usuario, sen_hsh AS senha_hash, prf AS perfil, " +
-  "atv AS ativo, prc_trc_sen AS precisa_trocar_senha, cri_em AS criado_em";
+  "atv AS ativo, prc_trc_sen AS precisa_trocar_senha, cri_em AS criado_em, ace AS acessos";
 
 /** Renomes de tabelas/colunas da versão por extenso para a abreviada. */
 const RENOMEACOES: { antiga: string; nova: string; colunas: Record<string, string> }[] = [
@@ -376,6 +377,18 @@ export function prepararBanco(pool: Pool): Promise<void> {
       await pool.query("ALTER TABLE eqp_frt ADD COLUMN IF NOT EXISTS atu_em timestamptz");
       await pool.query("ALTER TABLE saf_cad ADD COLUMN IF NOT EXISTS atu_em timestamptz");
       await pool.query("ALTER TABLE rod_cad ADD COLUMN IF NOT EXISTS atu_em timestamptz");
+      // telas liberadas para o usuário (Parâmetros → Usuários); nulo = todas
+      await pool.query("ALTER TABLE usr ADD COLUMN IF NOT EXISTS ace jsonb");
+      // perfis Analista I e Analista II
+      const { rows: chkPerfil } = await pool.query<{ def: string }>(
+        "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'usr'::regclass AND conname = 'usr_prf_check'"
+      );
+      if (!chkPerfil[0] || !chkPerfil[0].def.includes("analista1")) {
+        await pool.query("ALTER TABLE usr DROP CONSTRAINT IF EXISTS usr_prf_check");
+        await pool.query(
+          "ALTER TABLE usr ADD CONSTRAINT usr_prf_check CHECK (prf IN ('leitura', 'analista1', 'analista2', 'gravacao', 'admin'))"
+        );
+      }
       await pool.query("ALTER TABLE ord_vis ADD COLUMN IF NOT EXISTS cri_em timestamptz NOT NULL DEFAULT now()");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_rod_bol_chave ON rod_bol(rod, dt, reg, sem, faz)");
       // toda rodada tem 8 semanas: as que vieram da importação com menos (ex.: rodada em andamento) seguem
@@ -1706,6 +1719,7 @@ function mapUsuario(r: {
   ativo: boolean;
   precisa_trocar_senha: boolean;
   criado_em: Date | string;
+  acessos?: unknown;
 }): Usuario {
   return {
     id: r.id,
@@ -1718,6 +1732,7 @@ function mapUsuario(r: {
     ativo: r.ativo,
     precisaTrocarSenha: r.precisa_trocar_senha,
     criadoEm: paraIso(r.criado_em),
+    acessos: Array.isArray(r.acessos) ? r.acessos.filter((x): x is string => typeof x === "string") : null,
   };
 }
 
@@ -1816,6 +1831,7 @@ export async function insertUsuario(
     ativo: true,
     precisaTrocarSenha: true,
     criadoEm: new Date().toISOString(),
+    acessos: null,
   };
   await pool.query(
     `INSERT INTO usr (id, nm, snm, eml, usr, sen_hsh, prf, atv, prc_trc_sen, cri_em)
@@ -2034,4 +2050,28 @@ export async function ultimaDataPesagem(): Promise<string> {
   await prepararBanco(pool);
   const { rows } = await pool.query<{ d: string | null }>("SELECT MAX(dt)::text AS d FROM pes_viag");
   return rows[0]?.d ?? "";
+}
+
+
+/**
+ * Telas que o usuário pode ver (Parâmetros → Usuários). `null` libera todas, inclusive as que forem criadas
+ * depois; uma lista restringe o menu e o acesso às telas listadas. Fica no log de alterações.
+ */
+export async function salvarAcessosUsuario(id: string, acessos: string[] | null, quem: string): Promise<true | { erro: string }> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const atual = await getUsuarioPorId(id);
+  if (!atual) return { erro: "Usuário não encontrado." };
+  if (atual.perfil === "admin") return { erro: "O administrador vê todas as telas; não há o que restringir." };
+  await pool.query("UPDATE usr SET ace = $2::jsonb WHERE id = $1", [id, acessos === null ? null : JSON.stringify(acessos)]);
+  await auditar(pool, {
+    usuario: quem,
+    modulo: "Parâmetros",
+    entidade: "Acesso de usuário",
+    chave: `${atual.nome} ${atual.sobrenome}`.trim() || atual.email,
+    acao: "alteracao",
+    antes: { telas: atual.acessos === null ? "todas" : atual.acessos },
+    depois: { telas: acessos === null ? "todas" : acessos },
+  });
+  return true;
 }

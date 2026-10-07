@@ -2,32 +2,8 @@
 
 import TemaToggle from "./TemaToggle";
 import Link from "next/link";
-import { CADASTROS } from "@/lib/cadastros";
-import {
-  IconAcompanhamentos,
-  IconAlerta,
-  IconAtividades,
-  IconBalanca,
-  IconBusca,
-  IconCaminhaoCana,
-  IconCana,
-  IconColhedora,
-  IconConfig,
-  IconEquipe,
-  IconHistorico,
-  IconInsumo,
-  IconMapa,
-  IconMeta,
-  IconOrdemCorte,
-  IconOrdemServico,
-  IconPainel,
-  IconRodadas,
-  IconSair,
-  IconSetaBaixo,
-  IconSetaDireita,
-  IconSetaEsquerda,
-  type IconProps,
-} from "@/components/icons";
+import { IconBusca, IconPainel, IconSair, IconSetaBaixo, IconSetaDireita, IconSetaEsquerda } from "@/components/icons";
+import { filtrarMenu, ITEM_INICIO, SECOES_MENU, type ItemMenu } from "@/lib/menu";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -35,94 +11,11 @@ interface UsuarioLogado {
   nome: string;
   email: string;
   perfil: string;
+  /** telas liberadas; null = todas */
+  acessos?: string[] | null;
 }
 
-interface Item {
-  label: string;
-  /** grupos podem ter href (a própria tela do grupo) e/ou filhos. */
-  href?: string;
-  badge?: number;
-  icon?: (p: IconProps) => ReactNode;
-  children?: Item[];
-}
-interface Section {
-  title: string;
-  items: Item[];
-}
-
-const ITEM_INICIO: Item = { label: "Início / Dashboard", href: "/painel", icon: IconPainel };
-
-const SECTIONS: Section[] = [
-  {
-    title: "Operação Agrícola",
-    items: [
-      {
-        label: "Acompanhamentos",
-        icon: IconAcompanhamentos,
-        children: [
-          {
-            label: "Colheita",
-            href: "/acompanhamentos/colheita",
-            icon: IconCana,
-            children: [
-              { label: "Ordens de Corte", href: "/acompanhamentos/ordens-de-corte", icon: IconOrdemCorte },
-              { label: "Metas", href: "/acompanhamentos/colheita/metas", icon: IconMeta },
-              { label: "Histórico de Safras", href: "/acompanhamentos/colheita/historico-safras", icon: IconHistorico },
-              { label: "Conferência de Pesagem", href: "/acompanhamentos/colheita/conferencia-pesagem", icon: IconBalanca },
-              { label: "Equipto Frente", href: "/acompanhamentos/colheita/equipto-frente", icon: IconColhedora },
-            ],
-          },
-        ],
-      },
-      {
-        label: "Insumos",
-        icon: IconInsumo,
-        children: [
-          { label: "Saldo Insumos", href: "/acompanhamentos/insumos/saldo" },
-          { label: "Empréstimos", href: "/acompanhamentos/insumos/emprestimos" },
-          { label: "Dosagens", href: "/acompanhamentos/insumos/dosagens" },
-        ],
-      },
-      { label: "Ordem de Serviço Agr.", href: "/acompanhamentos/os-agricola", icon: IconOrdemServico },
-      { label: "Colheita Terceiro", href: "/acompanhamentos/colheita-terceiro", icon: IconCaminhaoCana },
-      { label: "Painel de ocorrências", href: "/contencioso", icon: IconAlerta },
-      {
-        label: "Rodadas de Campo",
-        icon: IconRodadas,
-        children: [
-          { label: "Resumo", href: "/rodadas-de-campo/resumo" },
-          { label: "Apontamento", href: "/rodadas-de-campo/apontamento" },
-          { label: "Cadastro de Rodadas", href: "/rodadas-de-campo/cadastro-de-rodadas" },
-          { label: "Cadastro de Ocorrências", href: "/rodadas-de-campo/ocorrencias" },
-          { label: "Cadastro de Nível de Infestação", href: "/rodadas-de-campo/nivel-de-infestacao" },
-          { label: "Cadastro Presença de Infestação", href: "/rodadas-de-campo/presenca-de-infestacao" },
-          { label: "Prioridade", href: "/rodadas-de-campo/prioridade" },
-          { label: "Responsável Região", href: "/rodadas-de-campo/responsavel-regiao" },
-        ],
-      },
-    ],
-  },
-  {
-    title: "Planejamento Agrícola",
-    items: [
-      { label: "Cadastro de Atividades", href: "/planejamento/cadastro-atividades", icon: IconAtividades },
-      { label: "Fazendas e Talhões", href: "/agricultura/fazendas", icon: IconMapa },
-      { label: "Frentes e Equipes", href: "/agricultura/frentes", icon: IconEquipe },
-    ],
-  },
-  {
-    title: "Configurações",
-    items: [
-      {
-        label: "Cadastros",
-        icon: IconConfig,
-        children: CADASTROS.map((c) => ({ label: c.label, href: `/configuracoes/cadastros/${c.slug}` })),
-      },
-      { label: "Validações", href: "/configuracoes/validacoes", icon: IconAlerta },
-      { label: "Log de Alterações", href: "/configuracoes/auditoria", icon: IconHistorico },
-    ],
-  },
-];
+type Item = ItemMenu;
 
 function hrefAtivo(pathname: string | null, href?: string, exato = false): boolean {
   if (!href || !pathname) return false;
@@ -177,14 +70,17 @@ export default function Sidebar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // menu do usuário: sem os itens de administrador e só com as telas liberadas (Parâmetros → Usuários)
+  const secoes = useMemo(() => filtrarMenu(SECOES_MENU, usuario?.perfil, usuario?.acessos ?? null), [usuario?.perfil, usuario?.acessos]);
+
   const secoesFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    if (!termo) return SECTIONS;
-    return SECTIONS.map((s) => ({
+    if (!termo) return secoes;
+    return secoes.map((s) => ({
       ...s,
       items: s.items.map((i) => filtrarItem(i, termo)).filter((i): i is Item => !!i),
     })).filter((s) => s.items.length > 0);
-  }, [busca]);
+  }, [busca, secoes]);
 
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
 

@@ -6,7 +6,7 @@ import {
   usuarioDaRequisicao,
   type DadosSafraCadastro,
 } from "@/lib/db";
-import { podeEditar } from "@/lib/permissoes";
+import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 const DATA_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -46,6 +46,9 @@ async function lerCorpo(req: NextRequest): Promise<Record<string, unknown> | nul
 export async function POST(req: NextRequest) {
   const negado = await autorizar(req, "cadastrar safras");
   if (negado) return negado;
+  if (!podeIncluirCadastro((await usuarioDaRequisicao(req))?.perfil)) {
+    return NextResponse.json({ error: "Seu perfil não inclui itens novos nos cadastros; peça a um usuário com perfil Gravação ou Administrador." }, { status: 403 });
+  }
   const body = await lerCorpo(req);
   if (!body) return NextResponse.json({ error: "Requisição inválida." }, { status: 400 });
   const dados = validar(body);

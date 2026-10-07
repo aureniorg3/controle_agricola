@@ -11,7 +11,7 @@ import {
   type DadosCadastro,
   type CadastroSpec,
 } from "@/lib/cadastros-spec";
-import { podeEditar } from "@/lib/permissoes";
+import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
@@ -42,6 +42,8 @@ export default function CadastroClient({
 }) {
   const spec = specPorSlug(slug) as CadastroSpec;
   const podeGravar = podeEditar(perfil);
+  // analistas lançam e editam, mas não incluem itens novos nem importam nos cadastros
+  const podeIncluir = podeIncluirCadastro(perfil);
 
   const [busca, setBusca] = usarPersistido(`cadastro.${slug}.busca`, "", ehTexto);
   const [termo, setTermo] = useState("");
@@ -110,7 +112,7 @@ export default function CadastroClient({
             Somente leitura
           </div>
         )}
-        {podeGravar && (
+        {podeIncluir && (
           <>
             <button
               type="button"

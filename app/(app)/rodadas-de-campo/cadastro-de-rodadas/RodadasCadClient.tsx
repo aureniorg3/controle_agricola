@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Campo, ModalShell } from "@/components/ui";
 import { fmtDateBR, todayISO } from "@/lib/format";
-import { podeEditar } from "@/lib/permissoes";
+import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 import { gerarSemanas, segundaDaSemana, somarDias, type RodadaCad } from "@/lib/rodadas";
 import type { PerfilUsuario } from "@/lib/types";
 
@@ -12,6 +12,7 @@ const INPUT =
 
 export default function RodadasCadClient({ perfil }: { perfil: PerfilUsuario }) {
   const podeGravar = podeEditar(perfil);
+  const podeIncluir = podeIncluirCadastro(perfil);
   const [rodadas, setRodadas] = useState<RodadaCad[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [rod, setRod] = useState("");
@@ -104,7 +105,7 @@ export default function RodadasCadClient({ perfil }: { perfil: PerfilUsuario }) 
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        {podeGravar && (
+        {podeIncluir && (
           <form onSubmit={salvar} className="mb-5 rounded-xl2 border border-line bg-card p-4 shadow-card">
             <h2 className="mb-3 text-[14px] font-bold text-ink">Nova rodada</h2>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">

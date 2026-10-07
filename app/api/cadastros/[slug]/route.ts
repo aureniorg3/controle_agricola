@@ -10,7 +10,7 @@ import {
 } from "@/lib/db";
 import { specPorSlug, type DadosCadastro } from "@/lib/cadastros-spec";
 import { resolverReferencias } from "@/lib/cadastros-ref";
-import { podeEditar } from "@/lib/permissoes";
+import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 const TAMANHO_PAGINA = 50;
 
@@ -58,6 +58,9 @@ export async function POST(req: NextRequest, ctx: Contexto) {
     return NextResponse.json({ error: "Preencha o(s) campo(s) de código." }, { status: 400 });
   }
   const anterior = (await listarCadastro(slug, cod, 1, 50)).itens.find((i) => i.cod === cod);
+  if (!anterior && !podeIncluirCadastro(usuario.perfil)) {
+    return NextResponse.json({ error: "Seu perfil não inclui itens novos nos cadastros; peça a um usuário com perfil Gravação ou Administrador." }, { status: 403 });
+  }
   await upsertCadastroLote(slug, [{ cod, nm: spec.nome(dados), dados }], usuario.nome);
   await auditar(getPool(), {
     usuario: usuario.nome,

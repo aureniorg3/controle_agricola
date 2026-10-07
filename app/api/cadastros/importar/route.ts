@@ -4,7 +4,7 @@ import { getPool, upsertCadastroLote, usuarioDaRequisicao } from "@/lib/db";
 import { specPorSlug } from "@/lib/cadastros-spec";
 import { lerCadastro, lerCadastroGrande } from "@/lib/cadastros-import";
 import { resolverReferencias } from "@/lib/cadastros-ref";
-import { podeEditar } from "@/lib/permissoes";
+import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -33,6 +33,9 @@ export async function POST(req: NextRequest) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
     return NextResponse.json({ error: "Você não tem permissão para importar cadastros." }, { status: 403 });
+  }
+  if (!podeIncluirCadastro(usuario.perfil)) {
+    return NextResponse.json({ error: "Seu perfil não inclui itens novos nos cadastros; peça a um usuário com perfil Gravação ou Administrador." }, { status: 403 });
   }
 
   let form: FormData;

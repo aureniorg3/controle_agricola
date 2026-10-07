@@ -25,7 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <AppShell
-      usuario={{ nome: `${usuario.nome} ${usuario.sobrenome}`.trim(), email: usuario.email, perfil: usuario.perfil }}
+      usuario={{ nome: `${usuario.nome} ${usuario.sobrenome}`.trim(), email: usuario.email, perfil: usuario.perfil, acessos: usuario.acessos }}
     >
       {usuario.perfil === "admin" && !armazenamento.persistente && (
         <div className="shrink-0 border-b border-alert-500/30 bg-alert-50 px-4 py-2 text-center text-[12.5px] font-semibold text-alert-600">

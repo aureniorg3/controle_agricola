@@ -3,15 +3,16 @@
 import { IconMais } from "@/components/icons";
 import { useState } from "react";
 import { PerfilUsuario, UsuarioPublico } from "@/lib/types";
-import { PERFIL_DESCRICAO, PERFIL_LABEL } from "@/lib/permissoes";
+import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIS } from "@/lib/permissoes";
 import { fmtDateBR } from "@/lib/format";
 import { Campo, InputSenha, ModalShell } from "@/components/ui";
 
-const PERFIS: PerfilUsuario[] = ["leitura", "gravacao", "admin"];
 
 function PerfilBadge({ perfil }: { perfil: PerfilUsuario }) {
   const cores: Record<PerfilUsuario, string> = {
     leitura: "bg-surface text-muted",
+    analista1: "bg-amber-50 text-amber-700",
+    analista2: "bg-amber-50 text-amber-700",
     gravacao: "bg-brand-50 text-brand-700",
     admin: "bg-good-50 text-good-600",
   };
@@ -88,10 +89,13 @@ export default function UsuariosClient({
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <p className="mb-4 max-w-2xl text-[13px] leading-relaxed text-muted">
-          Controla quem entra no sistema e o que cada um pode fazer. <b className="text-ink">Leitura</b>{" "}
-          {PERFIL_DESCRICAO.leitura.toLowerCase()} <b className="text-ink">Gravação</b>{" "}
-          {PERFIL_DESCRICAO.gravacao.toLowerCase()} <b className="text-ink">Administrador</b>{" "}
-          {PERFIL_DESCRICAO.admin.toLowerCase()}
+          Controla quem entra no sistema e o que cada um pode fazer.{" "}
+          {PERFIS.map((p) => (
+            <span key={p}>
+              <b className="text-ink">{PERFIL_LABEL[p]}</b> {PERFIL_DESCRICAO[p].charAt(0).toLowerCase() + PERFIL_DESCRICAO[p].slice(1)}{" "}
+            </span>
+          ))}
+          As telas que cada usuário vê ficam em Parâmetros → Usuários.
         </p>
 
         {erroGeral && (

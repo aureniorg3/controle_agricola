@@ -63,12 +63,14 @@ export interface OrdemCorte {
 }
 
 /**
- * Três níveis, cada um contendo o anterior:
- *  - leitura: vê todo o sistema, não cria nem edita nada;
- *  - gravacao: leitura + cria ordens, lança apontamentos, importa planilha;
- *  - admin: gravacao + gerencia usuários (Configurações → Cadastros).
+ * Perfis de acesso:
+ *  - leitura: vê as telas liberadas, não cria nem edita nada;
+ *  - analista1 / analista2: lançam e gravam nas telas de operação, mas não incluem itens nos cadastros;
+ *  - gravacao: cria ordens, lança apontamentos, importa planilha e inclui itens nos cadastros;
+ *  - admin: gravacao + gerencia usuários e os Parâmetros.
+ * Quais telas cada usuário vê é configurado à parte (Parâmetros → Usuários).
  */
-export type PerfilUsuario = "leitura" | "gravacao" | "admin";
+export type PerfilUsuario = "leitura" | "analista1" | "analista2" | "gravacao" | "admin";
 
 export interface Usuario {
   id: string;
@@ -86,6 +88,8 @@ export interface Usuario {
    * do sistema até trocar a senha em /trocar-senha. */
   precisaTrocarSenha: boolean;
   criadoEm: string;
+  /** telas liberadas (endereços do menu); null = todas, inclusive as que forem criadas depois */
+  acessos: string[] | null;
 }
 
 /** Usuario sem o hash de senha — o que trafega entre API e tela. */
