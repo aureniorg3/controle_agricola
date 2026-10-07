@@ -634,8 +634,8 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
         </section>
 
         <div ref={formRef} onKeyDown={aoTeclar} className="space-y-4">
-          <section className="rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
-            <h2 className="mb-3 text-[14px] font-bold text-ink">Boletim de rodada de campo</h2>
+          <section className="caixa-form">
+            <h2 className="caixa-form-titulo">Boletim de rodada de campo</h2>
 
             {/* Linha 1: Boletim · Data · Rodada · Semana · Região · Desc. Região */}
             <div className="grid grid-cols-6 gap-3 lg:grid-cols-[96px_132px_132px_112px_132px_minmax(0,1fr)]">
@@ -817,9 +817,9 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
             </div>
           </section>
 
-          <section className="rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
+          <section className="caixa-form">
             <div className="mb-3 flex flex-wrap items-center gap-3">
-              <h2 className="text-[14px] font-bold text-ink">
+              <h2 className="text-[14px] font-semibold text-ink">
                 Talhões{fazendaNm ? ` · ${faz.trim().split("-")[0]} ${fazendaNm}` : ""}
               </h2>
               {talhoes.length > 0 && (

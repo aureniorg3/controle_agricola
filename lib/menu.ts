@@ -67,6 +67,16 @@ export const SECOES_MENU: SecaoMenu[] = [
         ],
       },
       {
+        label: "Atividades",
+        icon: IconAtividades,
+        children: [
+          {
+            label: "Apontamentos Diários",
+            children: [{ label: "Apontamento", href: "/atividades/apontamentos-diarios/apontamento" }],
+          },
+        ],
+      },
+      {
         label: "Insumos",
         icon: IconInsumo,
         children: [

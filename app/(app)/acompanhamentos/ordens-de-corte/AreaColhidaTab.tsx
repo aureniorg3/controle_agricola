@@ -209,8 +209,8 @@ export default function AreaColhidaTab({
 
   return (
     <div ref={raiz} onKeyDown={aoTeclar} className="space-y-4">
-      <section className="rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
-        <h2 className="mb-3 text-[14px] font-bold text-ink">Apontamento da área colhida (dia a dia)</h2>
+      <section className="caixa-form">
+        <h2 className="caixa-form-titulo">Apontamento da área colhida (dia a dia)</h2>
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className={ROTULO}>Data</label>
