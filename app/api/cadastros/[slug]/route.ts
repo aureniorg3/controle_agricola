@@ -5,6 +5,7 @@ import {
   atualizarItemCadastro,
   excluirItemCadastro,
   listarCadastro,
+  sincronizarDescricaoFazendas,
   upsertCadastroLote,
   usuarioDaRequisicao,
 } from "@/lib/db";
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest, ctx: Contexto) {
     antes: anterior?.dados,
     depois: dados,
   });
+  if (slug === "fazendas") await sincronizarDescricaoFazendas();
   return NextResponse.json({ ok: true, cod });
 }
 
@@ -106,6 +108,7 @@ export async function PATCH(req: NextRequest, ctx: Contexto) {
     antes: existente.dados,
     depois: { ...existente.dados, ...dados },
   });
+  if (slug === "fazendas") await sincronizarDescricaoFazendas();
   return NextResponse.json({ ok: true });
 }
 

@@ -37,7 +37,7 @@ export interface ResultadoCadastro {
  * Versão em fluxo para planilhas enormes (ex.: Material e Insumos, ~120 mil linhas): não materializa a planilha
  * inteira e só guarda as colunas listadas no cadastro, para caber na memória da instância e no banco.
  */
-export async function lerCadastroGrande(buffer: ArrayBuffer, spec: CadastroSpec): Promise<ResultadoCadastro> {
+export async function lerCadastroGrande(buffer: ArrayBuffer, spec: CadastroSpec, ajustar = false): Promise<ResultadoCadastro> {
   const res: ResultadoCadastro = { itens: [], linhasLidas: 0, repetidas: 0, avisos: [], erros: [] };
   const guardar = new Set(spec.colunas.map((c) => c.chave));
   let chaves: string[] | null = null;
@@ -59,6 +59,7 @@ export async function lerCadastroGrande(buffer: ArrayBuffer, spec: CadastroSpec)
       if (guardar.has(k) || spec.obrigatorias.includes(k)) dados[k] = v;
     });
     if (!preenchida) return;
+    if (ajustar && spec.ajuste) Object.assign(dados, spec.ajuste.aplicar(dados));
     const cod = spec.codigo(dados);
     if (!cod || cod === "|") return;
     res.linhasLidas++;
@@ -85,7 +86,7 @@ export async function lerCadastroGrande(buffer: ArrayBuffer, spec: CadastroSpec)
 }
 
 /** Lê a planilha de um cadastro: acha o cabeçalho, guarda todas as colunas por nome e junta repetidos pelo código. */
-export function lerCadastro(buffer: ArrayBuffer, spec: CadastroSpec): ResultadoCadastro {
+export function lerCadastro(buffer: ArrayBuffer, spec: CadastroSpec, ajustar = false): ResultadoCadastro {
   const res: ResultadoCadastro = { itens: [], linhasLidas: 0, repetidas: 0, avisos: [], erros: [] };
   // o cabeçalho do cadastro pode estar em qualquer aba (um arquivo com vários cadastros, um por aba)
   const wb = XLSX.read(buffer, { type: "array", cellDates: true });
@@ -124,6 +125,7 @@ export function lerCadastro(buffer: ArrayBuffer, spec: CadastroSpec): ResultadoC
       dados[k] = v;
     });
     if (!preenchida) continue;
+    if (ajustar && spec.ajuste) Object.assign(dados, spec.ajuste.aplicar(dados));
     const cod = spec.codigo(dados);
     // linhas de rodapé/totais não têm código
     if (!cod || cod === "|") continue;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auditar } from "@/lib/auditar";
-import { getPool, upsertCadastroLote, usuarioDaRequisicao } from "@/lib/db";
+import { getPool, sincronizarDescricaoFazendas, upsertCadastroLote, usuarioDaRequisicao } from "@/lib/db";
 import { specPorSlug } from "@/lib/cadastros-spec";
 import { lerCadastro, lerCadastroGrande } from "@/lib/cadastros-import";
 import { resolverReferencias } from "@/lib/cadastros-ref";
@@ -66,7 +66,11 @@ export async function POST(req: NextRequest) {
       continue;
     }
     try {
-      const lido = spec.grande ? await lerCadastroGrande(await arquivo.arrayBuffer(), spec) : lerCadastro(await arquivo.arrayBuffer(), spec);
+      // correção marcada na tela (ex.: Descrição Fazenda sem o número e o traço na frente)
+      const ajustar = form.get(`ajustar_${i}`) === "1";
+      const lido = spec.grande
+        ? await lerCadastroGrande(await arquivo.arrayBuffer(), spec, ajustar)
+        : lerCadastro(await arquivo.arrayBuffer(), spec, ajustar);
       if (lido.erros.length > 0) {
         resultados.push({ ...base, erro: lido.erros.join(" ") });
         continue;
@@ -94,8 +98,13 @@ export async function POST(req: NextRequest) {
         entidade: `Cadastro de ${spec.titulo}`,
         chave: `Importação de ${arquivo.name}`,
         acao: "importacao",
-        depois: { lidos: itens.length, novos, atualizados },
+        depois: { lidos: itens.length, novos, atualizados, ajuste: ajustar && spec.ajuste ? spec.ajuste.rotulo : undefined },
       });
+      if (spec.slug === "fazendas") {
+        const sinc = await sincronizarDescricaoFazendas();
+        const total = sinc.reduce((a, x) => a + x.linhas, 0);
+        if (total > 0) avisos.push(`Descrição Fazenda atualizada em ${total.toLocaleString("pt-BR")} registro(s) do sistema (${sinc.map((x) => x.rotulo).join(", ")}).`);
+      }
       resultados.push({ ...base, ok: true, lidos: itens.length, novos, atualizados, avisos });
     } catch (e) {
       resultados.push({ ...base, erro: `Não foi possível ler o arquivo: ${e instanceof Error ? e.message : String(e)}` });

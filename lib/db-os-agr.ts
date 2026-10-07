@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import type { Pool } from "pg";
 import { auditar } from "./auditar";
 import { specPorSlug } from "./cadastros-spec";
-import { getPool, prepararBanco } from "./db";
+import { getPool, prepararBanco, sincronizarDescricaoFazendas } from "./db";
 import { chaveLinhaOS } from "./import-os-agr";
 import {
   agruparPorOS,
@@ -286,6 +286,8 @@ export async function importarOSAgr(
   } finally {
     client.release();
   }
+  // a descrição da fazenda vem do Cadastro de Fazendas
+  await sincronizarDescricaoFazendas();
   return previa;
 }
 

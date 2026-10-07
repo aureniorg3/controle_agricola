@@ -145,7 +145,7 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
             { rotulo: "Região", valor: (l) => l.reg },
             { rotulo: "Descrição da Região", valor: (l) => l.regNm },
             { rotulo: "Fazenda", valor: (l) => l.faz },
-            { rotulo: "Descrição da Fazenda", valor: (l) => l.fazNm },
+            { rotulo: "Descrição Fazenda", valor: (l) => l.fazNm },
             { rotulo: "Talhão", valor: (l) => l.tlh },
             { rotulo: "Área (ha)", valor: (l) => l.area },
             { rotulo: "Ocorrência", valor: (l) => l.ocorrencia },

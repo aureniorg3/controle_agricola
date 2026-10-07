@@ -218,7 +218,7 @@ export const VERIFICACOES: Verificacao[] = [
     severidade: "atencao",
     descricao: "O código da fazenda da ordem não existe em Configurações → Cadastros → Fazendas.",
     acao: "Importe ou cadastre a fazenda no cadastro de Fazendas.",
-    sql: `SELECT t.faz_cod AS "Fazenda", MAX(t.faz_nm) AS "Nome na ordem", COUNT(DISTINCT t.ord_num)::int AS "Ordens"
+    sql: `SELECT t.faz_cod AS "Fazenda", MAX(t.faz_nm) AS "Descrição Fazenda", COUNT(DISTINCT t.ord_num)::int AS "Ordens"
             FROM tlh t
            WHERE EXISTS (${CAD_FAZ})
              AND NOT EXISTS (SELECT 1 FROM cad_itm c WHERE c.cad = 'fazendas' AND (c.cod = t.faz_cod OR c.cod LIKE t.faz_cod || '-%'))

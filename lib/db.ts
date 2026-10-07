@@ -19,6 +19,7 @@ import {
   Usuario,
 } from "./types";
 import { auditar, dataBR } from "./auditar";
+import type { CadastroSpec, DadosCadastro } from "./cadastros-spec";
 import { hashSenha, SENHA_PADRAO_NOVO_USUARIO, SESSION_COOKIE_NAME, verificarTokenSessao } from "./auth";
 
 // `numeric` volta como string por padrão no driver `pg` (pra não perder
@@ -745,6 +746,8 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
   } finally {
     client.release();
   }
+  // a descrição da fazenda vem do Cadastro de Fazendas
+  await sincronizarDescricaoFazendas();
 }
 
 /** Números de ordem marcados para exibição — o `JOIN` garante que uma ordem
@@ -1063,6 +1066,8 @@ export async function substituirConferenciaDia(data: string, linhas: Conferencia
   } finally {
     client.release();
   }
+  // a descrição da fazenda vem do Cadastro de Fazendas
+  await sincronizarDescricaoFazendas();
 }
 
 export async function listConferencias(): Promise<ConferenciaLinha[]> {
@@ -1510,6 +1515,8 @@ export async function substituirSafra(safra: number, linhas: SafraTalhao[]): Pro
   } finally {
     client.release();
   }
+  // a descrição da fazenda vem do Cadastro de Fazendas
+  await sincronizarDescricaoFazendas();
 }
 
 export async function excluirSafra(safra: number): Promise<void> {
@@ -2076,4 +2083,122 @@ export async function salvarAcessosUsuario(id: string, acessos: string[] | null,
     depois: { telas: acessos === null ? "todas" : acessos },
   });
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Descrição da fazenda: o Cadastro de Fazendas é a fonte para o sistema inteiro
+// ---------------------------------------------------------------------------
+
+/** código da fazenda (sem zeros à esquerda e sem a sequência) → descrição do cadastro; a sequência 0 tem preferência */
+const CTE_FAZENDAS = `WITH fz AS (
+  SELECT DISTINCT ON (k) k, nm FROM (
+    SELECT ltrim(split_part(cod, '-', 1), '0') AS k, cod, btrim(nm) AS nm, position('-' in cod) = 0 AS principal
+      FROM cad_itm WHERE cad = 'fazendas' AND btrim(nm) <> ''
+  ) x ORDER BY k, principal DESC, cod
+)`;
+
+/** tabelas com o nome da fazenda gravado junto do código */
+const TABELAS_FAZENDA: { tabela: string; cod: string; nm: string; rotulo: string }[] = [
+  { tabela: "ord", cod: "faz_cod", nm: "faz_nm", rotulo: "Ordens de corte" },
+  { tabela: "tlh", cod: "faz_cod", nm: "faz_nm", rotulo: "Talhões das ordens" },
+  { tabela: "conf_pes", cod: "faz_cod", nm: "faz_nm", rotulo: "Conferência de pesagem" },
+  { tabela: "saf_tlh", cod: "faz_cod", nm: "faz_nm", rotulo: "Histórico de safras" },
+  { tabela: "os_tlh", cod: "prop_cod", nm: "prop_nm", rotulo: "Base de Acompanhamento de O.S." },
+  { tabela: "ap_dia_tlh", cod: "prop_cod", nm: "prop_nm", rotulo: "Apontamentos das atividades" },
+  { tabela: "os_agr", cod: "prop_cod", nm: "prop_nm", rotulo: "Base de O.S. (Ordem de Serviço Agr.)" },
+];
+
+/**
+ * Grava a descrição do Cadastro de Fazendas em todas as bases que guardam o nome da fazenda (ordens, talhões, pesagens,
+ * histórico de safras, O.S., apontamentos e empréstimos). Roda depois de cada importação e da correção do cadastro;
+ * fazendas sem cadastro ficam com o nome que vieram. Nunca derruba a importação que a chamou.
+ */
+export async function sincronizarDescricaoFazendas(): Promise<{ rotulo: string; linhas: number }[]> {
+  const pool = getPool();
+  const feito: { rotulo: string; linhas: number }[] = [];
+  try {
+    await prepararBanco(pool);
+    for (const t of TABELAS_FAZENDA) {
+      const existe = (await pool.query<{ r: string | null }>("SELECT to_regclass($1)::text AS r", [t.tabela])).rows[0].r;
+      if (!existe) continue;
+      const r = await pool.query(
+        `${CTE_FAZENDAS}
+         UPDATE ${t.tabela} AS t SET ${t.nm} = fz.nm FROM fz
+          WHERE ltrim(split_part(t.${t.cod}, '-', 1), '0') = fz.k AND t.${t.nm} IS DISTINCT FROM fz.nm`
+      );
+      if (r.rowCount) feito.push({ rotulo: t.rotulo, linhas: r.rowCount });
+    }
+    if ((await pool.query<{ r: string | null }>("SELECT to_regclass('emp_cab')::text AS r")).rows[0].r) {
+      const r = await pool.query(
+        `${CTE_FAZENDAS}, novo AS (
+           SELECT e.id, jsonb_agg(CASE WHEN fz.nm IS NOT NULL THEN jsonb_set(el, '{nome}', to_jsonb(fz.nm)) ELSE el END ORDER BY o) AS faz
+             FROM emp_cab e CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.faz) = 'array' THEN e.faz ELSE '[]'::jsonb END) WITH ORDINALITY AS a(el, o)
+             LEFT JOIN fz ON fz.k = ltrim(el->>'cod', '0')
+            GROUP BY e.id
+         )
+         UPDATE emp_cab AS e SET faz = novo.faz FROM novo WHERE novo.id = e.id AND e.faz IS DISTINCT FROM novo.faz`
+      );
+      if (r.rowCount) feito.push({ rotulo: "Empréstimos de insumos", linhas: r.rowCount });
+    }
+  } catch (err) {
+    console.error("Descrição das fazendas não sincronizada:", err);
+  }
+  return feito;
+}
+
+export interface ResultadoAjusteCadastro {
+  total: number;
+  alterados: number;
+  exemplos: { cod: string; antes: string; depois: string }[];
+  /** bases do sistema que receberam a descrição nova (só Fazendas) */
+  sincronizado: { rotulo: string; linhas: number }[];
+}
+
+/** Aplica a correção do cadastro (`spec.ajuste`) nos itens já gravados; com `gravar = false` só devolve a prévia. */
+export async function ajustarCadastro(spec: CadastroSpec, gravar: boolean, usuario: string): Promise<ResultadoAjusteCadastro> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  if (!spec.ajuste) return { total: 0, alterados: 0, exemplos: [], sincronizado: [] };
+  const { rows } = await pool.query<{ cod: string; nm: string; dds: DadosCadastro }>("SELECT cod, nm, dds FROM cad_itm WHERE cad = $1 ORDER BY cod", [spec.slug]);
+  const mudam = rows
+    .map((r) => {
+      const dds = spec.ajuste!.aplicar(r.dds ?? {});
+      return { cod: r.cod, antes: r.nm, nm: spec.nome(dds), dds, mudou: JSON.stringify(dds) !== JSON.stringify(r.dds ?? {}) };
+    })
+    .filter((x) => x.mudou || x.nm !== x.antes);
+  let sincronizado: { rotulo: string; linhas: number }[] = [];
+  if (gravar && mudam.length > 0) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE cad_itm c SET nm = x.nm, dds = x.dds, atu_em = now(), atu_usr = $3
+           FROM jsonb_to_recordset($2::jsonb) AS x(cod text, nm text, dds jsonb)
+          WHERE c.cad = $1 AND c.cod = x.cod`,
+        [spec.slug, JSON.stringify(mudam.map((m) => ({ cod: m.cod, nm: m.nm, dds: m.dds }))), usuario]
+      );
+      await auditar(client, {
+        usuario,
+        modulo: "Cadastros",
+        entidade: `Cadastro de ${spec.titulo}`,
+        chave: spec.ajuste.rotulo,
+        acao: "alteracao",
+        antes: Object.fromEntries(mudam.slice(0, 200).map((m) => [m.cod, m.antes])),
+        depois: { alterados: mudam.length, exemplos: Object.fromEntries(mudam.slice(0, 200).map((m) => [m.cod, m.nm])) },
+      });
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+  if (gravar && spec.slug === "fazendas") sincronizado = await sincronizarDescricaoFazendas();
+  return {
+    total: rows.length,
+    alterados: mudam.length,
+    exemplos: mudam.slice(0, 50).map((m) => ({ cod: m.cod, antes: m.antes, depois: m.nm })),
+    sincronizado,
+  };
 }

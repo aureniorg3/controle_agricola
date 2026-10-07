@@ -10,7 +10,7 @@ import {
   type LinhaBaseOS,
   type OperacaoOS,
 } from "./atividades";
-import { getPool, prepararBanco } from "./db";
+import { getPool, prepararBanco, sincronizarDescricaoFazendas } from "./db";
 import { prepararOSAgr } from "./db-os-agr";
 import { nomePosicao } from "./os-agr";
 
@@ -73,10 +73,11 @@ export async function importarBaseOS(linhas: LinhaBaseOS[], usuario: string): Pr
   const pool = getPool();
   await prepararAtividades(pool);
   const ordens = Array.from(new Set(linhas.map((l) => `${l.emp}|${l.os}`)));
+  let existentes = 0;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const existentes = (
+    existentes = (
       await client.query<{ n: number }>(
         "SELECT COUNT(DISTINCT (emp, os))::int AS n FROM os_tlh WHERE (emp || '|' || os) = ANY($1::text[])",
         [ordens]
@@ -106,13 +107,15 @@ export async function importarBaseOS(linhas: LinhaBaseOS[], usuario: string): Pr
       depois: { ordens: ordens.length, linhas: linhas.length, substituidas: existentes },
     });
     await client.query("COMMIT");
-    return { ordens: ordens.length, linhas: linhas.length, substituidas: existentes };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
   } finally {
     client.release();
   }
+  // a descrição da fazenda vem do Cadastro de Fazendas
+  await sincronizarDescricaoFazendas();
+  return { ordens: ordens.length, linhas: linhas.length, substituidas: existentes };
 }
 
 export async function resumoBaseOS(): Promise<{ ordens: number; ultimaImportacao: string | null }> {

@@ -1350,7 +1350,7 @@ export default function OrdensCorteClient({
                   <th className="px-3 py-1 font-semibold">Frente</th>
                   <th className="px-2.5 py-1 font-semibold">Ordem</th>
                   <th className="px-2.5 py-1 font-semibold">Fazenda</th>
-                  <th className="px-2.5 py-1 font-semibold">Fundo Agrícola</th>
+                  <th className="px-2.5 py-1 font-semibold">Descrição Fazenda</th>
                   <th className="whitespace-nowrap px-2.5 py-1 text-right text-[10.5px] font-semibold">Área Colhida (ha)</th>
                   <th className="whitespace-nowrap px-2.5 py-1 text-right text-[10.5px] font-semibold">Produção Acumulada (t)</th>
                   <th className="whitespace-nowrap px-3 py-1 text-right text-[10.5px] font-semibold">TCH Parcial (t/ha)</th>

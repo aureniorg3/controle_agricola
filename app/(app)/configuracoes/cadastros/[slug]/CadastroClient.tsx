@@ -55,6 +55,7 @@ export default function CadastroClient({
   const [erroLista, setErroLista] = useState<string | null>(null);
   const [editando, setEditando] = useState<{ novo: boolean; item: Item | null } | null>(null);
   const [importarAberto, setImportarAberto] = useState(false);
+  const [ajusteAberto, setAjusteAberto] = useState(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -111,6 +112,16 @@ export default function CadastroClient({
           <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
             Somente leitura
           </div>
+        )}
+        {podeIncluir && spec.ajuste && (
+          <button
+            type="button"
+            onClick={() => setAjusteAberto(true)}
+            title={spec.ajuste.descricao}
+            className="rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+          >
+            {spec.ajuste.rotulo}
+          </button>
         )}
         {podeIncluir && (
           <>
@@ -247,6 +258,15 @@ export default function CadastroClient({
           onFechar={() => setEditando(null)}
           onSalvo={() => {
             setEditando(null);
+            carregar();
+          }}
+        />
+      )}
+      {ajusteAberto && (
+        <AjusteModal
+          spec={spec}
+          onFechar={() => {
+            setAjusteAberto(false);
             carregar();
           }}
         />
@@ -395,6 +415,8 @@ function EditarModal({
 interface ArquivoSel {
   arquivo: File;
   cadastro: string;
+  /** aplicar a correção do cadastro (ex.: Descrição Fazenda) já na importação */
+  ajustar: boolean;
 }
 
 interface ResultadoArquivo {
@@ -420,7 +442,7 @@ function ImportarModal({ cadastroAtual, onFechar }: { cadastroAtual: string; onF
       Array.from(files)
         .slice(0, 12)
         // o nome do arquivo é o nome do cadastro; sem correspondência, vale o cadastro desta tela
-        .map((arquivo) => ({ arquivo, cadastro: specPorNomeArquivo(arquivo.name)?.slug ?? cadastroAtual }))
+        .map((arquivo) => ({ arquivo, cadastro: specPorNomeArquivo(arquivo.name)?.slug ?? cadastroAtual, ajustar: true }))
     );
   }
 
@@ -433,6 +455,7 @@ function ImportarModal({ cadastroAtual, onFechar }: { cadastroAtual: string; onF
       arquivos.forEach((a, i) => {
         form.append(`arquivo_${i}`, a.arquivo);
         form.append(`cad_${i}`, a.cadastro);
+        if (a.ajustar && specPorSlug(a.cadastro)?.ajuste) form.append(`ajustar_${i}`, "1");
       });
       const res = await fetch("/api/cadastros/importar", { method: "POST", body: form });
       const json = await res.json().catch(() => ({}));
@@ -482,6 +505,20 @@ function ImportarModal({ cadastroAtual, onFechar }: { cadastroAtual: string; onF
                   </option>
                 ))}
               </select>
+              {specPorSlug(a.cadastro)?.ajuste && (
+                <label className="flex w-full items-start gap-2 rounded-md bg-card px-2 py-1.5 text-[12px] text-ink">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={a.ajustar}
+                    onChange={(e) => setArquivos((prev) => prev.map((x, idx) => (idx === i ? { ...x, ajustar: e.target.checked } : x)))}
+                  />
+                  <span>
+                    <b className="font-semibold">{specPorSlug(a.cadastro)!.ajuste!.rotulo}</b> na importação
+                    <span className="block text-muted">{specPorSlug(a.cadastro)!.ajuste!.descricao}</span>
+                  </span>
+                </label>
+              )}
             </div>
           ))}
         </div>
@@ -533,6 +570,126 @@ function ImportarModal({ cadastroAtual, onFechar }: { cadastroAtual: string; onF
         >
           {enviando ? "Importando…" : "Importar"}
         </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+interface PreviaAjuste {
+  total: number;
+  alterados: number;
+  exemplos: { cod: string; antes: string; depois: string }[];
+  sincronizado: { rotulo: string; linhas: number }[];
+}
+
+/** Correção dos itens já gravados (ex.: Descrição Fazenda sem o número e o traço na frente), com prévia antes de gravar. */
+function AjusteModal({ spec, onFechar }: { spec: CadastroSpec; onFechar: () => void }) {
+  const [previa, setPrevia] = useState<PreviaAjuste | null>(null);
+  const [feito, setFeito] = useState<PreviaAjuste | null>(null);
+  const [aplicando, setAplicando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/cadastros/ajustar?slug=${spec.slug}`, { cache: "no-store" })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => (ok ? setPrevia(j) : setErro(j.error ?? "Não foi possível montar a prévia.")))
+      .catch(() => setErro("Não foi possível montar a prévia."));
+  }, [spec.slug]);
+
+  async function aplicar() {
+    setAplicando(true);
+    setErro(null);
+    try {
+      const res = await fetch("/api/cadastros/ajustar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: spec.slug }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível corrigir.");
+      setFeito(j);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível corrigir.");
+    } finally {
+      setAplicando(false);
+    }
+  }
+
+  const r = feito ?? previa;
+  return (
+    <ModalShell titulo={spec.ajuste!.rotulo} onFechar={onFechar}>
+      <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
+        {spec.ajuste!.descricao}
+        {spec.slug === "fazendas" && " Depois de corrigir, a Descrição Fazenda é gravada também nas ordens, talhões, pesagens, histórico de safras, O.S., apontamentos e empréstimos."}
+      </p>
+      {!r && !erro && <p className="text-[12.5px] text-muted">Conferindo o cadastro…</p>}
+      {r && (
+        <>
+          <p className="mb-2 text-[12.5px] text-ink">
+            {feito ? (
+              <>
+                <b>{feito.alterados.toLocaleString("pt-BR")}</b> de {feito.total.toLocaleString("pt-BR")} registro(s) corrigido(s).
+              </>
+            ) : r.alterados === 0 ? (
+              <>Nada a corrigir: os {r.total.toLocaleString("pt-BR")} registros já estão certos.</>
+            ) : (
+              <>
+                <b>{r.alterados.toLocaleString("pt-BR")}</b> de {r.total.toLocaleString("pt-BR")} registro(s) mudam:
+              </>
+            )}
+          </p>
+          {r.exemplos.length > 0 && (
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-line">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="border-b border-line bg-surface text-left text-muted">
+                    <th className="px-3 py-1.5 font-medium">Código</th>
+                    <th className="px-3 py-1.5 font-medium">Antes</th>
+                    <th className="px-3 py-1.5 font-medium">Depois</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.exemplos.map((x) => (
+                    <tr key={x.cod} className="border-t border-line/60">
+                      <td className="px-3 py-1 tabular text-muted">{x.cod}</td>
+                      <td className="px-3 py-1 text-muted line-through decoration-alert-500/50">{x.antes}</td>
+                      <td className="px-3 py-1 text-ink">{x.depois}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {r.alterados > r.exemplos.length && <p className="mt-1 text-[11.5px] text-muted">Mostrando {r.exemplos.length} de {r.alterados}.</p>}
+          {feito && feito.sincronizado.length > 0 && (
+            <div className="mt-3 rounded-lg border border-good-500/30 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">
+              Descrição Fazenda atualizada no sistema:
+              <ul className="mt-1 list-disc pl-5">
+                {feito.sincronizado.map((x) => (
+                  <li key={x.rotulo}>
+                    {x.rotulo}: {x.linhas.toLocaleString("pt-BR")} registro(s)
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+      {erro && <div className="mt-3 rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">{erro}</div>}
+      <div className="mt-5 flex justify-end gap-2">
+        <button type="button" onClick={onFechar} className="rounded-lg border border-line px-4 py-2 text-[13px] font-semibold text-ink">
+          {feito ? "Fechar" : "Cancelar"}
+        </button>
+        {!feito && (
+          <button
+            type="button"
+            disabled={!previa || aplicando || (previa.alterados === 0 && spec.slug !== "fazendas")}
+            onClick={aplicar}
+            className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
+          >
+            {aplicando ? "Corrigindo…" : previa && previa.alterados === 0 ? "Atualizar o sistema" : "Corrigir"}
+          </button>
+        )}
       </div>
     </ModalShell>
   );

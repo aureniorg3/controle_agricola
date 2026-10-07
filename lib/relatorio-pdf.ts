@@ -981,7 +981,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     const pad = Math.max(0.45, 1.1 * escala);
     autoTable(d, {
       startY: topo,
-      head: [["Frente", "Ordem", "Fazenda", "Fundo Agrícola", "Área Colhida (ha)", "Produção Acum. (t)", "TCH Parcial (t/ha)"]],
+      head: [["Frente", "Ordem", "Fazenda", "Descrição Fazenda", "Área Colhida (ha)", "Produção Acum. (t)", "TCH Parcial (t/ha)"]],
       body: corpo,
       styles: { fontSize: fonte, cellPadding: pad },
       headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold" },

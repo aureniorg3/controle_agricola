@@ -1,3 +1,5 @@
+import { limparNomeFazenda } from "./fazendas";
+
 /** Valor de uma célula já normalizado: texto sem espaços sobrando, número ou "" */
 export type ValorCadastro = string | number;
 export type DadosCadastro = Record<string, ValorCadastro>;
@@ -28,6 +30,8 @@ export interface CadastroSpec {
   chaves: string[];
   /** planilha muito grande (dezenas de milhares de linhas): lida em fluxo, guardando só as colunas de `colunas` */
   grande?: boolean;
+  /** correção opcional dos dados (na importação e pelo botão da tela) */
+  ajuste?: { rotulo: string; descricao: string; aplicar: (d: DadosCadastro) => DadosCadastro };
 }
 
 /** minúsculas, sem acento e sem pontuação: "Código Cliente/Forn." -> "codigo cliente forn" */
@@ -51,10 +55,15 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
     codigo: (d) => `${texto(d.propriedade)}${Number(d.sequencia) ? `-${texto(d.sequencia)}` : ""}`,
     nome: (d) => texto(d.fundo_agricola),
     chaves: ["propriedade", "sequencia"],
+    ajuste: {
+      rotulo: "Corrigir Descrição Fazenda",
+      descricao: "Tira números, espaços e traços antes do nome (ex.: “9386 - FAZ. NOSSA SENHORA” → “FAZ. NOSSA SENHORA”).",
+      aplicar: (d) => ({ ...d, fundo_agricola: limparNomeFazenda(texto(d.fundo_agricola), texto(d.propriedade)) }),
+    },
     colunas: [
       { chave: "propriedade", rotulo: "Propriedade", alinhar: "direita" },
       { chave: "sequencia", rotulo: "Seq.", alinhar: "direita" },
-      { chave: "fundo_agricola", rotulo: "Fundo Agrícola", largura: 220 },
+      { chave: "fundo_agricola", rotulo: "Descrição Fazenda", largura: 260 },
       { chave: "proprietario", rotulo: "Código Proprietário", alinhar: "direita" },
       { chave: "proprietario_2", rotulo: "Proprietário", largura: 240 },
       { chave: "tipo_de_propriedade", rotulo: "Tipo", alinhar: "centro" },
