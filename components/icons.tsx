@@ -273,6 +273,45 @@ export function IconRelogio(p: IconProps) {
   );
 }
 
+/* ----------------------------------- clima ----------------------------------- */
+
+export function IconChuva(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M7 15.5a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17 7.5a3.5 3.5 0 0 1 .5 8" />
+      <path d="M8.5 18.5l-1 2M12.5 18.5l-1 2M16.5 18.5l-1 2" />
+    </Svg>
+  );
+}
+
+export function IconVento(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M3 9h10.5a2.5 2.5 0 1 0-2.4-3.2" />
+      <path d="M3 13h14.5a2.5 2.5 0 1 1-2.4 3.2" />
+      <path d="M3 17h6" />
+    </Svg>
+  );
+}
+
+export function IconTermometro(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0Z" />
+      <path d="M12 9v8" />
+    </Svg>
+  );
+}
+
+export function IconSol(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4" />
+    </Svg>
+  );
+}
+
 /* --------------------------------- interface --------------------------------- */
 
 export function IconBusca(p: IconProps) {

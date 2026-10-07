@@ -82,6 +82,8 @@ export interface DadosRelatorioCompleto {
   /** resumo diário do mês selecionado: uma linha por dia, uma coluna por frente */
   resumoMensal: ResumoMensal;
   nomeUsuario: string;
+  /** clima da Zeus por fazenda para a data de referência (rodapé de cada card); omitido se indisponível */
+  clima?: ClimaRelatorio | null;
 }
 
 function round2(n: number): number {
@@ -132,6 +134,64 @@ function desenharLinhaCard(
   valores.forEach((v, i) => doc.text(String(v), cols[i].x, y, { align: cols[i].align }));
 }
 
+/** Clima da Zeus por fazenda (mesmo formato da rota /api/clima/chuva). */
+export interface ClimaRelatorio {
+  hoje: boolean;
+  fazendas: Record<
+    string,
+    {
+      pic: string;
+      anteriorMm: number | null;
+      dia: {
+        chuvaMm: number;
+        tMin: number | null;
+        tMax: number | null;
+        umidadeMed: number | null;
+        ventoMedKmh: number | null;
+        rajadaMaxKmh: number | null;
+        radiacaoWhm2: number | null;
+      } | null;
+      ultimaLeitura: string | null;
+    } | null
+  >;
+}
+
+const fmtClima = (n: number | null | undefined, casas = 0) =>
+  n == null ? "—" : n.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+
+type TipoIcone = "chuva" | "termometro" | "gota" | "vento" | "sol";
+
+/** Ícones de clima em traço fino (~3 mm), desenhados com primitivas do jsPDF. */
+function desenharIcone(doc: import("jspdf").jsPDF, tipo: TipoIcone, cx: number, cy: number, cor: [number, number, number]) {
+  doc.setDrawColor(...cor);
+  doc.setLineWidth(0.22);
+  if (tipo === "chuva") {
+    doc.circle(cx - 0.6, cy - 0.7, 0.85, "S");
+    doc.circle(cx + 0.7, cy - 0.5, 0.7, "S");
+    doc.line(cx - 1.4, cy + 0.1, cx + 1.4, cy + 0.1);
+    doc.line(cx - 0.9, cy + 0.6, cx - 1.2, cy + 1.4);
+    doc.line(cx, cy + 0.6, cx - 0.3, cy + 1.4);
+    doc.line(cx + 0.9, cy + 0.6, cx + 0.6, cy + 1.4);
+  } else if (tipo === "termometro") {
+    doc.roundedRect(cx - 0.35, cy - 1.5, 0.7, 2.2, 0.35, 0.35, "S");
+    doc.circle(cx, cy + 1.05, 0.7, "S");
+    doc.line(cx, cy - 0.4, cx, cy + 0.8);
+  } else if (tipo === "gota") {
+    doc.triangle(cx, cy - 1.6, cx - 0.95, cy + 0.1, cx + 0.95, cy + 0.1, "S");
+    doc.circle(cx, cy + 0.55, 0.95, "S");
+  } else if (tipo === "vento") {
+    doc.line(cx - 1.5, cy - 0.8, cx + 0.9, cy - 0.8);
+    doc.line(cx - 1.5, cy, cx + 1.5, cy);
+    doc.line(cx - 1.5, cy + 0.8, cx + 0.4, cy + 0.8);
+  } else {
+    doc.circle(cx, cy, 0.75, "S");
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      doc.line(cx + Math.cos(a) * 1.15, cy + Math.sin(a) * 1.15, cx + Math.cos(a) * 1.65, cy + Math.sin(a) * 1.65);
+    }
+  }
+}
+
 /**
  * Monta (mede, mas não desenha) um card de ordem no formato novo da tela:
  * faixa lateral de status, talhões à esquerda (com o bloco de TCH embaixo) e,
@@ -150,7 +210,8 @@ function montarCardOrdem(
     safraAtual: number;
     safrasAnteriores: number[];
     divergenciaPct?: number;
-  }
+  },
+  clima?: ClimaRelatorio | null
 ): { altura: number; desenhar: (x: number, y: number) => void } {
   const pad = 2.6;
   const faixa = 1.3;
@@ -223,11 +284,21 @@ function montarCardOrdem(
     ...(variasFazendas ? [{ faixa: `${g.fazendaCodigo} · ${g.fazendaNome}` }] : []),
     ...g.talhoes.map((t) => ({ talhao: t })),
   ]);
+  // rodapé de clima (Zeus): um bloco por fazenda, 2 linhas x 3 itens quando há leitura
+  const climaFazendas = clima
+    ? gruposFazenda.map((g) => ({ g, c: clima.fazendas[g.fazendaCodigo.trim().split("-")[0].trim()] ?? null }))
+    : [];
+  const temClima = climaFazendas.some((x) => x.c);
+  const alturaLinhaClima = 6.6;
+  const alturaBlocoClima = (c: (typeof climaFazendas)[number]["c"]) =>
+    (variasFazendas ? 3 : 0) + (c?.dia ? alturaLinhaClima * 2 : 3.4) + 3;
+  const alturaClima = temClima ? 4.2 + climaFazendas.reduce((s, x) => s + alturaBlocoClima(x.c), 0) + 0.5 : 0;
+
   const alturaCabecalho = 3.6 + linhasFazenda.length * 3 + 1.5;
   const alturaEsq =
     3 + (nTalhoes > 0 ? 4 + linhasTalhoes.length * alturaLinhaTalhao + 3.8 + 2 : 4) + alturaBlocoTch;
   const alturaDir = 9.5 + 2 + 5.5 + 2 + 11.5 + 2 + 10.5 + 2 + 4.6;
-  const altura = pad + alturaCabecalho + Math.max(alturaEsq, alturaDir) + pad;
+  const altura = pad + alturaCabecalho + Math.max(alturaEsq, alturaDir) + alturaClima + pad;
 
   function caixa(bx: number, by: number, bw: number, bh: number, fundo: [number, number, number]) {
     doc.setFillColor(...fundo);
@@ -469,6 +540,98 @@ function montarCardOrdem(
         false,
         larguraDir
       );
+    }
+
+    // ------------------------------ rodapé: clima (Zeus)
+    if (temClima && clima) {
+      let fy = y + altura - pad - alturaClima;
+      doc.setDrawColor(...LINE);
+      doc.setLineWidth(0.2);
+      doc.line(x + faixa, fy, x + largura, fy);
+      doc.setFillColor(...ALT_ROW);
+      doc.rect(x + faixa + 0.1, fy + 0.1, largura - faixa - 0.2, alturaClima + pad - 0.2, "F");
+      const ultima = climaFazendas
+        .map((f) => f.c?.ultimaLeitura)
+        .filter((v): v is string => !!v)
+        .sort()
+        .pop();
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(5.2);
+      doc.setTextColor(...MUTED);
+      doc.text("CLIMA · ZEUS", xi, fy + 3);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(5);
+      doc.text(
+        clima.hoje ? `hoje${ultima ? ` · leitura até ${ultima.slice(11, 16)}` : ""}` : `histórico · ${fmtDateBR(referencia)}`,
+        xi + larguraInterna,
+        fy + 3,
+        { align: "right" }
+      );
+      fy += 4.2;
+
+      const cw = larguraInterna / 3;
+      for (const { g, c } of climaFazendas) {
+        if (variasFazendas) {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(5);
+          doc.setTextColor(...NAVY);
+          doc.text((doc.splitTextToSize(`${g.fazendaCodigo} · ${g.fazendaNome}`, larguraInterna) as string[])[0], xi, fy + 2);
+          fy += 3;
+        }
+        const d = c?.dia;
+        if (!c || !d) {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(5.4);
+          doc.setTextColor(...MUTED);
+          doc.text(c ? "Sem leituras neste dia." : "Fazenda sem estação na Zeus.", xi, fy + 2.4);
+          fy += 3.4 + 3;
+          continue;
+        }
+        const itens: { icone: TipoIcone; rotulo: string; valor: string; unidade: string; destaque?: boolean }[] = [
+          { icone: "chuva", rotulo: "Chuva", valor: fmtClima(d.chuvaMm, 1), unidade: "mm", destaque: true },
+          { icone: "chuva", rotulo: "Dia anterior", valor: fmtClima(c.anteriorMm, 1), unidade: "mm" },
+          {
+            icone: "termometro",
+            rotulo: "Temp. mín–máx",
+            valor: d.tMin == null || d.tMax == null ? "—" : `${fmtClima(d.tMin)}–${fmtClima(d.tMax)}`,
+            unidade: "°C",
+          },
+          { icone: "gota", rotulo: "Umidade", valor: fmtClima(d.umidadeMed), unidade: "%" },
+          {
+            icone: "vento",
+            rotulo: "Vento (rajada)",
+            valor: d.ventoMedKmh == null ? "—" : `${fmtClima(d.ventoMedKmh)} (${fmtClima(d.rajadaMaxKmh)})`,
+            unidade: "km/h",
+          },
+          { icone: "sol", rotulo: "Radiação", valor: fmtClima(d.radiacaoWhm2), unidade: "Wh/m²" },
+        ];
+        itens.forEach((it, i) => {
+          const ix = xi + (i % 3) * cw;
+          const iy = fy + Math.floor(i / 3) * alturaLinhaClima;
+          desenharIcone(doc, it.icone, ix + 1.8, iy + 2.6, it.destaque ? NAVY : MUTED);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(6.4);
+          doc.setTextColor(...INK);
+          doc.text(it.valor, ix + 4.2, iy + 2.6);
+          if (it.valor !== "—") {
+            const wv = doc.getTextWidth(it.valor);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(4.4);
+            doc.setTextColor(...MUTED);
+            doc.text(it.unidade, ix + 4.2 + wv + 0.5, iy + 2.6);
+          }
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(4.4);
+          doc.setTextColor(...MUTED);
+          doc.text(it.rotulo, ix + 4.2, iy + 5);
+        });
+        fy += alturaLinhaClima * 2;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(4.4);
+        doc.setTextColor(...MUTED);
+        doc.text(`Estação ${c.pic}`, xi, fy + 1.6);
+        fy += 3;
+      }
     }
     doc.setTextColor(...INK);
   }
@@ -723,7 +886,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
         safraAtual: dados.historicoTch.safraAtual,
         safrasAnteriores: dados.historicoTch.safrasAnteriores,
         divergenciaPct: dados.divergenciaPorOrdem[ordem.numero],
-      })
+      }, dados.clima)
     );
 
   for (const [frente, ordensFrente] of dados.porFrente) {

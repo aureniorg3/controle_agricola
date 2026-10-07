@@ -32,7 +32,12 @@ import AreaColhidaTab from "./AreaColhidaTab";
 import {
   IconCaminhaoCana,
   IconColhedora,
+  IconChuva,
   IconFechar,
+  IconGota,
+  IconSol,
+  IconTermometro,
+  IconVento,
   IconImportar,
   IconImprimir,
   IconMeta,
@@ -452,6 +457,32 @@ export default function OrdensCorteClient({
     [ordens, ordensAuto, ordensVisiveis]
   );
 
+  // pluviômetro (Zeus): chuva do dia filtrado e do anterior, por fazenda das ordens na tela
+  const [chuva, setChuva] = useState<ChuvaResp | null>(null);
+  const codigosFazendas = useMemo(
+    () =>
+      [
+        ...new Set(
+          ordensSelecionadas.flatMap((o) => [o.fazendaCodigo, ...o.talhoes.map((t) => t.fazendaCodigo)]).map(codigoFazendaBase)
+        ),
+      ]
+        .filter(Boolean)
+        .sort()
+        .join(","),
+    [ordensSelecionadas]
+  );
+  useEffect(() => {
+    if (!codigosFazendas || !referencia) return;
+    let cancelado = false;
+    fetch(`/api/clima/chuva?data=${referencia}&fazendas=${codigosFazendas}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => !cancelado && setChuva(j))
+      .catch(() => !cancelado && setChuva(null));
+    return () => {
+      cancelado = true;
+    };
+  }, [referencia, codigosFazendas]);
+
   const filtroFrenteStatusBusca = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return (o: OrdemCorte) => {
@@ -659,6 +690,7 @@ export default function OrdensCorteClient({
     try {
       await gerarRelatorioCompletoPdf({
         titulo: "Resumo por Frente — Ordens de Corte",
+        clima: chuva,
         safraLabel,
         referencia,
         period,
@@ -1285,6 +1317,7 @@ export default function OrdensCorteClient({
                       ordem={ordem}
                       period={period}
                       referencia={referencia}
+                      chuva={chuva}
                       historico={historicoTch.porOrdem[ordem.numero]}
                       safraAtual={historicoTch.safraAtual}
                       safrasAnteriores={historicoTch.safrasAnteriores}
@@ -1633,10 +1666,110 @@ function ResumoMensalTabela({
   );
 }
 
+interface ChuvaFazenda {
+  pic: string;
+  anteriorMm: number | null;
+  dia: {
+    chuvaMm: number;
+    tMin: number | null;
+    tMax: number | null;
+    umidadeMed: number | null;
+    ventoMedKmh: number | null;
+    rajadaMaxKmh: number | null;
+    radiacaoWhm2: number | null;
+  } | null;
+  ultimaLeitura: string | null;
+}
+interface ChuvaResp {
+  hoje: boolean;
+  fazendas: Record<string, ChuvaFazenda | null>;
+}
+
+/** "9001-1" -> "9001": a Zeus só conhece o código base da fazenda. */
+function codigoFazendaBase(codigo: string): string {
+  return codigo.trim().split("-")[0].trim();
+}
+
+const fmtMm = (n: number | null) =>
+  n == null ? "—" : n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+const fmtN = (n: number | null | undefined, casas = 0) =>
+  n == null ? "—" : n.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+
+function ClimaItem({ icone, rotulo, valor, unidade, destaque }: { icone: ReactNode; rotulo: string; valor: string; unidade?: string; destaque?: boolean }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2" title={rotulo}>
+      <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full ${destaque ? "bg-brand-50 text-brand-700" : "bg-surface text-muted"}`}>
+        {icone}
+      </span>
+      <div className="min-w-0 leading-tight">
+        <div className="text-[9.5px] uppercase tracking-wide text-muted">{rotulo}</div>
+        <div className="tabular text-[13px] font-bold text-ink">
+          {valor}
+          {unidade && valor !== "—" && <span className="ml-0.5 text-[10px] font-medium text-muted">{unidade}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Rodapé do card com o clima da Zeus (PIC da fazenda): data filtrada = hoje -> leitura atual (parcial); data passada -> histórico daquele dia. */
+function ClimaRodape({
+  resp,
+  fazendas,
+  referencia,
+}: {
+  resp: ChuvaResp;
+  fazendas: { codigo: string; nome: string }[];
+  referencia: string;
+}) {
+  const linhas = fazendas.map((f) => ({ f, c: resp.fazendas[codigoFazendaBase(f.codigo)] ?? null }));
+  if (linhas.every((l) => !l.c)) return null;
+  const ultima = linhas.map((l) => l.c?.ultimaLeitura).filter(Boolean).sort().pop();
+  return (
+    <div className="border-t border-line bg-surface/50 px-4 py-2.5">
+      <div className="mb-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-wide text-muted">
+        <span>Clima · Zeus</span>
+        <span className="font-medium normal-case">
+          {resp.hoje ? `hoje${ultima ? ` · leitura até ${ultima.slice(11, 16)}` : ""}` : `histórico · ${fmtDateBR(referencia)}`}
+        </span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {linhas.map(({ f, c }) => {
+          const d = c?.dia;
+          return (
+            <div key={f.codigo}>
+              {linhas.length > 1 && (
+                <div className="mb-1 truncate text-[10.5px] text-muted">
+                  {f.codigo} · {f.nome}
+                </div>
+              )}
+              {!c || !d ? (
+                <div className="text-[11px] text-muted">{c ? "Sem leituras neste dia." : "Fazenda sem estação na Zeus."}</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 xl:grid-cols-6">
+                  <ClimaItem destaque icone={<IconChuva size={16} />} rotulo="Chuva" valor={fmtN(d.chuvaMm, 1)} unidade="mm" />
+                  <ClimaItem icone={<IconChuva size={16} />} rotulo="Dia anterior" valor={fmtN(c.anteriorMm, 1)} unidade="mm" />
+                  <ClimaItem icone={<IconTermometro size={16} />} rotulo="Temp. mín–máx" valor={d.tMin == null || d.tMax == null ? "—" : `${fmtN(d.tMin)}–${fmtN(d.tMax)}`} unidade="°C" />
+                  <ClimaItem icone={<IconGota size={16} />} rotulo="Umidade" valor={fmtN(d.umidadeMed)} unidade="%" />
+                  <ClimaItem icone={<IconVento size={16} />} rotulo="Vento (rajada)" valor={d.ventoMedKmh == null ? "—" : `${fmtN(d.ventoMedKmh)} (${fmtN(d.rajadaMaxKmh)})`} unidade="km/h" />
+                  <ClimaItem icone={<IconSol size={16} />} rotulo="Radiação" valor={fmtN(d.radiacaoWhm2)} unidade="Wh/m²" />
+                </div>
+              )}
+              {c && <div className="mt-1 truncate text-[9.5px] text-muted">Estação {c.pic}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function OrdemCard({
   ordem,
   period,
   referencia,
+  chuva,
   historico,
   safraAtual,
   safrasAnteriores,
@@ -1647,6 +1780,7 @@ function OrdemCard({
   ordem: OrdemCorte;
   period: Periodo;
   referencia: string;
+  chuva?: ChuvaResp | null;
   historico?: HistoricoTchOrdem["porOrdem"][string];
   safraAtual: number;
   safrasAnteriores: number[];
@@ -1840,6 +1974,14 @@ function OrdemCard({
             </div>
           </div>
         </div>
+
+        {chuva && (
+          <ClimaRodape
+            resp={chuva}
+            referencia={referencia}
+            fazendas={gruposFazenda.map((g) => ({ codigo: g.fazendaCodigo, nome: g.fazendaNome }))}
+          />
+        )}
       </div>
     </div>
   );
