@@ -10,7 +10,6 @@ import { podeEditar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
 
 const INPUT = "w-full rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink disabled:opacity-60";
-const LEITURA = "w-full rounded-md border border-line/70 bg-card/60 px-2.5 py-1.5 text-[13px] text-ink";
 const ROTULO = "mb-1 block text-[11.5px] font-medium text-muted";
 const BOTAO = "rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] font-medium text-navy-800 hover:bg-surface disabled:opacity-50";
 const CELULA = "w-full rounded border border-line bg-card px-2 py-1 text-[12.5px] text-ink";
@@ -185,7 +184,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
         tipoAplicacao: manter?.tipoAplicacao ?? (primeira?.tipoDs || primeira?.tipoCod || f.tipoAplicacao),
         solicitante: manter?.solicitante ?? (f.solicitante || info.resp),
         areas: manter?.areas ?? {},
-        marcados: manter?.marcados ?? {},
+        // na edição de um rateio, só os talhões do apontamento ficam marcados
+        marcados: manter?.marcados
+          ? Object.fromEntries((primeira?.talhoes ?? []).map((t) => [chaveTalhao(t.propCod, t.tlh), !!manter.marcados![chaveTalhao(t.propCod, t.tlh)]]))
+          : {},
       }));
     } catch (e) {
       setOsInfo(null);
@@ -275,7 +277,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
         const ref = t.areaRec ?? t.areaTlh ?? 0;
         return {
           k, propCod: t.propCod, propNm: t.propNm, tlh: t.tlh, areaTlh: t.areaTlh, areaRec: t.areaRec, ja, saldo: Math.max(0, round2(ref - ja)),
-          valor: form.areas[k] ?? "", marcado: !!form.marcados[k], area: 0,
+          valor: form.areas[k] ?? "", marcado: form.marcados[k] !== false, area: 0,
         };
       });
     } else {
@@ -294,6 +296,25 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const totalDia = round2(linhas.reduce((a, l) => a + l.area, 0));
   const fazendasOS = Array.from(new Set(linhas.map((l) => `${l.propCod} · ${l.propNm}`)));
   const rateio = form.modoArea === "rateio";
+
+  /** Digitou a área do dia: ela é rateada entre os talhões marcados (vazio volta para a área por talhão). */
+  function digitarAreaDia(v: string) {
+    if (!v.trim()) return upd({ modoArea: "talhao", volume: "", areas: {}, livres: form.livres.map((l) => ({ ...l, valor: "" })) });
+    upd({ modoArea: "rateio", volume: v });
+  }
+
+  /** Digitou num talhão: passa para a área por talhão, mantendo o que o rateio tinha distribuído nos outros. */
+  function digitarAreaTalhao(k: string, v: string) {
+    const atual = new Map(linhas.map((l) => [l.k, form.modoArea === "rateio" ? texto(l.area) : l.valor]));
+    atual.set(k, v);
+    if (comOS) upd({ modoArea: "talhao", volume: "", areas: Object.fromEntries(atual) });
+    else upd({ modoArea: "talhao", volume: "", livres: form.livres.map((l) => ({ ...l, valor: atual.get(l.key) ?? l.valor })) });
+  }
+
+  function limparAreas() {
+    if (comOS) upd({ modoArea: "talhao", volume: "", areas: {} });
+    else upd({ modoArea: "talhao", volume: "", livres: form.livres.map((l) => ({ ...l, valor: "" })) });
+  }
 
   function limpar() {
     setForm(formVazio());
@@ -575,8 +596,16 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 <input value={form.numPessoas} onChange={(e) => upd({ numPessoas: e.target.value.replace(/\D/g, "") })} inputMode="numeric" className={`${INPUT} text-right tabular`} />
               </div>
               <div>
-                <label className={ROTULO}>Área realizada no dia</label>
-                <div className={`${LEITURA} text-right font-semibold tabular`}>{nf(totalDia)} ha</div>
+                <label className={ROTULO}>Área realizada no dia (ha)</label>
+                <input
+                  value={rateio ? form.volume : totalDia ? texto(totalDia) : ""}
+                  onChange={(e) => digitarAreaDia(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  className={`${INPUT} text-right font-semibold tabular`}
+                  aria-label="Área realizada no dia"
+                  title="Digite a área do dia para ratear entre os talhões marcados, ou preencha talhão a talhão na tabela"
+                />
               </div>
               <div className="col-span-2 md:col-span-1">
                 <label className={ROTULO}>Observação</label>
@@ -589,72 +618,55 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               <span>
                 {comOS ? "Talhões da O.S." : "Fazenda e talhões"} · {linhas.length}
               </span>
-              <div className="inline-flex rounded-lg border border-line bg-card p-0.5 text-[12px] font-normal" role="radiogroup" aria-label="Como informar a área">
-                {(
-                  [
-                    ["talhao", "Área por talhão"],
-                    ["rateio", "Volume rateado"],
-                  ] as const
-                ).map(([v, r]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    role="radio"
-                    aria-checked={form.modoArea === v}
-                    onClick={() => upd({ modoArea: v })}
-                    className={`rounded-md px-3 py-0.5 font-medium ${form.modoArea === v ? "bg-navy-900 text-white" : "text-navy-800 hover:bg-surface"}`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
               {linhas.length > 0 && (
                 <span className="ml-auto flex gap-2 text-[12px] font-normal">
-                  {rateio ? (
+                  {rateio && (
                     <>
                       <button
                         type="button"
                         className={BOTAO}
                         onClick={() =>
-                          comOS ? upd({ marcados: Object.fromEntries(linhas.map((l) => [l.k, true])) }) : upd({ livres: form.livres.map((l) => ({ ...l, marcado: true })) })
+                          comOS
+                            ? upd({ marcados: Object.fromEntries(linhas.map((l) => [l.k, true])) })
+                            : upd({ livres: form.livres.map((l) => ({ ...l, marcado: true })) })
                         }
                       >
                         Marcar todos
                       </button>
-                      <button type="button" className={BOTAO} onClick={() => (comOS ? upd({ marcados: {} }) : upd({ livres: form.livres.map((l) => ({ ...l, marcado: false })) }))}>
+                      <button
+                        type="button"
+                        className={BOTAO}
+                        onClick={() =>
+                          comOS
+                            ? upd({ marcados: Object.fromEntries(linhas.map((l) => [l.k, false])) })
+                            : upd({ livres: form.livres.map((l) => ({ ...l, marcado: false })) })
+                        }
+                      >
                         Desmarcar
                       </button>
                     </>
-                  ) : (
-                    <>
-                      {comOS && (
-                        <button type="button" className={BOTAO} onClick={() => upd({ areas: Object.fromEntries(linhas.map((l) => [l.k, texto(l.saldo)])) })}>
-                          Preencher com o saldo
-                        </button>
-                      )}
-                      <button type="button" className={BOTAO} onClick={() => (comOS ? upd({ areas: {} }) : upd({ livres: form.livres.map((l) => ({ ...l, valor: "" })) }))}>
-                        Limpar áreas
-                      </button>
-                    </>
                   )}
+                  {comOS && (
+                    <button type="button" className={BOTAO} onClick={() => upd({ modoArea: "talhao", volume: "", areas: Object.fromEntries(linhas.map((l) => [l.k, texto(l.saldo)])) })}>
+                      Preencher com o saldo
+                    </button>
+                  )}
+                  <button type="button" className={BOTAO} onClick={limparAreas}>
+                    Limpar áreas
+                  </button>
                 </span>
               )}
             </div>
 
             {rateio && (
-              <div className="mb-2 flex flex-wrap items-end gap-3">
-                <div className="w-[160px]">
-                  <label className={ROTULO}>Volume a ratear (ha)</label>
-                  <input value={form.volume} onChange={(e) => upd({ volume: e.target.value })} inputMode="decimal" className={`${INPUT} text-right tabular`} aria-label="Volume a ratear" />
-                </div>
-                <p className="pb-1.5 text-[12px] text-muted">
-                  {marcadosQtd === 0
-                    ? "Marque os talhões que recebem o rateio."
-                    : somaPeso > 0
-                      ? `Rateado entre ${marcadosQtd} talhão(ões), proporcional à ${comOS ? "área recomendada" : "área do talhão"} (${nf(somaPeso)} ha).`
-                      : `Rateado igualmente entre ${marcadosQtd} talhão(ões) (sem área cadastrada).`}
-                </p>
-              </div>
+              <p className="mb-2 rounded-md border border-[#2E5FA8]/25 bg-[#2E5FA8]/[0.06] px-3 py-1.5 text-[12px] text-ink">
+                {marcadosQtd === 0
+                  ? "Marque os talhões que recebem a área do dia."
+                  : somaPeso > 0
+                    ? `${form.volume} ha rateados entre ${marcadosQtd} talhão(ões) marcado(s), proporcional à ${comOS ? "área recomendada" : "área do talhão"} (${nf(somaPeso)} ha).`
+                    : `${form.volume} ha rateados igualmente entre ${marcadosQtd} talhão(ões) marcado(s) (sem área cadastrada).`}{" "}
+                Para ajustar um talhão, digite na tabela.
+              </p>
             )}
 
             {comOS && !op ? (
@@ -676,7 +688,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                           <th className="px-3 py-1.5 text-right font-medium">Saldo</th>
                         </>
                       )}
-                      <th className="w-[140px] px-3 py-1.5 text-right font-medium">{rateio ? "Rateio (ha)" : "Área realizada (ha)"}</th>
+                      <th className="w-[140px] px-3 py-1.5 text-right font-medium">Área realizada (ha)</th>
                       {!comOS && <th className="w-9" />}
                     </tr>
                   </thead>
@@ -744,18 +756,14 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                             </>
                           )}
                           <td className="px-2 py-0.5">
-                            {rateio ? (
-                              <div className={`px-2 py-1 text-right tabular ${passaTalhao ? "font-medium text-alert-700" : passaSaldo ? "text-amber-700" : "text-ink"}`}>{l.marcado && l.area ? nf(l.area) : "—"}</div>
-                            ) : (
-                              <input
-                                value={l.valor}
-                                onChange={(e) => (comOS ? upd({ areas: { ...form.areas, [l.k]: e.target.value } }) : updLivre(l.k, { valor: e.target.value }))}
-                                inputMode="decimal"
-                                className={`w-full rounded border px-2 py-1 text-right tabular ${passaTalhao ? "border-alert-500 bg-alert-50" : passaSaldo ? "border-amber-500 bg-amber-50" : "border-line bg-card"}`}
-                                aria-label={`Área realizada no talhão ${l.tlh}`}
-                                title={passaTalhao ? "Passa da área do talhão" : passaSaldo ? "Passa do saldo da O.S. neste talhão" : undefined}
-                              />
-                            )}
+                            <input
+                              value={rateio ? (l.marcado && l.area ? texto(l.area) : "") : l.valor}
+                              onChange={(e) => digitarAreaTalhao(l.k, e.target.value)}
+                              inputMode="decimal"
+                              className={`w-full rounded border px-2 py-1 text-right tabular ${passaTalhao ? "border-alert-500 bg-alert-50" : passaSaldo ? "border-amber-500 bg-amber-50" : rateio ? "border-line bg-surface" : "border-line bg-card"}`}
+                              aria-label={`Área realizada no talhão ${l.tlh}`}
+                              title={passaTalhao ? "Passa da área do talhão" : passaSaldo ? "Passa do saldo da O.S. neste talhão" : rateio ? "Rateado da área do dia; digite para ajustar" : undefined}
+                            />
                           </td>
                           {!comOS && (
                             <td className="px-1 py-0.5 text-center">
@@ -821,7 +829,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               {comOS
                 ? "Saldo = área recomendada na O.S. (ou a do talhão) menos o que já foi apontado. Área acima do saldo fica destacada, mas pode ser gravada; acima da área do talhão, não."
                 : "Uma linha por talhão; pode haver mais de uma fazenda no mesmo apontamento. A fazenda tem de estar no Cadastro de Fazenda; os talhões sugeridos vêm do histórico de safras (ou das ordens de corte)."}
-              {rateio ? " No volume rateado, cada talhão marcado recebe a parte proporcional à sua área." : ""}
+              {" Digitando a área realizada no dia, ela é rateada entre os talhões marcados, proporcional à área de cada um."}
             </p>
 
             <div className="mt-4 flex flex-wrap justify-end gap-2">
