@@ -24,6 +24,7 @@ const CABECALHO = [
   "Frente (Relatório)",
   "Frente (Cadastro)",
   "Fazenda",
+  "Descrição Fazenda",
   "Ordem",
   "Frente (Ordem)",
   "Status Ordem",
@@ -40,7 +41,8 @@ function linhaTabela(l: LinhaConferida): (string | number)[] {
     l.eqpNome,
     l.frente,
     l.frenteCadastro ?? "—",
-    `${l.fazendaCodigo} - ${l.fazendaNomeExibido}`,
+    l.fazendaCodigo,
+    l.fazendaNomeExibido,
     l.ordemNumero ?? "—",
     l.ordemFrente ?? "—",
     l.ordemStatus ?? "—",
@@ -70,7 +72,7 @@ export async function gerarConferenciaPdf(dados: DadosRelatorioConferencia): Pro
     body: [
       ...dados.linhas.map(linhaTabela),
       [
-        { content: "Total geral", colSpan: 9, styles: { halign: "left" } },
+        { content: "Total geral", colSpan: 10, styles: { halign: "left" } },
         { content: fmtT(totalT), styles: { halign: "right" } },
         { content: "", colSpan: 3 },
       ],
@@ -78,7 +80,7 @@ export async function gerarConferenciaPdf(dados: DadosRelatorioConferencia): Pro
     styles: { font: "helvetica", fontSize: 7, cellPadding: 1.2, textColor: INK, lineColor: LINE, lineWidth: 0.1 },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold", halign: "left" },
     alternateRowStyles: { fillColor: ALT_ROW },
-    columnStyles: { 9: { halign: "right" } },
+    columnStyles: { 10: { halign: "right" } },
     didParseCell: (d) => {
       if (d.section === "body" && d.row.index === dados.linhas.length) {
         d.cell.styles.fillColor = NAVY;
@@ -141,7 +143,8 @@ export async function gerarConferenciaXlsx(dados: DadosRelatorioConferencia): Pr
       l.eqpNome,
       l.frente,
       l.frenteCadastro ?? "",
-      `${l.fazendaCodigo} - ${l.fazendaNomeExibido}`,
+      l.fazendaCodigo,
+    l.fazendaNomeExibido,
       l.ordemNumero ?? "",
       l.ordemFrente ?? "",
       l.ordemStatus ?? "",

@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-/** GET `?slug=`: prévia da correção do cadastro; POST `{ slug }`: grava (e, em Fazendas, leva a descrição para o sistema). */
+/** GET `?slug=`: prévia da correção do cadastro; POST `{ slug }`: grava (e, em Fazenda, leva a descrição para o sistema). */
 async function tratar(req: NextRequest, slug: string, gravar: boolean) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeIncluirCadastro(usuario.perfil)) {

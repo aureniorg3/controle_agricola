@@ -248,6 +248,7 @@ export default function ColheitaPainelClient({
                   <thead>
                     <tr className="border-b border-line bg-surface text-left text-muted">
                       <th className="px-4 py-2 font-semibold">{dimInfo.coluna}</th>
+                      {dim === "fazenda" && <th className="px-3 py-2 font-semibold">Descrição Fazenda</th>}
                       <th className="px-3 py-2 text-right font-semibold">
                         Área {ultima} (ha)
                       </th>
@@ -266,7 +267,14 @@ export default function ColheitaPainelClient({
                   <tbody>
                     {visiveis.map((l) => (
                       <tr key={l.chave} className="border-b border-line last:border-0">
-                        <td className="px-4 py-1.5 font-semibold text-ink">{l.chave || "—"}</td>
+                        {dim === "fazenda" ? (
+                          <>
+                            <td className="px-4 py-1.5 font-semibold tabular text-ink">{l.chave.split(" - ")[0] || "—"}</td>
+                            <td className="px-3 py-1.5 text-ink">{l.chave.split(" - ").slice(1).join(" - ")}</td>
+                          </>
+                        ) : (
+                          <td className="px-4 py-1.5 font-semibold text-ink">{l.chave || "—"}</td>
+                        )}
                         <td className="px-3 py-1.5 text-right tabular text-ink">
                           {l.areaUltima > 0 ? fmtHa(l.areaUltima) : "—"}
                         </td>

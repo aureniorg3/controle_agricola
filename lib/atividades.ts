@@ -63,12 +63,19 @@ export interface TalhaoApontado {
   area: number;
 }
 
+/** Como a área do dia foi informada: talhão a talhão, ou um volume total rateado entre os talhões marcados. */
+export type ModoArea = "talhao" | "rateio";
+
 export interface ApontamentoDiario {
   id: number;
   /** nº do boletim de campo (único) */
   boletim: number | null;
   dt: string;
+  /** vazio = apontamento sem O.S. (fazenda e talhões informados à mão) */
   os: string;
+  modoArea: ModoArea;
+  /** volume total informado no rateio */
+  volume: number | null;
   opCod: string;
   opDs: string;
   solicitante: string;
@@ -89,8 +96,15 @@ export interface ApontamentoDiario {
 export interface EntradaApontamento {
   boletim: number;
   dt: string;
+  /** apontamento sem O.S.: informa a fazenda, a operação e os talhões */
+  semOS: boolean;
   os: string;
+  fazCod: string;
   opCod: string;
+  opDs: string;
+  modoArea: ModoArea;
+  /** volume total (ha) para o rateio */
+  volume: number | null;
   solicitante: string;
   etapaCod: string;
   tipoAplicacao: string;
@@ -109,13 +123,37 @@ const DATA = /^\d{4}-\d{2}-\d{2}$/;
 export function validarApontamento(e: EntradaApontamento): string | null {
   if (!Number.isInteger(e.boletim) || e.boletim <= 0) return "Informe o número do boletim.";
   if (!DATA.test(e.dt) || Number.isNaN(Date.parse(e.dt))) return "Informe a data do apontamento.";
-  if (!e.os.trim()) return "Informe a Ordem de Serviço.";
-  if (!e.opCod.trim()) return "Escolha a operação.";
+  if (!e.semOS && !e.os.trim()) return "Informe a Ordem de Serviço.";
+  if (e.semOS && !e.fazCod.trim()) return "Informe a fazenda.";
+  if (!e.opCod.trim()) return e.semOS ? "Informe a operação." : "Escolha a operação.";
   if (!e.solicitante.trim()) return "Informe o solicitante.";
   if (!Number.isInteger(e.numEquipamentos) || e.numEquipamentos < 0) return "Número de equipamentos inválido.";
   if (!Number.isInteger(e.numPessoas) || e.numPessoas < 0) return "Número de pessoas inválido.";
+  if (e.talhoes.some((t) => !t.tlh.trim())) return "Há talhão sem número.";
+  if (e.modoArea === "rateio") {
+    if (!(e.volume !== null && Number.isFinite(e.volume) && e.volume > 0)) return "Informe o volume (ha) a ratear.";
+    if (e.talhoes.length === 0) return "Marque os talhões que vão receber o rateio.";
+    return null;
+  }
   const comArea = e.talhoes.filter((t) => t.area > 0);
   if (e.talhoes.some((t) => !Number.isFinite(t.area) || t.area < 0)) return "Há área realizada inválida em algum talhão.";
   if (comArea.length === 0) return "Informe a área realizada em pelo menos um talhão.";
   return null;
+}
+
+/**
+ * Rateia o volume entre os talhões, proporcional à área de cada um (quando todos têm área); sem área, divide igual.
+ * Arredonda em centésimos e acerta a diferença no maior talhão, para a soma bater com o volume.
+ */
+export function ratearArea(volume: number, areas: (number | null)[]): number[] {
+  if (areas.length === 0 || !(volume > 0)) return areas.map(() => 0);
+  const pesos = areas.every((a) => a !== null && a > 0) ? (areas as number[]) : areas.map(() => 1);
+  const soma = pesos.reduce((a, b) => a + b, 0);
+  const r = pesos.map((p) => round2((volume * p) / soma));
+  const dif = round2(volume - r.reduce((a, b) => a + b, 0));
+  if (dif !== 0) {
+    const i = pesos.indexOf(Math.max(...pesos));
+    r[i] = round2(r[i] + dif);
+  }
+  return r;
 }

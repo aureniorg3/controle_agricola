@@ -262,6 +262,7 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
                   <th className="px-3 py-2 text-right font-semibold">Semana</th>
                   <th className="px-3 py-2 font-semibold">Região</th>
                   <th className="px-3 py-2 font-semibold">Fazenda</th>
+                  <th className="px-3 py-2 font-semibold">Descrição Fazenda</th>
                   <th className="px-3 py-2 text-center font-semibold">Talhão</th>
                   <th className="px-3 py-2 text-right font-semibold">Área (ha)</th>
                   <th className="px-3 py-2 font-semibold">Ocorrência</th>
@@ -284,7 +285,8 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
                     <td className="whitespace-nowrap px-3 py-1 text-ink">{fmtDateBR(l.dt)}</td>
                     <td className="px-3 py-1 text-right tabular text-ink">{l.sem || ""}</td>
                     <td className="whitespace-nowrap px-3 py-1 text-ink">{l.reg ? (l.regNm ? `${l.reg} · ${l.regNm}` : l.reg) : ""}</td>
-                    <td className="px-3 py-1 text-ink">{l.fazNm ? `${l.faz} · ${l.fazNm}` : l.faz}</td>
+                    <td className="px-3 py-1 tabular text-ink">{l.faz}</td>
+                    <td className="px-3 py-1 text-ink">{l.fazNm}</td>
                     <td className="px-3 py-1 text-center text-ink">{l.tlh}</td>
                     <td className="px-3 py-1 text-right tabular text-ink">{l.area !== null ? fmtHa(l.area) : ""}</td>
                     <td className="min-w-[200px] px-3 py-1 text-ink">{l.ocorrencia}</td>
@@ -301,7 +303,7 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
                 ))}
                 {!carregando && linhas.length === 0 && (
                   <tr>
-                    <td colSpan={18} className="px-4 py-10 text-center text-muted">
+                    <td colSpan={19} className="px-4 py-10 text-center text-muted">
                       {podeGravar
                         ? 'Nenhum levantamento ainda. Use "Importar" para carregar a planilha ou lance pelo Apontamento.'
                         : "Nenhum levantamento ainda."}

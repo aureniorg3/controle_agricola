@@ -286,7 +286,7 @@ export async function importarOSAgr(
   } finally {
     client.release();
   }
-  // a descrição da fazenda vem do Cadastro de Fazendas
+  // a descrição da fazenda vem do Cadastro de Fazenda
   await sincronizarDescricaoFazendas();
   return previa;
 }

@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import { auditar, dataBR } from "./auditar";
 import {
   chaveTalhao,
+  ratearArea,
   round2,
   validarApontamento,
   type ApontamentoDiario,
@@ -12,6 +13,7 @@ import {
 } from "./atividades";
 import { getPool, prepararBanco, sincronizarDescricaoFazendas } from "./db";
 import { prepararOSAgr } from "./db-os-agr";
+import { buscarCodigo, talhoesDaFazenda } from "./db-rodadas";
 import { nomePosicao } from "./os-agr";
 
 let preparado: Promise<void> | null = null;
@@ -48,6 +50,9 @@ export async function prepararAtividades(pool: Pool): Promise<void> {
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS bol integer");
       await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_ap_dia_bol ON ap_dia (bol) WHERE bol IS NOT NULL");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_ap_dia_os ON ap_dia (os, op_cod)");
+      // área informada por talhão ou volume rateado (e o volume, para editar depois)
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS area_modo text NOT NULL DEFAULT 'talhao'");
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS area_vol numeric");
       await pool.query(
         `CREATE TABLE IF NOT EXISTS ap_dia_tlh (
            ap_id integer NOT NULL REFERENCES ap_dia(id) ON DELETE CASCADE,
@@ -113,7 +118,7 @@ export async function importarBaseOS(linhas: LinhaBaseOS[], usuario: string): Pr
   } finally {
     client.release();
   }
-  // a descrição da fazenda vem do Cadastro de Fazendas
+  // a descrição da fazenda vem do Cadastro de Fazenda
   await sincronizarDescricaoFazendas();
   return { ordens: ordens.length, linhas: linhas.length, substituidas: existentes };
 }
@@ -207,11 +212,11 @@ const FMT = `'DD/MM/YYYY HH24:MI'`;
 
 async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params: unknown[]): Promise<ApontamentoDiario[]> {
   const { rows } = await exec.query<{
-    id: number; bol: number | null; dt: string; os: string; op_cod: string; op_ds: string; solic: string; etapa_cod: string; etapa_ds: string; tipo_apl: string;
+    id: number; bol: number | null; dt: string; os: string; area_modo: string; area_vol: number | null; op_cod: string; op_ds: string; solic: string; etapa_cod: string; etapa_ds: string; tipo_apl: string;
     n_eqp: number; n_pes: number; obs: string; usr: string; cri_em: string; atu_usr: string | null; atu_em: string | null;
     talhoes: { propCod: string; propNm: string; tlh: string; areaTlh: number | null; area: number }[] | null;
   }>(
-    `SELECT a.id, a.bol, a.dt::text AS dt, a.os, a.op_cod, a.op_ds, a.solic, a.etapa_cod, a.etapa_ds, a.tipo_apl, a.n_eqp, a.n_pes, a.obs, a.usr,
+    `SELECT a.id, a.bol, a.dt::text AS dt, a.os, a.area_modo, a.area_vol::float AS area_vol, a.op_cod, a.op_ds, a.solic, a.etapa_cod, a.etapa_ds, a.tipo_apl, a.n_eqp, a.n_pes, a.obs, a.usr,
             to_char(a.cri_em AT TIME ZONE 'America/Sao_Paulo', ${FMT}) AS cri_em, a.atu_usr,
             to_char(a.atu_em AT TIME ZONE 'America/Sao_Paulo', ${FMT}) AS atu_em,
             (SELECT json_agg(json_build_object('propCod', t.prop_cod, 'propNm', t.prop_nm, 'tlh', t.tlh, 'areaTlh', t.area_tlh::float, 'area', t.area::float)
@@ -228,6 +233,8 @@ async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params
       boletim: r.bol,
       dt: r.dt,
       os: r.os,
+      modoArea: r.area_modo === "rateio" ? "rateio" : "talhao",
+      volume: r.area_vol,
       opCod: r.op_cod,
       opDs: r.op_ds,
       solicitante: r.solic,
@@ -268,11 +275,13 @@ export async function obterApontamento(id: number, exec?: Pick<Pool, "query">): 
   return (await lerApontamentos(exec ?? pool, "a.id = $1", [id]))[0] ?? null;
 }
 
-const chaveLog = (a: ApontamentoDiario) => `Boletim ${a.boletim ?? `#${a.id}`} · O.S. ${a.os} · ${dataBR(a.dt)}`;
+const chaveLog = (a: ApontamentoDiario) =>
+  `Boletim ${a.boletim ?? `#${a.id}`} · ${a.os ? `O.S. ${a.os}` : `sem O.S. · Fazenda ${a.talhoes[0]?.propCod ?? ""}`} · ${dataBR(a.dt)}`;
 const resumoLog = (a: ApontamentoDiario) => ({
   boletim: a.boletim,
   data: dataBR(a.dt),
-  os: a.os,
+  os: a.os || "sem O.S.",
+  area: a.modoArea === "rateio" ? `volume ${a.volume} ha rateado` : "por talhão",
   operacao: `${a.opCod} ${a.opDs}`.trim(),
   solicitante: a.solicitante,
   etapa: `${a.etapaCod} ${a.etapaDs}`.trim(),
@@ -283,25 +292,79 @@ const resumoLog = (a: ApontamentoDiario) => ({
   talhoes: a.talhoes.map((t) => `${t.propCod}-${t.tlh}: ${t.area}`).join("; "),
 });
 
-/** Inclui (sem id) ou altera o apontamento; a operação e os talhões têm de existir na O.S. */
+/** Talhão já resolvido para gravar (com a área do dia). */
+interface TalhaoGravar {
+  propCod: string;
+  propNm: string;
+  tlh: string;
+  areaTlh: number | null;
+  area: number;
+}
+
+/**
+ * Inclui (sem id) ou altera o apontamento. Com O.S., a operação e os talhões têm de existir na O.S.; sem O.S., a fazenda
+ * tem de estar no Cadastro de Fazenda e os talhões vêm do que foi informado. A área pode vir talhão a talhão ou como um
+ * volume rateado entre os talhões marcados (o rateio é refeito aqui).
+ */
 export async function salvarApontamento(e: EntradaApontamento, usuario: string, id?: number): Promise<{ id: number } | { erro: string }> {
   const pool = getPool();
   await prepararAtividades(pool);
   const erro = validarApontamento(e);
   if (erro) return { erro };
-  const os = await consultarOS(e.os, id);
-  if (!os) return { erro: `A O.S. ${e.os} não está na base de O.S. Importe a base atualizada (Acompanhamento de O.S.).` };
-  const op = os.operacoes.find((o) => o.cod === e.opCod);
-  if (!op) return { erro: "A operação escolhida não faz parte desta O.S." };
-  const talhoes = e.talhoes.filter((t) => t.area > 0);
+
+  let osNum = "";
+  let op: { cod: string; ds: string; etapaCod: string; etapaDs: string };
+  let candidatos: TalhaoGravar[];
+  if (!e.semOS) {
+    const os = await consultarOS(e.os, id);
+    if (!os) return { erro: `A O.S. ${e.os} não está na base de O.S. Importe a base atualizada (Acompanhamento de O.S.).` };
+    const o = os.operacoes.find((x) => x.cod === e.opCod);
+    if (!o) return { erro: "A operação escolhida não faz parte desta O.S." };
+    osNum = os.os;
+    op = { cod: o.cod, ds: o.ds, etapaCod: o.etapaCod, etapaDs: o.etapaDs };
+    candidatos = [];
+    for (const t of e.talhoes) {
+      const doOS = o.talhoes.find((x) => x.propCod === t.propCod && x.tlh === t.tlh);
+      if (!doOS) return { erro: `O talhão ${t.propCod}-${t.tlh} não está na O.S. para esta operação.` };
+      // no rateio, o peso de cada talhão é a área recomendada na O.S. (ou a do talhão)
+      candidatos.push({ propCod: doOS.propCod, propNm: doOS.propNm, tlh: doOS.tlh, areaTlh: doOS.areaTlh, area: t.area });
+    }
+    if (e.modoArea === "rateio") {
+      const pesos = e.talhoes.map((t) => {
+        const x = o.talhoes.find((y) => y.propCod === t.propCod && y.tlh === t.tlh)!;
+        return x.areaRec ?? x.areaTlh;
+      });
+      ratearArea(e.volume!, pesos).forEach((a, i) => (candidatos[i].area = a));
+    }
+  } else {
+    const faz = await buscarCodigo("fazendas", e.fazCod);
+    if (!faz.item) return { erro: `A fazenda ${e.fazCod.trim()} não está no Cadastro de Fazenda. Cadastre ou importe a fazenda antes.` };
+    const propCod = faz.item.cod.split("-")[0];
+    const conhecidos = await talhoesDaFazenda(faz.item.cod);
+    const vistos = new Set<string>();
+    candidatos = [];
+    for (const t of e.talhoes) {
+      const tlh = t.tlh.trim();
+      if (vistos.has(tlh)) return { erro: `O talhão ${tlh} foi informado duas vezes.` };
+      vistos.add(tlh);
+      const c = conhecidos.find((x) => x.tlh === tlh);
+      candidatos.push({ propCod, propNm: faz.item.nm, tlh, areaTlh: c?.area ?? null, area: t.area });
+    }
+    if (e.modoArea === "rateio") ratearArea(e.volume!, candidatos.map((c) => c.areaTlh)).forEach((a, i) => (candidatos[i].area = a));
+    const opDs = e.opDs.trim() || (await descricaoOperacao(pool, e.opCod.trim()));
+    op = { cod: e.opCod.trim(), ds: opDs, etapaCod: "", etapaDs: "" };
+  }
+  const talhoes = candidatos.filter((t) => t.area > 0);
+  if (talhoes.length === 0) return { erro: "Informe a área realizada em pelo menos um talhão." };
   for (const t of talhoes) {
-    const doOS = op.talhoes.find((x) => x.propCod === t.propCod && x.tlh === t.tlh);
-    if (!doOS) return { erro: `O talhão ${t.propCod}-${t.tlh} não está na O.S. para esta operação.` };
-    if (doOS.areaTlh !== null && t.area > doOS.areaTlh + 0.001) {
-      return { erro: `Talhão ${t.propCod}-${t.tlh}: a área realizada (${t.area.toLocaleString("pt-BR")} ha) passa da área do talhão (${doOS.areaTlh.toLocaleString("pt-BR")} ha).` };
+    if (t.areaTlh !== null && t.area > t.areaTlh + 0.001) {
+      return { erro: `Talhão ${t.propCod}-${t.tlh}: a área realizada (${t.area.toLocaleString("pt-BR")} ha) passa da área do talhão (${t.areaTlh.toLocaleString("pt-BR")} ha).` };
     }
   }
-  const etapa = op.etapaCod === e.etapaCod || !e.etapaCod ? { cod: op.etapaCod, ds: op.etapaDs } : { cod: e.etapaCod, ds: "" };
+  const etapa =
+    !e.semOS && (op.etapaCod === e.etapaCod || !e.etapaCod)
+      ? { cod: op.etapaCod, ds: op.etapaDs }
+      : { cod: e.etapaCod.trim(), ds: e.etapaCod.trim() ? await descricaoEtapa(pool, e.etapaCod.trim()) : "" };
   const repetido = (
     await pool.query<{ id: number }>("SELECT id FROM ap_dia WHERE bol = $1 AND ($2::int IS NULL OR id <> $2::int) LIMIT 1", [e.boletim, id ?? null])
   ).rows[0];
@@ -312,12 +375,15 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
     await client.query("BEGIN");
     let novoId = id;
     let antes: ApontamentoDiario | null = null;
-    const valores = [e.boletim, e.dt, os.os, op.cod, op.ds, e.solicitante.trim(), etapa.cod, etapa.ds, e.tipoAplicacao.trim(), e.numEquipamentos, e.numPessoas, e.obs.trim().slice(0, 300)];
+    const valores = [
+      e.boletim, e.dt, osNum, op.cod, op.ds, e.solicitante.trim(), etapa.cod, etapa.ds, e.tipoAplicacao.trim(), e.numEquipamentos, e.numPessoas,
+      e.obs.trim().slice(0, 300), e.modoArea, e.modoArea === "rateio" ? round2(e.volume!) : null,
+    ];
     if (id === undefined) {
       novoId = (
         await client.query<{ id: number }>(
-          `INSERT INTO ap_dia (bol, dt, os, op_cod, op_ds, solic, etapa_cod, etapa_ds, tipo_apl, n_eqp, n_pes, obs, usr)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+          `INSERT INTO ap_dia (bol, dt, os, op_cod, op_ds, solic, etapa_cod, etapa_ds, tipo_apl, n_eqp, n_pes, obs, area_modo, area_vol, usr)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
           [...valores, usuario]
         )
       ).rows[0].id;
@@ -329,15 +395,14 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
       }
       await client.query(
         `UPDATE ap_dia SET bol=$1, dt=$2, os=$3, op_cod=$4, op_ds=$5, solic=$6, etapa_cod=$7, etapa_ds=$8, tipo_apl=$9, n_eqp=$10, n_pes=$11, obs=$12,
-                atu_usr=$13, atu_em=now() WHERE id=$14`,
+                area_modo=$13, area_vol=$14, atu_usr=$15, atu_em=now() WHERE id=$16`,
         [...valores, usuario, id]
       );
       await client.query("DELETE FROM ap_dia_tlh WHERE ap_id = $1", [id]);
     }
     for (const t of talhoes) {
-      const doOS = op.talhoes.find((x) => x.propCod === t.propCod && x.tlh === t.tlh)!;
       await client.query("INSERT INTO ap_dia_tlh (ap_id, prop_cod, prop_nm, tlh, area_tlh, area) VALUES ($1,$2,$3,$4,$5,$6)", [
-        novoId, doOS.propCod, doOS.propNm, doOS.tlh, doOS.areaTlh, round2(t.area),
+        novoId, t.propCod, t.propNm, t.tlh, t.areaTlh, round2(t.area),
       ]);
     }
     const depois = (await obterApontamento(novoId!, client))!;
@@ -368,4 +433,63 @@ export async function excluirApontamento(id: number, usuario: string): Promise<t
   await pool.query("DELETE FROM ap_dia WHERE id = $1", [id]);
   await auditar(pool, { usuario, modulo: "Atividades", entidade: "Apontamento diário", chave: chaveLog(atual), acao: "exclusao", antes: resumoLog(atual) });
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Apontamento sem O.S.: listas para escolher operação, etapa, tipo e solicitante
+// ---------------------------------------------------------------------------
+
+async function existe(pool: Pick<Pool, "query">, tabela: string): Promise<boolean> {
+  return !!(await pool.query<{ r: string | null }>("SELECT to_regclass($1)::text AS r", [tabela])).rows[0].r;
+}
+
+async function descricaoOperacao(pool: Pool, cod: string): Promise<string> {
+  const fontes = ["SELECT op_ds AS d FROM ap_dia WHERE op_cod = $1 AND op_ds <> '' LIMIT 1", "SELECT op_ds AS d FROM os_tlh WHERE op_cod = $1 AND op_ds <> '' LIMIT 1"];
+  if (await existe(pool, "os_agr")) fontes.unshift("SELECT op_ds AS d FROM os_agr WHERE op_cod = $1 AND op_ds <> '' LIMIT 1");
+  for (const sql of fontes) {
+    const d = (await pool.query<{ d: string }>(sql, [cod])).rows[0]?.d;
+    if (d) return d;
+  }
+  return "";
+}
+
+async function descricaoEtapa(pool: Pool, cod: string): Promise<string> {
+  await prepararOSAgr(pool); // carga inicial do cadastro de Etapa
+  return (await pool.query<{ nm: string }>("SELECT nm FROM cad_itm WHERE cad = 'etapa' AND cod = $1", [cod])).rows[0]?.nm ?? "";
+}
+
+export interface OpcoesApontamento {
+  operacoes: { cod: string; ds: string; etapaCod: string }[];
+  etapas: { cod: string; ds: string }[];
+  tipos: string[];
+  solicitantes: string[];
+}
+
+export async function opcoesApontamento(): Promise<OpcoesApontamento> {
+  const pool = getPool();
+  await prepararAtividades(pool);
+  await prepararOSAgr(pool);
+  const ops = await pool.query<{ cod: string; ds: string; etapa: string }>(
+    `SELECT op_cod AS cod, MAX(op_ds) AS ds, MAX(etapa_cod) AS etapa FROM (
+       SELECT op_cod, op_ds, etapa_cod FROM os_agr UNION ALL SELECT op_cod, op_ds, etapa_cod FROM os_tlh
+       UNION ALL SELECT op_cod, op_ds, etapa_cod FROM ap_dia) x
+      WHERE op_cod <> '' GROUP BY op_cod ORDER BY 2, 1`
+  );
+  const etapas = await pool.query<{ cod: string; ds: string }>(
+    "SELECT cod, nm AS ds FROM cad_itm WHERE cad = 'etapa' ORDER BY CASE WHEN cod ~ '^[0-9]+$' THEN lpad(cod, 8, '0') ELSE cod END"
+  );
+  const tipos = await pool.query<{ t: string }>(
+    `SELECT DISTINCT t FROM (SELECT NULLIF(nm, '') AS t FROM cad_itm WHERE cad = 'tipo-aplicacao' UNION SELECT NULLIF(tipo_apl, '') FROM ap_dia) x
+      WHERE t IS NOT NULL ORDER BY 1`
+  );
+  const solic = await pool.query<{ s: string }>(
+    `SELECT DISTINCT s FROM (SELECT NULLIF(nm, '') AS s FROM cad_itm WHERE cad = 'responsaveis-os' UNION SELECT NULLIF(solic, '') FROM ap_dia) x
+      WHERE s IS NOT NULL ORDER BY 1`
+  );
+  return {
+    operacoes: ops.rows.map((r) => ({ cod: r.cod, ds: r.ds, etapaCod: r.etapa })),
+    etapas: etapas.rows,
+    tipos: tipos.rows.map((r) => r.t),
+    solicitantes: solic.rows.map((r) => r.s),
+  };
 }

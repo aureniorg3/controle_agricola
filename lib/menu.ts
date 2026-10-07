@@ -117,7 +117,7 @@ export const SECOES_MENU: SecaoMenu[] = [
     title: "Planejamento Agrícola",
     items: [
       { label: "Cadastro de Atividades", href: "/planejamento/cadastro-atividades", icon: IconAtividades },
-      { label: "Fazendas e Talhões", href: "/agricultura/fazendas", icon: IconMapa },
+      { label: "Fazenda e Talhões", href: "/agricultura/fazendas", icon: IconMapa },
       { label: "Frentes e Equipes", href: "/agricultura/frentes", icon: IconEquipe },
     ],
   },

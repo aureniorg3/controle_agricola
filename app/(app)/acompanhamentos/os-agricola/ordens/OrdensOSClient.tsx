@@ -123,7 +123,8 @@ export default function OrdensOSClient({ perfil }: { perfil: PerfilUsuario }) {
             { rotulo: "Operação", valor: (o) => o.operacoes.map((x) => `${x.cod} - ${x.ds}`).join(" | ") },
             { rotulo: "Etapa", valor: (o) => `${o.etapaCod} - ${o.etapaDs}` },
             { rotulo: "Solicitante", valor: (o) => o.respNm },
-            { rotulo: "Fazenda(s)", valor: (o) => o.fazendas.join(" | ") },
+            { rotulo: "Fazenda", valor: (o) => o.fazendas.map((x) => x.split(" · ")[0]).join(" | ") },
+            { rotulo: "Descrição Fazenda", valor: (o) => o.fazendas.map((x) => x.split(" · ").slice(1).join(" · ")).join(" | ") },
             { rotulo: "Talhões", valor: (o) => o.nTlh },
             { rotulo: "Área plantada (ha)", valor: (o) => o.areaPlant },
             { rotulo: "Área recomendada (ha)", valor: (o) => o.areaRec },
@@ -214,7 +215,8 @@ export default function OrdensOSClient({ perfil }: { perfil: PerfilUsuario }) {
                   <th className="min-w-[220px] px-3 py-2 font-medium">Operação</th>
                   <th className="px-3 py-2 font-medium">Etapa</th>
                   <th className="px-3 py-2 font-medium">Solicitante</th>
-                  <th className="min-w-[180px] px-3 py-2 font-medium">Fazenda</th>
+                  <th className="px-3 py-2 font-medium">Fazenda</th>
+                  <th className="min-w-[180px] px-3 py-2 font-medium">Descrição Fazenda</th>
                   <th className="px-3 py-2 text-right font-medium">Talhões</th>
                   <th className="px-3 py-2 text-right font-medium">Área rec. (ha)</th>
                   <th className="px-3 py-2 font-medium">Lançada por</th>
@@ -249,10 +251,11 @@ export default function OrdensOSClient({ perfil }: { perfil: PerfilUsuario }) {
                         </td>
                         <td className="whitespace-nowrap px-3 py-1.5 text-ink">{o.etapaDs}</td>
                         <td className="whitespace-nowrap px-3 py-1.5 text-ink">{o.respNm || "–"}</td>
-                        <td className="px-3 py-1.5 text-ink">
-                          {o.fazendas[0]}
+                        <td className="px-3 py-1.5 tabular text-ink">
+                          {o.fazendas[0]?.split(" · ")[0]}
                           {o.fazendas.length > 1 && <span className="ml-1 text-[11px] text-muted">+{o.fazendas.length - 1}</span>}
                         </td>
+                        <td className="px-3 py-1.5 text-ink">{o.fazendas[0]?.split(" · ").slice(1).join(" · ")}</td>
                         <td className="px-3 py-1.5 text-right tabular text-ink">{o.nTlh}</td>
                         <td className="px-3 py-1.5 text-right tabular text-ink">{nf(o.areaRec)}</td>
                         <td className="whitespace-nowrap px-3 py-1.5 text-muted">{o.usrOs}</td>
@@ -260,7 +263,7 @@ export default function OrdensOSClient({ perfil }: { perfil: PerfilUsuario }) {
                       {ab && (
                         <tr className="border-t border-line/60 bg-surface/50">
                           <td />
-                          <td colSpan={13} className="px-3 py-3">
+                          <td colSpan={14} className="px-3 py-3">
                             <TalhoesOS emp={o.emp} os={o.os} />
                           </td>
                         </tr>
@@ -270,7 +273,7 @@ export default function OrdensOSClient({ perfil }: { perfil: PerfilUsuario }) {
                 })}
                 {!carregando && ordens.length === 0 && (
                   <tr>
-                    <td colSpan={14} className="px-4 py-10 text-center text-muted">
+                    <td colSpan={15} className="px-4 py-10 text-center text-muted">
                       {opcoes?.ordens === 0 ? 'A base de O.S. está vazia. Use "Importar O.S." com o Relatório de Ordens de Serviço.' : "Nenhuma O.S. no filtro."}
                     </td>
                   </tr>
@@ -329,6 +332,7 @@ function TalhoesOS({ emp, os }: { emp: string; os: string }) {
           <tr className="border-b border-line text-left text-muted">
             <th className="px-3 py-1.5 font-medium">Operação</th>
             <th className="px-3 py-1.5 font-medium">Fazenda</th>
+            <th className="px-3 py-1.5 font-medium">Descrição Fazenda</th>
             <th className="px-3 py-1.5 text-center font-medium">Talhão</th>
             <th className="px-3 py-1.5 text-right font-medium">Área plantada (ha)</th>
             <th className="px-3 py-1.5 text-right font-medium">Área recomendada (ha)</th>
@@ -341,9 +345,8 @@ function TalhoesOS({ emp, os }: { emp: string; os: string }) {
                 <span className="tabular text-muted">{l.opCod} · </span>
                 {l.opDs}
               </td>
-              <td className="px-3 py-1 text-ink">
-                {l.propCod} · {l.propNm}
-              </td>
+              <td className="px-3 py-1 tabular text-ink">{l.propCod}</td>
+              <td className="px-3 py-1 text-ink">{l.propNm}</td>
               <td className="px-3 py-1 text-center text-ink">
                 {l.tlh}
                 {l.letra}

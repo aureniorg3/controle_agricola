@@ -104,7 +104,7 @@ export async function gerarComunicadoEmprestimoPdf(e: Emprestimo): Promise<void>
   espaco(30);
   paragrafo("Local de Aplicação:", { negrito: true });
   for (const f of e.faz) {
-    paragrafo(`Fazenda: ${f.cod}${f.nome ? ` - ${f.nome}` : ""}${f.area !== null ? `     Área: ${num(f.area)} ha` : ""}`);
+    paragrafo(`Fazenda: ${f.cod}${f.nome ? `     Descrição Fazenda: ${f.nome}` : ""}${f.area !== null ? `     Área: ${num(f.area)} ha` : ""}`);
   }
   if (e.vol) paragrafo(`Volume de ${e.volTipo}: ${e.vol}`);
   y += 4;

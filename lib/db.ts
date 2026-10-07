@@ -369,6 +369,8 @@ export function prepararBanco(pool: Pool): Promise<void> {
       );
       await pool.query("CREATE INDEX IF NOT EXISTS idx_aud_log_em ON aud_log(em DESC)");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_aud_log_chave ON aud_log(modulo, entidade, chave)");
+      // o cadastro passou a se chamar "Fazenda" (singular): o histórico do log acompanha
+      await pool.query("UPDATE aud_log SET entidade = 'Cadastro de Fazenda' WHERE modulo = 'Cadastros' AND entidade = 'Cadastro de Fazendas'");
       // usuário que lançou / alterou por último, em todos os lançamentos
       for (const t of ["met_frt", "eqp_frt", "saf_cad", "cad_itm", "ord_vis", "rod_cad"]) {
         await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS usr text NOT NULL DEFAULT ''`);
@@ -746,7 +748,7 @@ export async function substituirOrdens(ordens: OrdemCorte[]): Promise<void> {
   } finally {
     client.release();
   }
-  // a descrição da fazenda vem do Cadastro de Fazendas
+  // a descrição da fazenda vem do Cadastro de Fazenda
   await sincronizarDescricaoFazendas();
 }
 
@@ -1066,7 +1068,7 @@ export async function substituirConferenciaDia(data: string, linhas: Conferencia
   } finally {
     client.release();
   }
-  // a descrição da fazenda vem do Cadastro de Fazendas
+  // a descrição da fazenda vem do Cadastro de Fazenda
   await sincronizarDescricaoFazendas();
 }
 
@@ -1515,7 +1517,7 @@ export async function substituirSafra(safra: number, linhas: SafraTalhao[]): Pro
   } finally {
     client.release();
   }
-  // a descrição da fazenda vem do Cadastro de Fazendas
+  // a descrição da fazenda vem do Cadastro de Fazenda
   await sincronizarDescricaoFazendas();
 }
 
@@ -2086,7 +2088,7 @@ export async function salvarAcessosUsuario(id: string, acessos: string[] | null,
 }
 
 // ---------------------------------------------------------------------------
-// Descrição da fazenda: o Cadastro de Fazendas é a fonte para o sistema inteiro
+// Descrição da fazenda: o Cadastro de Fazenda é a fonte para o sistema inteiro
 // ---------------------------------------------------------------------------
 
 /** código da fazenda (sem zeros à esquerda e sem a sequência) → descrição do cadastro; a sequência 0 tem preferência */
@@ -2109,7 +2111,7 @@ const TABELAS_FAZENDA: { tabela: string; cod: string; nm: string; rotulo: string
 ];
 
 /**
- * Grava a descrição do Cadastro de Fazendas em todas as bases que guardam o nome da fazenda (ordens, talhões, pesagens,
+ * Grava a descrição do Cadastro de Fazenda em todas as bases que guardam o nome da fazenda (ordens, talhões, pesagens,
  * histórico de safras, O.S., apontamentos e empréstimos). Roda depois de cada importação e da correção do cadastro;
  * fazendas sem cadastro ficam com o nome que vieram. Nunca derruba a importação que a chamou.
  */
@@ -2150,7 +2152,7 @@ export interface ResultadoAjusteCadastro {
   total: number;
   alterados: number;
   exemplos: { cod: string; antes: string; depois: string }[];
-  /** bases do sistema que receberam a descrição nova (só Fazendas) */
+  /** bases do sistema que receberam a descrição nova (só Fazenda) */
   sincronizado: { rotulo: string; linhas: number }[];
 }
 

@@ -214,10 +214,10 @@ export const VERIFICACOES: Verificacao[] = [
   {
     id: "ordem-fazenda-sem-cadastro",
     modulo: "Colheita",
-    titulo: "Fazendas das ordens que não estão no cadastro de Fazendas",
+    titulo: "Fazenda das ordens que não está no Cadastro de Fazenda",
     severidade: "atencao",
-    descricao: "O código da fazenda da ordem não existe em Configurações → Cadastros → Fazendas.",
-    acao: "Importe ou cadastre a fazenda no cadastro de Fazendas.",
+    descricao: "O código da fazenda da ordem não existe em Configurações → Cadastros → Fazenda.",
+    acao: "Importe ou cadastre a fazenda no Cadastro de Fazenda.",
     sql: `SELECT t.faz_cod AS "Fazenda", MAX(t.faz_nm) AS "Descrição Fazenda", COUNT(DISTINCT t.ord_num)::int AS "Ordens"
             FROM tlh t
            WHERE EXISTS (${CAD_FAZ})
@@ -248,17 +248,17 @@ export const VERIFICACOES: Verificacao[] = [
     descricao: "O Apontamento confere os códigos nestes cadastros; vazios, ele aceita qualquer código e não mostra descrição.",
     acao: "Importe ou cadastre os itens (Configurações → Cadastros e menu Rodadas de Campo).",
     sql: `SELECT t.titulo AS "Cadastro"
-            FROM (VALUES ('regiao','Região'),('fazendas','Fazendas'),('ocorrencias','Ocorrências'),('nivel-infestacao','Nível de Infestação'),
+            FROM (VALUES ('regiao','Região'),('fazendas','Fazenda'),('ocorrencias','Ocorrências'),('nivel-infestacao','Nível de Infestação'),
                          ('presenca-infestacao','Presença de Infestação'),('prioridade','Prioridade'),('responsavel-regiao','Responsável Região')) AS t(cad, titulo)
            WHERE NOT EXISTS (SELECT 1 FROM cad_itm c WHERE c.cad = t.cad) ORDER BY t.titulo`,
   },
   {
     id: "boletim-fazenda-sem-cadastro",
     modulo: "Rodadas de Campo",
-    titulo: "Boletins com fazenda que não está no cadastro de Fazendas",
+    titulo: "Boletins com fazenda que não está no Cadastro de Fazenda",
     severidade: "atencao",
-    descricao: "O código da fazenda do boletim não existe no cadastro de Fazendas, então o Resumo não mostra o nome.",
-    acao: "Importe/cadastre a fazenda em Configurações → Cadastros → Fazendas, ou corrija o código no boletim.",
+    descricao: "O código da fazenda do boletim não existe no Cadastro de Fazenda, então o Resumo não mostra o nome.",
+    acao: "Importe/cadastre a fazenda em Configurações → Cadastros → Fazenda, ou corrija o código no boletim.",
     sql: `SELECT b.faz AS "Fazenda", COUNT(*)::int AS "Boletins"
             FROM rod_bol b
            WHERE EXISTS (${CAD_FAZ})
@@ -410,7 +410,7 @@ export const VERIFICACOES: Verificacao[] = [
   {
     id: "boletim-fazenda-sem-talhoes",
     modulo: "Rodadas de Campo",
-    titulo: "Fazendas de boletim sem talhões no cadastro de safra",
+    titulo: "Fazenda de boletim sem talhões no cadastro de safra",
     severidade: "info",
     descricao: "A fazenda não tem talhões no histórico de safras, então o Apontamento não consegue listar os talhões para marcar.",
     acao: "Importe o cadastro de talhões da safra (Histórico de Safras).",

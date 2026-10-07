@@ -173,6 +173,7 @@ export default function HistoricoSafrasClient({
                     <tr className="border-b border-line bg-surface text-left text-muted">
                       <th className="px-4 py-2 font-semibold">Safra</th>
                       <th className="px-3 py-2 font-semibold">Fazenda</th>
+                      <th className="px-3 py-2 font-semibold">Descrição Fazenda</th>
                       <th className="px-3 py-2 font-semibold">Proprietário</th>
                       <th className="px-3 py-2 font-semibold">Município</th>
                       <th className="px-3 py-2 text-right font-semibold">Talhões</th>
@@ -186,9 +187,8 @@ export default function HistoricoSafrasClient({
                     {visiveis.map((l) => (
                       <tr key={`${l.safra}|${l.fazendaCodigo}`} className="border-b border-line last:border-0">
                         <td className="px-4 py-1.5 font-semibold text-ink">{l.safra}</td>
-                        <td className="px-3 py-1.5 text-ink">
-                          {l.fazendaCodigo} - {l.fazendaNome}
-                        </td>
+                        <td className="px-3 py-1.5 tabular text-ink">{l.fazendaCodigo}</td>
+                        <td className="px-3 py-1.5 text-ink">{l.fazendaNome}</td>
                         <td className="px-3 py-1.5 text-muted">{l.proprietario}</td>
                         <td className="px-3 py-1.5 text-muted">
                           {l.municipio}

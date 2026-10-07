@@ -356,6 +356,7 @@ export default function AreaColhidaTab({
               <thead>
                 <tr className="border-b border-line bg-surface text-left text-muted">
                   <th className="px-3 py-1.5 font-medium">Fazenda</th>
+                  <th className="px-3 py-1.5 font-medium">Descrição Fazenda</th>
                   <th className="px-3 py-1.5 text-center font-medium">Talhão</th>
                   <th className="px-3 py-1.5 text-right font-medium">Área (ha)</th>
                   <th className="px-3 py-1.5 text-right font-medium">Colhida até o dia anterior</th>
@@ -367,7 +368,8 @@ export default function AreaColhidaTab({
               <tbody>
                 {linhas.map((l, i) => (
                   <tr key={l.chave} className={`border-t border-line/60 ${i % 2 === 1 ? "bg-surface/40" : ""}`}>
-                    <td className="px-3 py-1 text-ink">{l.t.fazendaCodigo}</td>
+                    <td className="px-3 py-1 tabular text-ink">{l.t.fazendaCodigo}</td>
+                    <td className="px-3 py-1 text-ink">{l.t.fazendaNome}</td>
                     <td className="px-3 py-1 text-center font-semibold text-ink">{l.t.talhao}</td>
                     <td className="px-3 py-1 text-right tabular text-ink">{fmtHa(l.t.areaHa)}</td>
                     <td className="px-3 py-1 text-right tabular text-muted">{fmtHa(l.anterior)}</td>
@@ -388,7 +390,7 @@ export default function AreaColhidaTab({
                   </tr>
                 ))}
                 <tr className="border-t border-line bg-surface font-semibold text-ink">
-                  <td className="px-3 py-1.5" colSpan={2}>
+                  <td className="px-3 py-1.5" colSpan={3}>
                     Total
                   </td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtHa(arred(ordem.talhoes.reduce((s, t) => s + t.areaHa, 0)))}</td>
@@ -452,6 +454,7 @@ export default function AreaColhidaTab({
                 <th className="px-3 py-2 font-semibold">Data</th>
                 <th className="px-3 py-2 font-semibold">Ordem</th>
                 <th className="px-3 py-2 font-semibold">Fazenda</th>
+                <th className="px-3 py-2 font-semibold">Descrição Fazenda</th>
                 <th className="px-3 py-2 text-center font-semibold">Talhão</th>
                 <th className="px-3 py-2 text-right font-semibold">Área colhida (ha)</th>
                 <th className="px-3 py-2 font-semibold">Lançado por</th>
@@ -469,7 +472,8 @@ export default function AreaColhidaTab({
                     <td className="px-3 py-1 tabular font-medium text-ink">{l.boletim ?? "—"}</td>
                     <td className="whitespace-nowrap px-3 py-1 text-ink">{fmtDateBR(l.dt)}</td>
                     <td className="px-3 py-1 text-ink">{l.ord}</td>
-                    <td className="px-3 py-1 text-ink">{l.fazNm ? `${l.faz} · ${l.fazNm}` : l.faz}</td>
+                    <td className="px-3 py-1 tabular text-ink">{l.faz}</td>
+                    <td className="px-3 py-1 text-ink">{l.fazNm}</td>
                     <td className="px-3 py-1 text-center text-ink">{l.tlh}</td>
                     <td className="px-3 py-1 text-right tabular text-ink">{fmtHa(l.area)}</td>
                     <td className="whitespace-nowrap px-3 py-1 text-ink">{l.usuario || "—"}</td>
@@ -498,7 +502,7 @@ export default function AreaColhidaTab({
               })}
               {!carregando && historico.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-muted">
+                  <td colSpan={12} className="px-4 py-8 text-center text-muted">
                     Nenhum lançamento de área colhida ainda.
                   </td>
                 </tr>

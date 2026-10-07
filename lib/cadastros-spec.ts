@@ -49,7 +49,7 @@ const texto = (v: ValorCadastro | undefined): string => (v === undefined ? "" : 
 export const CADASTROS_SPEC: CadastroSpec[] = [
   {
     slug: "fazendas",
-    titulo: "Fazendas",
+    titulo: "Fazenda",
     arquivos: ["fazendas", "propriedades", "cadastro de propriedade"],
     obrigatorias: ["propriedade", "sequencia", "fundo_agricola"],
     codigo: (d) => `${texto(d.propriedade)}${Number(d.sequencia) ? `-${texto(d.sequencia)}` : ""}`,

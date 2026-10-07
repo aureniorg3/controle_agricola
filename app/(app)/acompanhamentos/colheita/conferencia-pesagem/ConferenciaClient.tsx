@@ -315,6 +315,7 @@ export default function ConferenciaClient({
                     <th className="px-3 py-2 font-semibold">Frente (Relatório)</th>
                     <th className="px-3 py-2 font-semibold">Frente (Cadastro)</th>
                     <th className="px-3 py-2 font-semibold">Fazenda</th>
+                    <th className="px-3 py-2 font-semibold">Descrição Fazenda</th>
                     <th className="px-3 py-2 font-semibold">Ordem</th>
                     <th className="px-3 py-2 font-semibold">Frente (Ordem)</th>
                     <th className="px-3 py-2 font-semibold">Status Ordem</th>
@@ -338,9 +339,8 @@ export default function ConferenciaClient({
                       <td className="px-3 py-1.5 text-muted">{l.eqpNome}</td>
                       <td className="px-3 py-1.5 text-ink">{l.frente}</td>
                       <td className="px-3 py-1.5 text-ink">{l.frenteCadastro ?? "—"}</td>
-                      <td className="px-3 py-1.5 text-ink">
-                        {l.fazendaCodigo} - {l.fazendaNomeExibido}
-                      </td>
+                      <td className="px-3 py-1.5 tabular text-ink">{l.fazendaCodigo}</td>
+                      <td className="px-3 py-1.5 text-ink">{l.fazendaNomeExibido}</td>
                       <td className="px-3 py-1.5 text-ink">{l.ordemNumero ?? "—"}</td>
                       <td className="px-3 py-1.5 text-ink">{l.ordemFrente ?? "—"}</td>
                       <td className="px-3 py-1.5 text-muted">{l.ordemStatus ?? "—"}</td>
@@ -374,7 +374,7 @@ export default function ConferenciaClient({
                     </tr>
                   ))}
                   <tr className="bg-surface font-bold text-ink">
-                    <td className="px-4 py-1.5" colSpan={9}>
+                    <td className="px-4 py-1.5" colSpan={10}>
                       Total geral
                     </td>
                     <td className="px-3 py-1.5 text-right tabular">{fmtT(totais.toneladas)}</td>

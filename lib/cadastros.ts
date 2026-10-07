@@ -17,7 +17,7 @@ export const CADASTROS: { slug: string; label: string }[] = [
   { slug: "safras", label: "Safras" },
   { slug: "sistema-aplicacao", label: "Sistema de Aplicação" },
   { slug: "tipo-aplicacao", label: "Tipo Aplicação" },
-  { slug: "fazendas", label: "Fazendas" },
+  { slug: "fazendas", label: "Fazenda" },
   { slug: "solos", label: "Solos" },
   { slug: "tipos-solo", label: "Tipos de Solo" },
   { slug: "maturacao", label: "Maturação" },

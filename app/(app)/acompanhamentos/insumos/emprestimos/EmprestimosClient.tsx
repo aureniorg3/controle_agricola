@@ -472,8 +472,8 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
               <table className="w-full min-w-[520px] text-[12.5px]">
                 <thead>
                   <tr className="bg-surface text-left text-muted">
-                    <th className="w-[130px] px-2 py-1.5 font-semibold">Fazenda (cód.)</th>
-                    <th className="px-2 py-1.5 font-semibold">Descrição</th>
+                    <th className="w-[130px] px-2 py-1.5 font-semibold">Fazenda</th>
+                    <th className="px-2 py-1.5 font-semibold">Descrição Fazenda</th>
                     <th className="w-[130px] px-2 py-1.5 text-right font-semibold">Área (ha)</th>
                     <th className="w-[30px]" />
                   </tr>
@@ -596,7 +596,8 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
                 <th className="px-3 py-2 font-semibold">Data Solicitação</th>
                 <th className="px-3 py-2 font-semibold">Data Saída</th>
                 <th className="px-3 py-2 font-semibold">Fornecedor</th>
-                <th className="px-3 py-2 font-semibold">Fazenda(s)</th>
+                <th className="px-3 py-2 font-semibold">Fazenda</th>
+                <th className="px-3 py-2 font-semibold">Descrição Fazenda</th>
                 <th className="px-3 py-2 font-semibold">Insumos</th>
                 <th className="px-3 py-2 text-right font-semibold">Valor total</th>
                 <th className="px-3 py-2 font-semibold">Situação</th>
@@ -605,14 +606,14 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
             <tbody>
               {carregando && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-muted">
+                  <td colSpan={9} className="px-3 py-6 text-center text-muted">
                     Carregando…
                   </td>
                 </tr>
               )}
               {!carregando && filtrada.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-muted">
+                  <td colSpan={9} className="px-3 py-6 text-center text-muted">
                     Nenhum empréstimo encontrado.
                   </td>
                 </tr>
@@ -627,7 +628,8 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
                       {e.fornNm}
                       <div className="text-[11px] font-normal text-muted">{e.fornCod}</div>
                     </td>
-                    <td className="px-3 py-2">{e.faz.map((f) => `${f.cod}${f.nome ? ` · ${f.nome}` : ""}`).join(" / ")}</td>
+                    <td className="px-3 py-2 tabular">{e.faz.map((f) => f.cod).join(" / ")}</td>
+                    <td className="px-3 py-2">{e.faz.map((f) => f.nome).filter(Boolean).join(" / ")}</td>
                     <td className="max-w-[260px] truncate px-3 py-2 text-muted">{e.itens.map((i) => i.nm).join(", ")}</td>
                     <td className="px-3 py-2 text-right tabular font-semibold">{brl(e.total)}</td>
                     <td className="px-3 py-2">
@@ -637,7 +639,7 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
                   </tr>
                   {aberto === e.id && (
                     <tr className="border-b border-line bg-surface/40">
-                      <td colSpan={8} className="px-4 py-3">
+                      <td colSpan={9} className="px-4 py-3">
                         <table className="mb-3 w-full max-w-[860px] text-[12px]">
                           <thead>
                             <tr className="text-left text-muted">

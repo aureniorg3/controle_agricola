@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { excluirApontamento, listarApontamentos, proximoBoletimAtividade, salvarApontamento } from "@/lib/db-atividades";
+import { excluirApontamento, listarApontamentos, opcoesApontamento, proximoBoletimAtividade, salvarApontamento } from "@/lib/db-atividades";
 import type { EntradaApontamento } from "@/lib/atividades";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
   const p = req.nextUrl.searchParams;
   if (p.get("proximo") !== null) return NextResponse.json({ boletim: await proximoBoletimAtividade() });
+  if (p.get("opcoes") !== null) return NextResponse.json(await opcoesApontamento());
   const de = p.get("de") ?? "";
   const ate = p.get("ate") ?? "";
   if (!ISO.test(de) || !ISO.test(ate) || de > ate) return NextResponse.json({ error: "Informe um período válido." }, { status: 400 });
@@ -38,8 +39,13 @@ export async function POST(req: NextRequest) {
   const entrada: EntradaApontamento = {
     boletim: inteiro(b.boletim),
     dt: texto(b.dt),
-    os: texto(b.os),
+    semOS: b.semOS === true,
+    os: b.semOS === true ? "" : texto(b.os),
+    fazCod: texto(b.fazCod),
     opCod: texto(b.opCod),
+    opDs: texto(b.opDs),
+    modoArea: b.modoArea === "rateio" ? "rateio" : "talhao",
+    volume: b.volume === null || b.volume === undefined || b.volume === "" ? null : numero(b.volume),
     solicitante: texto(b.solicitante),
     etapaCod: texto(b.etapaCod),
     tipoAplicacao: texto(b.tipoAplicacao),
