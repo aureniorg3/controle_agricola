@@ -46,7 +46,7 @@ function ParBarras({ rotulo, a, b, formato }: { rotulo: string; a: number | null
 }
 
 /** Tela do painel: só apresenta os dados já carregados (a consulta fica em page.tsx). */
-export default function PainelView({ d }: { d: DadosPainel }) {
+export default function PainelView({ d, verEmprestimos }: { d: DadosPainel; verEmprestimos: boolean }) {
   const { cana, insumos, rodadas, safraComparativo } = d;
 
   const frentes = cana.porFrente.map((f) => f.frente);
@@ -244,7 +244,7 @@ export default function PainelView({ d }: { d: DadosPainel }) {
             {insumos.dtBase ? (
               <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
                 <div className="flex flex-col gap-4">
-                <Caixa icone={IconCifrao} titulo="Saldo contábil" subtitulo="Valor do estoque (saldo × custo médio)" ligacao="/acompanhamentos/insumos/saldo" rotuloLigacao="Ver saldo de insumos">
+                <Caixa icone={IconCifrao} titulo="Saldo contábil" subtitulo="Valor do estoque (saldo × custo médio)" ligacao="/acompanhamentos/insumos/saldo" rotuloLigacao="Ver saldo de insumos" className={verEmprestimos ? undefined : "flex-1"}>
                   <div className="tabular text-[28px] font-semibold leading-none tracking-tight text-ink">{brl(insumos.valor)}</div>
                   {insumos.variacao !== null && (
                     <div className="mt-2 text-[12px]" style={{ color: insumos.variacao >= 0 ? VERDE : VERMELHO }}>
@@ -270,6 +270,7 @@ export default function PainelView({ d }: { d: DadosPainel }) {
                   </div>
                 </Caixa>
 
+                {verEmprestimos && (
                 <Caixa icone={IconTrocar} titulo="Empréstimos em aberto" subtitulo="Insumos emprestados e ainda não devolvidos ou pagos" ligacao="/acompanhamentos/insumos/emprestimos" rotuloLigacao="Ver empréstimos" className="flex-1">
                   <div className="grid grid-cols-2 gap-x-6">
                     <Numero rotulo="Empréstimos" valor={String(insumos.emprestimosAbertos.n)} />
@@ -281,6 +282,7 @@ export default function PainelView({ d }: { d: DadosPainel }) {
                       : "Dê baixa em Insumos › Empréstimos quando o insumo voltar ou for pago."}
                   </p>
                 </Caixa>
+                )}
                 </div>
 
                 <Caixa icone={IconCamadas} titulo="Maiores saldos por grupo" subtitulo="Grupos de maior valor e o maior insumo de cada um">
