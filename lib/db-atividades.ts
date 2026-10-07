@@ -337,18 +337,22 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
       ratearArea(e.volume!, pesos).forEach((a, i) => (candidatos[i].area = a));
     }
   } else {
-    const faz = await buscarCodigo("fazendas", e.fazCod);
-    if (!faz.item) return { erro: `A fazenda ${e.fazCod.trim()} não está no Cadastro de Fazenda. Cadastre ou importe a fazenda antes.` };
-    const propCod = faz.item.cod.split("-")[0];
-    const conhecidos = await talhoesDaFazenda(faz.item.cod);
+    // sem O.S.: cada linha traz a fazenda (do Cadastro de Fazenda) e o talhão
+    const fazendas = new Map<string, { cod: string; nm: string; talhoes: { tlh: string; area: number | null }[] }>();
     const vistos = new Set<string>();
     candidatos = [];
     for (const t of e.talhoes) {
+      const codDigitado = t.propCod.trim();
+      if (!fazendas.has(codDigitado)) {
+        const faz = await buscarCodigo("fazendas", codDigitado);
+        if (!faz.item) return { erro: `A fazenda ${codDigitado} não está no Cadastro de Fazenda. Cadastre ou importe a fazenda antes.` };
+        fazendas.set(codDigitado, { cod: faz.item.cod.split("-")[0], nm: faz.item.nm, talhoes: await talhoesDaFazenda(faz.item.cod) });
+      }
+      const f = fazendas.get(codDigitado)!;
       const tlh = t.tlh.trim();
-      if (vistos.has(tlh)) return { erro: `O talhão ${tlh} foi informado duas vezes.` };
-      vistos.add(tlh);
-      const c = conhecidos.find((x) => x.tlh === tlh);
-      candidatos.push({ propCod, propNm: faz.item.nm, tlh, areaTlh: c?.area ?? null, area: t.area });
+      if (vistos.has(`${f.cod}|${tlh}`)) return { erro: `O talhão ${tlh} da fazenda ${f.cod} foi informado duas vezes.` };
+      vistos.add(`${f.cod}|${tlh}`);
+      candidatos.push({ propCod: f.cod, propNm: f.nm, tlh, areaTlh: f.talhoes.find((x) => x.tlh === tlh)?.area ?? null, area: t.area });
     }
     if (e.modoArea === "rateio") ratearArea(e.volume!, candidatos.map((c) => c.areaTlh)).forEach((a, i) => (candidatos[i].area = a));
     const opDs = e.opDs.trim() || (await descricaoOperacao(pool, e.opCod.trim()));

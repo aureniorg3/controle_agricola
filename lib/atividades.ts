@@ -96,10 +96,9 @@ export interface ApontamentoDiario {
 export interface EntradaApontamento {
   boletim: number;
   dt: string;
-  /** apontamento sem O.S.: informa a fazenda, a operação e os talhões */
+  /** sem O.S.: a fazenda vai em cada talhão (pode haver mais de uma fazenda) */
   semOS: boolean;
   os: string;
-  fazCod: string;
   opCod: string;
   opDs: string;
   modoArea: ModoArea;
@@ -124,7 +123,7 @@ export function validarApontamento(e: EntradaApontamento): string | null {
   if (!Number.isInteger(e.boletim) || e.boletim <= 0) return "Informe o número do boletim.";
   if (!DATA.test(e.dt) || Number.isNaN(Date.parse(e.dt))) return "Informe a data do apontamento.";
   if (!e.semOS && !e.os.trim()) return "Informe a Ordem de Serviço.";
-  if (e.semOS && !e.fazCod.trim()) return "Informe a fazenda.";
+  if (e.semOS && e.talhoes.some((t) => !t.propCod.trim())) return "Informe a fazenda em todas as linhas de talhão.";
   if (!e.opCod.trim()) return e.semOS ? "Informe a operação." : "Escolha a operação.";
   if (!e.solicitante.trim()) return "Informe o solicitante.";
   if (!Number.isInteger(e.numEquipamentos) || e.numEquipamentos < 0) return "Número de equipamentos inválido.";

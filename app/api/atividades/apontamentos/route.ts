@@ -39,9 +39,9 @@ export async function POST(req: NextRequest) {
   const entrada: EntradaApontamento = {
     boletim: inteiro(b.boletim),
     dt: texto(b.dt),
-    semOS: b.semOS === true,
-    os: b.semOS === true ? "" : texto(b.os),
-    fazCod: texto(b.fazCod),
+    // a O.S. é opcional: sem ela, cada talhão vem com a fazenda
+    semOS: !texto(b.os).trim(),
+    os: texto(b.os).trim(),
     opCod: texto(b.opCod),
     opDs: texto(b.opDs),
     modoArea: b.modoArea === "rateio" ? "rateio" : "talhao",
