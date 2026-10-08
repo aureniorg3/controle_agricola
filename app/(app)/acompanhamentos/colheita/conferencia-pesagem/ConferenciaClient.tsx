@@ -14,6 +14,7 @@ import { gerarConferenciaPdf, gerarConferenciaXlsx } from "@/lib/relatorio-confe
 import { podeEditar } from "@/lib/permissoes";
 import type { ConferenciaLinha, EquiptoFrente, OrdemConferencia, PerfilUsuario } from "@/lib/types";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const FILTRO =
   "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
@@ -54,6 +55,15 @@ export default function ConferenciaClient({
   const [frenteFiltro, setFrenteFiltro] = usarPersistido("conferencia.frente", "todas", ehTexto);
   const [statusFiltro, setStatusFiltro] = usarPersistido<"todos" | "divergencias" | StatusConferencia>("conferencia.status", "todos", ehTexto as (v: unknown) => v is "todos" | "divergencias" | StatusConferencia);
   const [busca, setBusca] = usarPersistido("conferencia.busca", "", ehTexto);
+  const algumFiltroAtivo =
+    de !== ultimaData || ate !== ultimaData || frenteFiltro !== "todas" || statusFiltro !== "todos" || busca !== "";
+  function limparFiltros() {
+    setDe(ultimaData);
+    setAte(ultimaData);
+    setFrenteFiltro("todas");
+    setStatusFiltro("todos");
+    setBusca("");
+  }
 
   const frentes = useMemo(
     () =>
@@ -301,6 +311,7 @@ export default function ConferenciaClient({
                 placeholder="Buscar equipamento, fazenda, ordem…"
                 className={`${FILTRO} min-w-[220px]`}
               />
+              <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
               <span className="ml-auto text-[12px] text-muted">
                 {filtradas.length} linha{filtradas.length === 1 ? "" : "s"}
               </span>

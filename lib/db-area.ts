@@ -131,8 +131,9 @@ export async function gravarAreaColhidaDia(
           "SELECT COALESCE(SUM(area), 0)::float AS s FROM col_dia WHERE ord_num = $1 AND faz_cod = $2 AND tlh = $3 AND dt <> $4",
           [ord, it.faz, it.tlh, dt]
         );
-        const acumulado = t.area_col_ha + outros[0].s + ha;
-        if (acumulado > t.area_ha + 0.01) {
+        // compara em centésimos e sem folga: a área colhida não passa da área do talhão nem por 0,01
+        const acumulado = Math.round((t.area_col_ha + outros[0].s + ha) * 100) / 100;
+        if (acumulado > Math.round(t.area_ha * 100) / 100) {
           await client.query("ROLLBACK");
           return {
             erro: `Talhão ${it.tlh}: a área colhida acumulada (${acumulado.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ha) passa da área do talhão (${t.area_ha.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ha).`,

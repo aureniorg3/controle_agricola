@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import { IconImportar } from "@/components/icons";
 import type { OpcoesOS } from "@/lib/db-os-agr";
 import { exportarPlanilha, type ColunaExportacao, type FormatoExportacao } from "@/lib/exportar-planilha";
@@ -49,9 +50,25 @@ export function usarOpcoesOS(recarregar: number) {
 }
 
 /** Barra de filtros: período (data da O.S.), safra, posição, solicitante e etapa; `extra` entra no fim. */
-export function BarraFiltrosOS({ f, setF, opcoes, extra }: { f: FiltrosOS; setF: (f: FiltrosOS) => void; opcoes: OpcoesOS | null; extra?: ReactNode }) {
+export function BarraFiltrosOS({
+  f,
+  setF,
+  opcoes,
+  extra,
+  extraAtivo = false,
+  limparExtra,
+}: {
+  f: FiltrosOS;
+  setF: (f: FiltrosOS) => void;
+  opcoes: OpcoesOS | null;
+  extra?: ReactNode;
+  /** algum filtro próprio da tela (fora dos comuns) está ligado */
+  extraAtivo?: boolean;
+  /** limpa os filtros próprios da tela junto com os comuns */
+  limparExtra?: () => void;
+}) {
   const mudar = (p: Partial<FiltrosOS>) => setF({ ...f, ...p });
-  const algum = Object.values(f).some(Boolean);
+  const algum = Object.values(f).some(Boolean) || extraAtivo;
   return (
     <div className="flex flex-wrap items-end gap-2.5">
       <label className="flex flex-col gap-1 text-[11.5px] text-muted">
@@ -106,11 +123,14 @@ export function BarraFiltrosOS({ f, setF, opcoes, extra }: { f: FiltrosOS; setF:
         </select>
       </label>
       {extra}
-      {algum && (
-        <button type="button" onClick={() => setF(VAZIO)} className="px-1 pb-1.5 text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline">
-          Limpar filtros
-        </button>
-      )}
+      <BotaoLimparFiltros
+        ativo={algum}
+        className="mb-0.5"
+        onLimpar={() => {
+          setF(VAZIO);
+          limparExtra?.();
+        }}
+      />
     </div>
   );
 }

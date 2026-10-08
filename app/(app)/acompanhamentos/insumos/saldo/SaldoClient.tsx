@@ -10,6 +10,7 @@ import { gerarRelatorioSaldoPdf } from "@/lib/relatorio-saldo-insumos-pdf";
 import { podeEditar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
 import { ehBooleano, ehTexto, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const INPUT = "w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px]";
 const ROTULO = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted";
@@ -131,6 +132,31 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
   }, [matriz]);
 
   const indiceData = dados && dtBase ? dados.datas.indexOf(dtBase) : -1;
+  // período padrão: retrato mais recente e os 30 dias antes dele (preenchido ao carregar quando a data está vazia)
+  const ultimaDataBase = dados?.datas.length ? dados.datas[dados.datas.length - 1] : "";
+  const periodoAlterado =
+    !!ultimaDataBase && !!dtBase && (dtBase !== ultimaDataBase || de !== addDays(ultimaDataBase, -30) || ate !== ultimaDataBase);
+  const algumFiltroAtivo =
+    empStr !== EMPRESAS.map((e) => e.id).join(",") ||
+    depStr !== DEPOSITOS_PADRAO.join(",") ||
+    grupo !== "" ||
+    q !== "" ||
+    separar !== false ||
+    periodoAlterado;
+  function limparFiltros() {
+    setEmpStr(EMPRESAS.map((e) => e.id).join(","));
+    setDepStr(DEPOSITOS_PADRAO.join(","));
+    setGrupo("");
+    setQ("");
+    setQDebounce("");
+    setSeparar(false);
+    if (periodoAlterado) {
+      setDtBase("");
+      setDe("");
+      setAte("");
+    }
+  }
+
   const irData = (delta: number) => {
     if (!dados || indiceData < 0) return;
     const nova = dados.datas[indiceData + delta];
@@ -275,6 +301,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
               <input type="checkbox" checked={separar} onChange={(e) => setSeparar(e.target.checked)} />
               Separar por depósito
             </label>
+            <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
           </div>
         </div>
 

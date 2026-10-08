@@ -6,6 +6,7 @@ import { validarDosagem, type Dosagem, type ItemDosagem } from "@/lib/dosagens";
 import { podeEditar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
 import { ehTexto, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const INPUT = "w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px]";
 const CELULA = "w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-right tabular hover:border-line focus:border-navy-900 focus:bg-surface focus:outline-none";
@@ -27,6 +28,10 @@ export default function DosagensClient({ perfil }: { perfil: PerfilUsuario }) {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = usarPersistido("insumos.dosagens.busca", "", ehTexto);
+  const algumFiltroAtivo = busca !== "";
+  function limparFiltros() {
+    setBusca("");
+  }
 
   // linha de lançamento
   const [novoCod, setNovoCod] = useState("");
@@ -216,8 +221,11 @@ export default function DosagensClient({ perfil }: { perfil: PerfilUsuario }) {
           <p className="max-w-[560px] text-[12.5px] text-muted">
             Dosagem por hectare, na unidade de medida do cadastro Material e Insumos. A descrição e a unidade vêm do cadastro pelo código do insumo.
           </p>
-          <div className="w-full sm:w-[280px]">
-            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por código ou descrição" className={INPUT} aria-label="Buscar" />
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="w-full sm:w-[280px]">
+              <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por código ou descrição" className={INPUT} aria-label="Buscar" />
+            </div>
+            <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
           </div>
         </div>
 

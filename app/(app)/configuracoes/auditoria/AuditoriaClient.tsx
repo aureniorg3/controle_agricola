@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { TabelaAuditoria } from "@/components/AuditoriaModal";
 import type { RegistroAuditoria } from "@/lib/auditoria";
 import { ehTexto, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const FILTRO =
   "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
@@ -19,6 +20,15 @@ export default function AuditoriaClient() {
   const [opcoes, setOpcoes] = useState<{ modulos: string[]; usuarios: string[] } | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+  const algumFiltroAtivo = modulo !== "" || usuario !== "" || de !== "" || ate !== "" || busca !== "";
+  function limparFiltros() {
+    setModulo("");
+    setUsuario("");
+    setDe("");
+    setAte("");
+    setBusca("");
+    setTermo("");
+  }
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -95,6 +105,7 @@ export default function AuditoriaClient() {
           <button type="button" onClick={carregar} className="rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card">
             Atualizar
           </button>
+          <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
         </div>
         {erro && <p className="mb-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
         <div className="overflow-auto rounded-xl2 border border-line bg-card shadow-card">

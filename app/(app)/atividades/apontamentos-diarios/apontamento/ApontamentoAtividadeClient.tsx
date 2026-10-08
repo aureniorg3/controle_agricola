@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BotaoLog from "@/components/BotaoLog";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import {
   camposFaltando,
   chaveTalhao,
@@ -127,6 +128,13 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const [ate, setAte] = useState(todayISO());
   const [filtroOS, setFiltroOS] = useState("");
   const [filtroBoletim, setFiltroBoletim] = useState("");
+  const algumFiltroAtivo = de !== addDays(todayISO(), -6) || ate !== todayISO() || filtroOS !== "" || filtroBoletim !== "";
+  function limparFiltros() {
+    setDe(addDays(todayISO(), -6));
+    setAte(todayISO());
+    setFiltroOS("");
+    setFiltroBoletim("");
+  }
   const [lista, setLista] = useState<ApontamentoDiario[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [aberto, setAberto] = useState<number | null>(null);
@@ -1041,6 +1049,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               <label className={ROTULO}>O.S.</label>
               <input value={filtroOS} onChange={(e) => setFiltroOS(e.target.value.replace(/\D/g, ""))} className={INPUT} placeholder="Todas" />
             </div>
+            <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1100px] text-[12.5px]">

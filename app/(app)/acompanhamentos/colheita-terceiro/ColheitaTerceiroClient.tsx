@@ -6,6 +6,7 @@ import { ehDataIso, ehTexto, usarPersistido } from "@/lib/usar-persistido";
 import { IconImprimir } from "@/components/icons";
 import { gerarRelatorioTerceiroPdf } from "@/lib/relatorio-terceiro-pdf";
 import type { LinhaTerceiro, ResultadoTerceiros } from "@/lib/db";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const INPUT = "rounded-lg border border-line bg-surface px-3 py-2 text-[13px]";
 const ROTULO = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted";
@@ -18,6 +19,13 @@ export default function ColheitaTerceiroClient({ nomeUsuario, ultimaData }: { no
   const [inicio, setInicio] = useState(`${fimInicial.slice(0, 8)}01`);
   const [fim, setFim] = useState(fimInicial);
   const [frente, setFrente] = usarPersistido("terceiro.frente", "", ehTexto);
+  const inicioPadrao = `${fimInicial.slice(0, 8)}01`;
+  const algumFiltroAtivo = inicio !== inicioPadrao || fim !== fimInicial || frente !== "";
+  function limparFiltros() {
+    setInicio(inicioPadrao);
+    setFim(fimInicial);
+    setFrente("");
+  }
   const [opcoesFrente, setOpcoesFrente] = useState<string[]>([]);
   const [linhas, setLinhas] = useState<LinhaTerceiro[]>([]);
   const [totais, setTotais] = useState<Pick<ResultadoTerceiros, "porData" | "porFrente" | "geral">>({ porData: [], porFrente: [], geral: { ton: 0, viagens: 0 } });
@@ -93,6 +101,7 @@ export default function ColheitaTerceiroClient({ nomeUsuario, ultimaData }: { no
               ))}
             </select>
           </div>
+          <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
           <button
             type="button"
             onClick={async () => {

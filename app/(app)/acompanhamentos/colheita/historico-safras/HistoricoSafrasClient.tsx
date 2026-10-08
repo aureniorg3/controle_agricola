@@ -8,6 +8,7 @@ import { podeEditar } from "@/lib/permissoes";
 import type { BaseSafraFazenda } from "@/lib/db";
 import type { PerfilUsuario, SafraAgregado } from "@/lib/types";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const FILTRO =
   "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
@@ -28,6 +29,12 @@ export default function HistoricoSafrasClient({
   const [safraFiltro, setSafraFiltro] = usarPersistido("historico.safra", "todas", ehTexto);
   const [busca, setBusca] = usarPersistido("historico.busca", "", ehTexto);
   const [verTudo, setVerTudo] = usarPersistido("historico.verTudo", false, ehBooleano);
+  const algumFiltroAtivo = safraFiltro !== "todas" || busca !== "" || verTudo !== false;
+  function limparFiltros() {
+    setSafraFiltro("todas");
+    setBusca("");
+    setVerTudo(false);
+  }
 
   const filtradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -163,6 +170,7 @@ export default function HistoricoSafrasClient({
                   placeholder="Buscar fazenda, proprietário, município…"
                   className={`${FILTRO} min-w-[260px]`}
                 />
+                <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
                 <span className="ml-auto text-[12px] text-muted">
                   {filtradas.length} linha{filtradas.length === 1 ? "" : "s"}
                 </span>

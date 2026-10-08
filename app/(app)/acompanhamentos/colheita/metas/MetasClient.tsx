@@ -11,6 +11,7 @@ import { metaDoDia } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
 import type { MetaFrente, PerfilUsuario } from "@/lib/types";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2 text-[13px] text-ink focus:border-brand-600 focus:outline-none";
@@ -32,6 +33,10 @@ export default function MetasClient({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [filtroFrente, setFiltroFrente] = usarPersistido("metas.frente", "todas", ehTexto);
+  const algumFiltroAtivo = filtroFrente !== "todas";
+  function limparFiltros() {
+    setFiltroFrente("todas");
+  }
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [importarAberto, setImportarAberto] = useState(false);
 
@@ -219,6 +224,7 @@ export default function MetasClient({
                   </option>
                 ))}
               </select>
+              <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
               <span className="ml-auto text-[12px] text-muted">
                 {linhas.length} meta{linhas.length === 1 ? "" : "s"}
               </span>

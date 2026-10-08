@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { fmtHa, fmtT, fmtTch } from "@/lib/format";
 import type { SafraAgregado, SafraVariedadeCorte } from "@/lib/types";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 type Dimensao = "fazenda" | "proprietario" | "municipio" | "variedade" | "corte";
 
@@ -47,6 +48,11 @@ export default function ColheitaPainelClient({
   const [dim, setDim] = usarPersistido<Dimensao>("colheita.dimensao", "fazenda", ehTexto as (v: unknown) => v is Dimensao);
   const [busca, setBusca] = usarPersistido("colheita.busca", "", ehTexto);
   const [verTudo, setVerTudo] = usarPersistido("colheita.verTudo", false, ehBooleano);
+  const algumFiltroAtivo = busca !== "" || verTudo !== false;
+  function limparFiltros() {
+    setBusca("");
+    setVerTudo(false);
+  }
 
   const anos = useMemo(() => safras.map((s) => s.safra).sort((a, b) => a - b), [safras]);
   const ultima = anos[anos.length - 1];
@@ -239,6 +245,7 @@ export default function ColheitaPainelClient({
                   placeholder={`Buscar ${dimInfo.label.toLowerCase()}…`}
                   className={`${FILTRO} min-w-[220px]`}
                 />
+                <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
                 <span className="ml-auto text-[12px] text-muted">
                   {pivot.length} {pivot.length === 1 ? "linha" : "linhas"}
                 </span>

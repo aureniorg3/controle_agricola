@@ -8,6 +8,7 @@ import { ASSINANTES_PADRAO, totalItem, type Emprestimo, type StatusEmprestimo } 
 import { podeEditar } from "@/lib/permissoes";
 import { ehTexto, usarPersistido } from "@/lib/usar-persistido";
 import type { PerfilUsuario } from "@/lib/types";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const INPUT = "w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px]";
 const ROTULO = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted";
@@ -101,6 +102,11 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
   const [erro, setErro] = useState<string | null>(null);
   const [filtroStatus, setFiltroStatus] = usarPersistido("insumos.emp.status", "Aberto", ehTexto);
   const [busca, setBusca] = usarPersistido("insumos.emp.busca", "", ehTexto);
+  const algumFiltroAtivo = filtroStatus !== "Aberto" || busca !== "";
+  function limparFiltros() {
+    setFiltroStatus("Aberto");
+    setBusca("");
+  }
   const [aberto, setAberto] = useState<number | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [baixa, setBaixa] = useState<{ e: Emprestimo; tipo: "Devolvido" | "Pago"; data: string; obs: string } | null>(null);
@@ -579,6 +585,7 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
               <option value="Pago">Pago</option>
             </select>
           </div>
+          <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
           {podeGravar && (
             <button type="button" onClick={novoEmprestimo} className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-800">
               + Novo empréstimo

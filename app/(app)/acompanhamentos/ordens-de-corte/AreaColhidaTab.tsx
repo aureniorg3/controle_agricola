@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import AuditoriaModal, { fmtDataHora } from "@/components/AuditoriaModal";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import { fmtDateBR, fmtHa } from "@/lib/format";
 import { ratearArea } from "@/lib/rateio";
 import type { ApontamentoArea } from "@/lib/db-area";
@@ -64,6 +65,12 @@ export default function AreaColhidaTab({
   useEffect(() => {
     if (ordemInicial) setOrdemNum(ordemInicial);
   }, [ordemInicial]);
+
+  // escolhendo a ordem no formulário, o histórico de baixo mostra os lançamentos dela
+  const numeroOrdem = ordem?.numero ?? "";
+  useEffect(() => {
+    if (numeroOrdem) setFiltroOrdem(numeroOrdem);
+  }, [numeroOrdem]);
 
   // ao trocar a ordem ou a data, traz o que já estava lançado naquele dia
   useEffect(() => {
@@ -438,6 +445,14 @@ export default function AreaColhidaTab({
             <label className={ROTULO}>Até</label>
             <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={`${INPUT} w-[150px]`} />
           </div>
+          <BotaoLimparFiltros
+            ativo={!!(filtroOrdem.trim() || de || ate)}
+            onLimpar={() => {
+              setFiltroOrdem("");
+              setDe("");
+              setAte("");
+            }}
+          />
           <button
             type="button"
             onClick={() => setLogAberto({ q: filtroOrdem.trim() ? `Ordem ${filtroOrdem.trim()} ·` : undefined })}

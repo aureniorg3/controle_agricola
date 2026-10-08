@@ -141,6 +141,14 @@ export default function OrdensOSClient({ perfil }: { perfil: PerfilUsuario }) {
             f={f}
             setF={setF}
             opcoes={opcoes}
+            extraAtivo={!!(op || faixa || atrasadas || busca)}
+            limparExtra={() => {
+              setOp("");
+              setFaixa("");
+              setAtrasadas(false);
+              setBusca("");
+              setTermo("");
+            }}
             extra={
               <>
                 <label className="flex flex-col gap-1 text-[11.5px] text-muted">

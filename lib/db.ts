@@ -371,6 +371,7 @@ export function prepararBanco(pool: Pool): Promise<void> {
       await pool.query("CREATE INDEX IF NOT EXISTS idx_aud_log_chave ON aud_log(modulo, entidade, chave)");
       // o cadastro passou a se chamar "Fazenda" (singular): o histórico do log acompanha
       await pool.query("UPDATE aud_log SET entidade = 'Cadastro de Fazenda' WHERE modulo = 'Cadastros' AND entidade = 'Cadastro de Fazendas'");
+      await ajustarArredondamentoAreaColhida(pool);
       // usuário que lançou / alterou por último, em todos os lançamentos
       for (const t of ["met_frt", "eqp_frt", "saf_cad", "cad_itm", "ord_vis", "rod_cad"]) {
         await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS usr text NOT NULL DEFAULT ''`);
@@ -2203,4 +2204,47 @@ export async function ajustarCadastro(spec: CadastroSpec, gravar: boolean, usuar
     exemplos: mudam.slice(0, 50).map((m) => ({ cod: m.cod, antes: m.antes, depois: m.nm })),
     sincronizado,
   };
+}
+
+/**
+ * Área colhida sempre em centésimos, sem passar da área do talhão: as áreas gravadas com mais casas são arredondadas
+ * e, onde o acumulado do talhão ficou até 0,01 ha acima da área (folga de arredondamento que a gravação aceitava), o
+ * último lançamento é reduzido nessa diferença — com registro no log. Não mexe em diferenças maiores.
+ */
+async function ajustarArredondamentoAreaColhida(pool: Pool): Promise<void> {
+  try {
+    await pool.query("UPDATE col_dia SET area = round(area, 2) WHERE area <> round(area, 2)");
+    await pool.query("UPDATE tlh SET area_col_ha = round(area_col_ha, 2) WHERE area_col_ha <> round(area_col_ha, 2)");
+    await pool.query("UPDATE tlh SET area_ha = round(area_ha, 2) WHERE area_ha <> round(area_ha, 2)");
+    const { rows } = await pool.query<{ ord_num: string; faz_cod: string; tlh: string; dt: string; antes: number; depois: number }>(
+      `WITH tot AS (
+         SELECT t.ord_num, t.faz_cod, t.tlh, t.area_ha, t.area_col_ha + SUM(c.area) AS col
+           FROM tlh t JOIN col_dia c ON c.ord_num = t.ord_num AND c.faz_cod = t.faz_cod AND c.tlh = t.tlh
+          GROUP BY t.ord_num, t.faz_cod, t.tlh, t.area_ha, t.area_col_ha
+       ), exc AS (
+         SELECT ord_num, faz_cod, tlh, round(col - area_ha, 2) AS ex FROM tot WHERE col > area_ha AND col - area_ha <= 0.011
+       ), ult AS (
+         SELECT DISTINCT ON (c.ord_num, c.faz_cod, c.tlh) c.ord_num, c.faz_cod, c.tlh, c.dt, c.area, e.ex
+           FROM col_dia c JOIN exc e ON e.ord_num = c.ord_num AND e.faz_cod = c.faz_cod AND e.tlh = c.tlh
+          WHERE c.area > e.ex
+          ORDER BY c.ord_num, c.faz_cod, c.tlh, c.dt DESC
+       )
+       UPDATE col_dia c SET area = c.area - u.ex, atu_usr = 'Ajuste de arredondamento', atu_em = now()
+         FROM ult u WHERE c.ord_num = u.ord_num AND c.faz_cod = u.faz_cod AND c.tlh = u.tlh AND c.dt = u.dt
+       RETURNING c.ord_num, c.faz_cod, c.tlh, c.dt::text AS dt, u.area::float AS antes, c.area::float AS depois`
+    );
+    for (const r of rows) {
+      await auditar(pool, {
+        usuario: "Sistema",
+        modulo: "Colheita",
+        entidade: "Área colhida",
+        chave: `Ordem ${r.ord_num} · fazenda ${r.faz_cod} · talhão ${r.tlh} · ${r.dt.split("-").reverse().join("/")}`,
+        acao: "alteracao",
+        antes: { ha: r.antes },
+        depois: { ha: r.depois, motivo: "A área colhida acumulada passava 0,01 ha da área do talhão (arredondamento)." },
+      });
+    }
+  } catch (err) {
+    console.error("Ajuste de arredondamento da área colhida não concluído:", err);
+  }
 }

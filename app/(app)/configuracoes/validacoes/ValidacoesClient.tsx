@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ResultadoValidacoes, ResultadoVerificacao, Severidade } from "@/lib/validacoes";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const ROTULO_SEVERIDADE: Record<Severidade, string> = { erro: "Erro", atencao: "Atenção", info: "Informação" };
 const COR_SEVERIDADE: Record<Severidade, string> = {
@@ -18,6 +19,11 @@ export default function ValidacoesClient() {
   const [erro, setErro] = useState<string | null>(null);
   const [soDivergencias, setSoDivergencias] = usarPersistido("validacoes.soDivergencias", true, ehBooleano);
   const [modulo, setModulo] = usarPersistido("validacoes.modulo", "", ehTexto);
+  const algumFiltroAtivo = soDivergencias !== true || modulo !== "";
+  function limparFiltros() {
+    setSoDivergencias(true);
+    setModulo("");
+  }
   const [abertas, setAbertas] = useState<Set<string>>(new Set());
 
   const executar = useCallback(async () => {
@@ -153,6 +159,7 @@ export default function ValidacoesClient() {
             <input type="checkbox" checked={soDivergencias} onChange={(e) => setSoDivergencias(e.target.checked)} />
             Mostrar só o que tem divergência
           </label>
+          <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
           {dados && (
             <span className="ml-auto text-[11.5px] text-muted">
               Verificado em {new Date(dados.executadoEm).toLocaleString("pt-BR")}

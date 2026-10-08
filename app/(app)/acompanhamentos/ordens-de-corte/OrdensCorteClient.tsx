@@ -30,6 +30,7 @@ import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
 import { Campo, ModalShell } from "@/components/ui";
 import { aplicarAreaColhidaDia, aplicarCorteERateio, HORAS_CORTE, rotuloHoraCorte, type HoraCorte } from "@/lib/rateio";
 import AreaColhidaTab from "./AreaColhidaTab";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import {
   IconCaminhaoCana,
   IconColhedora,
@@ -430,6 +431,35 @@ export default function OrdensCorteClient({
   }
   function restaurarOrdemFrentes() {
     setFrentesCfg({ ordem: [], ocultas: [] });
+  }
+
+  // "Limpar filtros": período Dia, data na última entrada de cana, dia atual até 06:00, todas as frentes e status, sem busca
+  const referenciaPadrao = useMemo(
+    () =>
+      ultimaDataComMovimento(
+        producao
+          ? ordensBrutas.map((o) => ({
+              ...o,
+              entradas: o.entradas.filter((e) => e.data >= producao.inicio && e.data <= producao.fim),
+            }))
+          : ordensBrutas
+      ),
+    [ordensBrutas, producao]
+  );
+  const algumFiltroAtivo =
+    period !== "dia" ||
+    referencia !== referenciaPadrao ||
+    horaCorte !== 6 ||
+    frentesVisiveis.size < frentesOrdenadas.length ||
+    statusFiltro !== "todas" ||
+    busca !== "";
+  function limparFiltros() {
+    setPeriod("dia");
+    setReferencia(referenciaPadrao);
+    setHoraCorte(6);
+    mostrarTodasFrentes();
+    setStatusFiltro("todas");
+    setBusca("");
   }
 
   // Cards automáticos: toda ordem aberta; a encerrada só enquanto teve entrada de cana no dia atual ou no dia anterior
@@ -1054,6 +1084,7 @@ export default function OrdensCorteClient({
             onChange={(e) => setBusca(e.target.value)}
             className="min-w-[220px] flex-1 rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink shadow-card placeholder:text-muted"
           />
+          <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
 
           <span className="ml-auto text-[12.5px] font-medium text-muted">
             {periodoTexto(period, referencia, safraLabel)}

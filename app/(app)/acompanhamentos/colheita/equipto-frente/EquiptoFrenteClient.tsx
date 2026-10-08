@@ -10,6 +10,7 @@ import { fmtDateBR, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { EquiptoFrente, PerfilUsuario } from "@/lib/types";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2 text-[13px] text-ink focus:border-brand-600 focus:outline-none";
@@ -35,6 +36,11 @@ export default function EquiptoFrenteClient({
   const [erro, setErro] = useState<string | null>(null);
   const [filtroFrente, setFiltroFrente] = usarPersistido("equipto.frente", "todas", ehTexto);
   const [filtroEqp, setFiltroEqp] = usarPersistido("equipto.eqp", "", ehTexto);
+  const algumFiltroAtivo = filtroFrente !== "todas" || filtroEqp !== "";
+  function limparFiltros() {
+    setFiltroFrente("todas");
+    setFiltroEqp("");
+  }
 
   const hoje = todayISO();
   const codigosConhecidos = useMemo(
@@ -218,6 +224,7 @@ export default function EquiptoFrenteClient({
                 placeholder="Buscar equipamento…"
                 className="rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
               />
+              <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
               <span className="ml-auto text-[12px] text-muted">
                 {linhas.length} lançamento{linhas.length === 1 ? "" : "s"}
               </span>

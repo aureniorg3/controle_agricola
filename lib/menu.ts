@@ -216,3 +216,17 @@ export function filtrarMenu(secoes: SecaoMenu[], perfil: PerfilUsuario | string 
     .map((s) => ({ ...s, items: s.items.map(filtrar).filter((i): i is ItemMenu => !!i) }))
     .filter((s) => s.items.length > 0);
 }
+
+/** Nome da tela de um endereço, com o grupo de cima ("Moagem › Dashboard"), para o botão Voltar. */
+export function nomeDaTela(pathname: string): string | null {
+  if (pathname === "/" || casa(pathname, "/painel")) return ITEM_INICIO.label;
+  let melhor: { href: string; nome: string } | null = null;
+  const visitar = (item: ItemMenu, pai: string | null) => {
+    if (item.href && casa(pathname, item.href) && (!melhor || item.href.length > melhor.href.length)) {
+      melhor = { href: item.href, nome: pai ? `${pai} › ${item.label}` : item.label };
+    }
+    item.children?.forEach((c) => visitar(c, item.label));
+  };
+  SECOES_MENU.forEach((s) => s.items.forEach((i) => visitar(i, null)));
+  return (melhor as { href: string; nome: string } | null)?.nome ?? null;
+}

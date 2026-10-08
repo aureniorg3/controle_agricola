@@ -9,6 +9,7 @@ import { podeEditar } from "@/lib/permissoes";
 import type { LinhaResumoRodada } from "@/lib/rodadas";
 import type { PerfilUsuario } from "@/lib/types";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const FILTRO =
   "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
@@ -34,6 +35,21 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
   const [usr, setUsr] = usarPersistido("rodadas.resumo.usr", "", ehTexto);
   const [termo, setTermo] = useState("");
   const [pagina, setPagina] = useState(1);
+  const algumFiltroAtivo =
+    rod !== "" || reg !== "" || sem !== "" || ori !== "" || busca !== "" || modoData !== "" || de !== "" || ate !== "" || usr !== "";
+  function limparFiltros() {
+    setRod("");
+    setReg("");
+    setSem("");
+    setOri("");
+    setBusca("");
+    setTermo("");
+    setModoData("");
+    setDe("");
+    setAte("");
+    setUsr("");
+    setPagina(1);
+  }
   const [linhas, setLinhas] = useState<LinhaResumoRodada[]>([]);
   const [total, setTotal] = useState(0);
   const [boletins, setBoletins] = useState(0);
@@ -248,6 +264,7 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
               placeholder="Buscar fazenda, ocorrência, boletim…"
               className={`${FILTRO} min-w-[240px]`}
             />
+            <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
           </div>
 
           {erro && <p className="px-4 py-3 text-[12.5px] font-medium text-alert-600">{erro}</p>}

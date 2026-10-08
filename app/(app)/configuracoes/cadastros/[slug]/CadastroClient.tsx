@@ -14,6 +14,7 @@ import {
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2 text-[13px] text-ink focus:border-brand-600 focus:outline-none";
@@ -48,6 +49,12 @@ export default function CadastroClient({
   const [busca, setBusca] = usarPersistido(`cadastro.${slug}.busca`, "", ehTexto);
   const [termo, setTermo] = useState("");
   const [pagina, setPagina] = useState(1);
+  const algumFiltroAtivo = busca !== "";
+  function limparFiltros() {
+    setBusca("");
+    setTermo("");
+    setPagina(1);
+  }
   const [itens, setItens] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
   const [tamanho, setTamanho] = useState(50);
@@ -153,6 +160,7 @@ export default function CadastroClient({
               placeholder="Buscar…"
               className={`${FILTRO} min-w-[220px]`}
             />
+            <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
             <span className="ml-auto text-[12px] text-muted">
               {total.toLocaleString("pt-BR")} registro{total === 1 ? "" : "s"}
             </span>
