@@ -120,7 +120,7 @@
  ],
  "tipo-aplicacao": [
   {
-   "cod": "1",
+   "cod": "1|PRÉ-EMERGENTE",
    "nm": "PRÉ-EMERGENTE",
    "dds": {
     "codigo": 1,
@@ -128,7 +128,7 @@
    }
   },
   {
-   "cod": "2",
+   "cod": "2|PÓS-EMERGENTE",
    "nm": "PÓS-EMERGENTE",
    "dds": {
     "codigo": 2,
@@ -136,7 +136,7 @@
    }
   },
   {
-   "cod": "3",
+   "cod": "3|CULTIVO MÍNIMO",
    "nm": "CULTIVO MÍNIMO",
    "dds": {
     "codigo": 3,
@@ -144,7 +144,7 @@
    }
   },
   {
-   "cod": "4",
+   "cod": "4|APLICAÇÃO AÉREA",
    "nm": "APLICAÇÃO AÉREA",
    "dds": {
     "codigo": 4,
@@ -152,7 +152,7 @@
    }
   },
   {
-   "cod": "5",
+   "cod": "5|COBERTURA",
    "nm": "COBERTURA",
    "dds": {
     "codigo": 5,
@@ -160,7 +160,7 @@
    }
   },
   {
-   "cod": "6",
+   "cod": "6|FUNDAÇÃO",
    "nm": "FUNDAÇÃO",
    "dds": {
     "codigo": 6,
@@ -168,7 +168,7 @@
    }
   },
   {
-   "cod": "7",
+   "cod": "7|MEIOZE",
    "nm": "MEIOZE",
    "dds": {
     "codigo": 7,
@@ -176,7 +176,7 @@
    }
   },
   {
-   "cod": "8",
+   "cod": "8|REFORMA",
    "nm": "REFORMA",
    "dds": {
     "codigo": 8,
@@ -184,7 +184,7 @@
    }
   },
   {
-   "cod": "9",
+   "cod": "9|BROCA FOLHA",
    "nm": "BROCA FOLHA",
    "dds": {
     "codigo": 9,
@@ -192,7 +192,7 @@
    }
   },
   {
-   "cod": "10",
+   "cod": "10|BROCA HOMEM HORA",
    "nm": "BROCA HOMEM HORA",
    "dds": {
     "codigo": 10,
@@ -200,7 +200,7 @@
    }
   },
   {
-   "cod": "11",
+   "cod": "11|BROCA POR HECTARE",
    "nm": "BROCA POR HECTARE",
    "dds": {
     "codigo": 11,
@@ -208,7 +208,7 @@
    }
   },
   {
-   "cod": "14",
+   "cod": "14|APLICAÇÃO LOCALIZADA",
    "nm": "APLICAÇÃO LOCALIZADA",
    "dds": {
     "codigo": 14,
@@ -216,7 +216,7 @@
    }
   },
   {
-   "cod": "15",
+   "cod": "15|ATIVIDADE EXEC. - AGRO RUBIATABA",
    "nm": "ATIVIDADE EXEC. - AGRO RUBIATABA",
    "dds": {
     "codigo": 15,
@@ -224,7 +224,7 @@
    }
   },
   {
-   "cod": "16",
+   "cod": "16|ATIVIDADE EXEC. - PFCMO",
    "nm": "ATIVIDADE EXEC. - PFCMO",
    "dds": {
     "codigo": 16,
@@ -232,7 +232,7 @@
    }
   },
   {
-   "cod": "17",
+   "cod": "17|ATIVIDADE EXEC. - AGRO URUACU",
    "nm": "ATIVIDADE EXEC. - AGRO URUACU",
    "dds": {
     "codigo": 17,
@@ -240,7 +240,7 @@
    }
   },
   {
-   "cod": "18",
+   "cod": "18|ATIVIDADE EXEC. - CAPFO",
    "nm": "ATIVIDADE EXEC. - CAPFO",
    "dds": {
     "codigo": 18,
@@ -248,7 +248,7 @@
    }
   },
   {
-   "cod": "45",
+   "cod": "45|IRRIGACAO",
    "nm": "IRRIGACAO",
    "dds": {
     "codigo": 45,
@@ -256,7 +256,7 @@
    }
   },
   {
-   "cod": "50",
+   "cod": "50|OUTRAS APLIC - IRRIG AGUA",
    "nm": "OUTRAS APLIC - IRRIG AGUA",
    "dds": {
     "codigo": 50,
@@ -264,7 +264,7 @@
    }
   },
   {
-   "cod": "51",
+   "cod": "51|OUTRAS APLIC - IRRIG VINHACA",
    "nm": "OUTRAS APLIC - IRRIG VINHACA",
    "dds": {
     "codigo": 51,
@@ -272,7 +272,7 @@
    }
   },
   {
-   "cod": "52",
+   "cod": "52|DIVERSOS",
    "nm": "DIVERSOS",
    "dds": {
     "codigo": 52,

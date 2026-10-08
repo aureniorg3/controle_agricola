@@ -3,6 +3,7 @@ import PlaceholderPage from "@/components/PlaceholderPage";
 import { CADASTROS } from "@/lib/cadastros";
 import { specPorSlug } from "@/lib/cadastros-spec";
 import { usuarioAtual } from "@/lib/db";
+import { carregarCadastrosExportados, CADASTROS_COM_CARGA_EXPORTADA } from "@/lib/db-cadastros-carga";
 import { prepararOSAgr } from "@/lib/db-os-agr";
 import CadastroClient from "./CadastroClient";
 
@@ -17,6 +18,8 @@ export default async function CadastroPage({ params }: { params: Promise<{ slug:
   if (specPorSlug(slug)) {
     // Etapa e Tipo Aplicação têm carga inicial junto com a base de O.S.
     if (slug === "etapa" || slug === "tipo-aplicacao") await prepararOSAgr();
+    // Classificação de Operações, Tipos de Despesa, Operações e Tipo Aplicação: carga dos relatórios exportados do sistema
+    if (CADASTROS_COM_CARGA_EXPORTADA.includes(slug)) await carregarCadastrosExportados();
     const usuario = await usuarioAtual();
     return <CadastroClient slug={slug} perfil={usuario?.perfil ?? "leitura"} />;
   }

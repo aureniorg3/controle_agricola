@@ -300,14 +300,79 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
   {
     slug: "tipo-aplicacao",
     titulo: "Tipo Aplicação",
-    arquivos: ["tipo aplicacao", "tipos de aplicacao", "tipo de aplicacao"],
+    // "Tipos de aplicações agrícolas" sai do sistema como "ExportWWTAG55TExportToExcel"
+    arquivos: ["tipo aplicacao", "tipos de aplicacao", "tipo de aplicacao", "tipos de aplicacoes agricolas", "exportwwtag55texporttoexcel"],
     obrigatorias: ["codigo", "descricao"],
+    // o mesmo código aparece com mais de uma descrição (ex.: 14 Aplicação Localizada e 14 Colheitabilidade): a chave é o par
+    codigo: (d) => `${texto(d.codigo)}|${texto(d.descricao)}`,
+    nome: (d) => texto(d.descricao),
+    chaves: ["codigo", "descricao"],
+    colunas: [
+      { chave: "codigo", rotulo: "Código", alinhar: "direita", largura: 90 },
+      { chave: "descricao", rotulo: "Descrição", largura: 320 },
+    ],
+  },
+  {
+    slug: "classificacao-operacoes",
+    titulo: "Classificação de Operações",
+    // sai do sistema como "ExportWWTSC41TExportToExcel"
+    arquivos: ["classificacao de operacoes", "classificacoes de operacoes", "exportwwtsc41texporttoexcel"],
+    obrigatorias: ["codigo", "descricao", "producao_da_operacao"],
     codigo: (d) => texto(d.codigo),
     nome: (d) => texto(d.descricao),
     chaves: ["codigo"],
     colunas: [
       { chave: "codigo", rotulo: "Código", alinhar: "direita", largura: 90 },
-      { chave: "descricao", rotulo: "Descrição", largura: 320 },
+      { chave: "descricao", rotulo: "Descrição", largura: 280 },
+      { chave: "producao_da_operacao", rotulo: "Produção da Operação", alinhar: "direita", largura: 160 },
+    ],
+  },
+  {
+    slug: "tipos-despesa",
+    titulo: "Tipos de Despesa",
+    // sai do sistema como "ExportWWTSC39TExportToExcel" (cada tipo repetido uma vez por safra do rateio)
+    arquivos: ["tipos de despesa", "tipos de despesas", "tipo de despesa", "exportwwtsc39texporttoexcel"],
+    obrigatorias: ["codigo", "descricao", "forma_de_amortizacao"],
+    codigo: (d) => texto(d.codigo),
+    nome: (d) => texto(d.descricao),
+    chaves: ["codigo"],
+    colunas: [
+      { chave: "codigo", rotulo: "Código", alinhar: "direita", largura: 90 },
+      { chave: "descricao", rotulo: "Descrição", largura: 260 },
+      { chave: "forma_de_amortizacao", rotulo: "Forma de Amortização", alinhar: "centro", largura: 170 },
+      { chave: "total_do_percentual", rotulo: "Total do Percentual", alinhar: "direita", largura: 150 },
+    ],
+  },
+  {
+    slug: "operacoes",
+    titulo: "Operações",
+    // sai do sistema como "ExportWWTSC42TExportToExcel"
+    arquivos: ["operacoes", "operacao", "exportwwtsc42texporttoexcel"],
+    obrigatorias: ["codigo", "descricao_da_operacao", "unidade_de_medida"],
+    codigo: (d) => texto(d.codigo),
+    nome: (d) => texto(d.descricao_da_operacao),
+    chaves: ["codigo"],
+    colunas: [
+      { chave: "codigo", rotulo: "Código", alinhar: "direita", largura: 90 },
+      { chave: "descricao_da_operacao", rotulo: "Descrição da Operação", largura: 320 },
+      { chave: "tipo", rotulo: "Tipo", alinhar: "centro" },
+      { chave: "grupo", rotulo: "Grupo" },
+      { chave: "descricao_do_grupo", rotulo: "Descrição do Grupo", largura: 220 },
+      { chave: "grau", rotulo: "Grau", alinhar: "direita" },
+      { chave: "unidade_de_medida", rotulo: "UM", alinhar: "centro" },
+      { chave: "descricao_unidade_de_medida", rotulo: "Descrição UM", largura: 130 },
+      // o 2º "Código" do relatório é o da Classificação de Operações
+      { chave: "codigo_2", rotulo: "Classificação (código)", alinhar: "direita", largura: 150, ref: "classificacao-operacoes" },
+      { chave: "codigo_2_nm", rotulo: "Classificação", largura: 160, derivada: true },
+      { chave: "codigo_da_etapa", rotulo: "Código da Etapa", alinhar: "direita" },
+      { chave: "descricao_da_etapa", rotulo: "Descrição da Etapa", largura: 220 },
+      { chave: "codigo_de_despesa", rotulo: "Tipo de Despesa (código)", alinhar: "direita", largura: 160, ref: "tipos-despesa" },
+      { chave: "codigo_de_despesa_nm", rotulo: "Tipo de Despesa", largura: 160, derivada: true },
+      { chave: "centro_de_custo", rotulo: "Centro de Custo", alinhar: "direita" },
+      { chave: "nome_do_centro_de_custo", rotulo: "Nome do Centro de Custo", largura: 200 },
+      { chave: "valor_unitario", rotulo: "Valor Unitário", alinhar: "direita" },
+      { chave: "vinculo_c_operacao_agricola_realizada_por_terceiros", rotulo: "Vínculo c/ Operação de Terceiros", alinhar: "direita", largura: 200 },
+      { chave: "descricao_do_vinculo", rotulo: "Descrição do Vínculo", largura: 180 },
     ],
   },
   {
