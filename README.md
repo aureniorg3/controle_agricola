@@ -220,8 +220,10 @@ foi digitado (`InputSenha` em `components/ui.tsx`).
   do relatório de pesagem (`toneladasAte6h` em `EntradaDiaria`, calculada na
   importação).
 - **Resumo Detalhado por Ordem e Fazenda**: tabela no final da tela (Frente /
-  Ordem / Fazenda / Fundo Agrícola / Área(ha) Colhida / Prod.(t) Total Real.
-  Até Hoje / TCH(t/ha) Real. Parcial) com uma linha por fazenda — uma ordem
+  Ordem / Fazenda / Descrição; Estimado: Área Total OC, TCH Est., Ton Est.;
+  Realizado: Área Colhida, Produção Acum., TCH Parcial; A colher: área total −
+  colhida (0 na ordem encerrada), TCH (o parcial; sem ele, o estimado, com *)
+  e Ton; Projetado: produção acumulada + ton a colher) com uma linha por fazenda — uma ordem
   com mais de uma fazenda vira mais de uma linha — subtotal por frente e
   total geral no final, igual ao relatório impresso de referência. Mesmo
   critério de escopo do resumo por frente: todas as ordens do filtro atual,

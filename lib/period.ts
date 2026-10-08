@@ -135,29 +135,82 @@ export function calcTalhaoDiaAtualAte6h(ordem: OrdemCorte, talhao: TalhaoOrdem, 
   return Math.round(total * 100) / 100;
 }
 
-export interface LinhaResumoDetalhado {
-  frente: string;
-  ordem: string;
-  fazendaCodigo: string;
-  fazendaNome: string;
+/** Números do resumo detalhado (de uma linha, do total da frente ou do total geral). */
+export interface TotaisResumoDetalhado {
+  /** área total da ordem de corte (talhões da fazenda na ordem) */
+  areaTotalHa: number;
+  /** TCH estimado da ordem (histórico da safra atual); null quando não há */
+  tchEst: number | null;
+  /** área total × TCH estimado */
+  tonEst: number;
   areaColhidaHa: number;
   producaoTotalT: number;
   /** Produção ÷ área colhida — "parcial" porque divide pelo que já foi
    * colhido até agora, não pela área total da ordem. */
   tchRealParcial: number;
+  /** área total − área colhida (0 na ordem encerrada) */
+  areaAColherHa: number;
+  /** TCH usado no que falta colher: o parcial; sem ele, o estimado */
+  tchAColher: number | null;
+  tonAColher: number;
+  /** produção entregue + o que falta colher pelo TCH acima */
+  tonProjetada: number;
+}
+
+export interface LinhaResumoDetalhado extends TotaisResumoDetalhado {
+  frente: string;
+  ordem: string;
+  fazendaCodigo: string;
+  fazendaNome: string;
+  /** o TCH do "a colher" veio do estimado (ainda sem TCH parcial) */
+  tchAColherEstimado: boolean;
+}
+
+/** Soma linhas do resumo detalhado (TCHs ponderados pela área de cada um). */
+export function totaisResumoDetalhado(linhas: TotaisResumoDetalhado[]): TotaisResumoDetalhado {
+  let areaTotalHa = 0, areaComEst = 0, tonEst = 0, areaColhidaHa = 0, producaoTotalT = 0, areaAColherHa = 0, tonAColher = 0, tonProjetada = 0;
+  for (const l of linhas) {
+    areaTotalHa += l.areaTotalHa;
+    if (l.tchEst !== null) areaComEst += l.areaTotalHa;
+    tonEst += l.tonEst;
+    areaColhidaHa += l.areaColhidaHa;
+    producaoTotalT += l.producaoTotalT;
+    areaAColherHa += l.areaAColherHa;
+    tonAColher += l.tonAColher;
+    tonProjetada += l.tonProjetada;
+  }
+  return {
+    areaTotalHa: round2(areaTotalHa),
+    tchEst: areaComEst > 0 ? round2(tonEst / areaComEst) : null,
+    tonEst: round2(tonEst),
+    areaColhidaHa: round2(areaColhidaHa),
+    producaoTotalT: round2(producaoTotalT),
+    tchRealParcial: areaColhidaHa > 0 ? round2(producaoTotalT / areaColhidaHa) : 0,
+    areaAColherHa: round2(areaAColherHa),
+    tchAColher: areaAColherHa > 0 && tonAColher > 0 ? round2(tonAColher / areaAColherHa) : null,
+    tonAColher: round2(tonAColher),
+    tonProjetada: round2(tonProjetada),
+  };
 }
 
 /**
  * Uma linha por (ordem, fazenda) — uma ordem com mais de uma fazenda vira
  * mais de uma linha, igual ao relatório impresso de referência. Usada no
- * resumo detalhado da tela e no PDF.
+ * resumo detalhado da tela e no PDF. `tchEstimado` dá o TCH estimado da ordem.
  */
-export function resumoDetalhadoPorOrdemFazenda(ordens: OrdemCorte[], referencia: string): LinhaResumoDetalhado[] {
+export function resumoDetalhadoPorOrdemFazenda(
+  ordens: OrdemCorte[],
+  referencia: string,
+  tchEstimado: (numero: string) => number | null = () => null
+): LinhaResumoDetalhado[] {
   const linhas: LinhaResumoDetalhado[] = [];
   for (const ordem of ordens) {
-    const porFazenda = new Map<string, { fazendaNome: string; areaColhidaHa: number; producaoT: number }>();
+    const est = tchEstimado(ordem.numero);
+    const tchEst = est !== null && est > 0 ? est : null;
+    const porFazenda = new Map<string, { fazendaNome: string; areaTotalHa: number; areaColhidaHa: number; producaoT: number }>();
     for (const t of ordem.talhoes) {
-      const atual = porFazenda.get(t.fazendaCodigo) ?? { fazendaNome: t.fazendaNome, areaColhidaHa: 0, producaoT: 0 };
+      const atual = porFazenda.get(t.fazendaCodigo) ?? { fazendaNome: t.fazendaNome, areaTotalHa: 0, areaColhidaHa: 0, producaoT: 0 };
+      atual.areaTotalHa += t.areaHa;
       atual.areaColhidaHa += t.areaColhidaHa;
       porFazenda.set(t.fazendaCodigo, atual);
     }
@@ -166,16 +219,30 @@ export function resumoDetalhadoPorOrdemFazenda(ordens: OrdemCorte[], referencia:
       if (atual) atual.producaoT += tonAteReferencia(e, referencia);
     }
     for (const [fazendaCodigo, dados] of porFazenda) {
+      const areaTotalHa = round2(dados.areaTotalHa);
       const areaColhidaHa = round2(dados.areaColhidaHa);
       const producaoTotalT = round2(dados.producaoT);
+      const tchRealParcial = areaColhidaHa > 0 ? round2(producaoTotalT / areaColhidaHa) : 0;
+      // ordem encerrada não tem mais o que colher
+      const areaAColherHa = ordem.status === "Aberta" ? round2(Math.max(0, areaTotalHa - areaColhidaHa)) : 0;
+      const tchAColher = areaAColherHa > 0 ? (tchRealParcial > 0 ? tchRealParcial : tchEst) : null;
+      const tonAColher = tchAColher !== null ? round2(areaAColherHa * tchAColher) : 0;
       linhas.push({
         frente: ordem.frente,
         ordem: ordem.numero,
         fazendaCodigo,
         fazendaNome: dados.fazendaNome,
+        areaTotalHa,
+        tchEst,
+        tonEst: tchEst !== null ? round2(areaTotalHa * tchEst) : 0,
         areaColhidaHa,
         producaoTotalT,
-        tchRealParcial: areaColhidaHa > 0 ? round2(producaoTotalT / areaColhidaHa) : 0,
+        tchRealParcial,
+        areaAColherHa,
+        tchAColher,
+        tchAColherEstimado: tchAColher !== null && !(tchRealParcial > 0),
+        tonAColher,
+        tonProjetada: round2(producaoTotalT + tonAColher),
       });
     }
   }

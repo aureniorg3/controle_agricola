@@ -1,4 +1,4 @@
-import type { FrenteResumo, LinhaResumoDetalhado, MediaDiaria, MetasPorPeriodo, ResumoMensal } from "./period";
+import type { FrenteResumo, LinhaResumoDetalhado, MediaDiaria, MetasPorPeriodo, ResumoMensal, TotaisResumoDetalhado } from "./period";
 import {
   addDays,
   calcAreaColhidaHa,
@@ -53,7 +53,7 @@ export interface KpiRelatorio {
 export interface ResumoDetalhadoFrente {
   frente: string;
   linhas: LinhaResumoDetalhado[];
-  subtotal: { areaColhidaHa: number; producaoTotalT: number; tchRealParcial: number };
+  subtotal: TotaisResumoDetalhado;
 }
 
 export interface DadosRelatorioCompleto {
@@ -80,7 +80,7 @@ export interface DadosRelatorioCompleto {
   producaoDesde?: string;
   porFrente: [string, OrdemCorte[]][];
   resumoDetalhadoPorFrente: ResumoDetalhadoFrente[];
-  resumoDetalhadoTotalGeral: { areaColhidaHa: number; producaoTotalT: number; tchRealParcial: number };
+  resumoDetalhadoTotalGeral: TotaisResumoDetalhado;
   /** resumo diário do mês selecionado: uma linha por dia, uma coluna por frente */
   resumoMensal: ResumoMensal;
   nomeUsuario: string;
@@ -920,10 +920,24 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
 
   // ---------- Resumo detalhado por ordem/fazenda ----------
   const gruposDetalhado = dados.resumoDetalhadoPorFrente;
-  const fmtDetalhe = (l: { areaColhidaHa: number; producaoTotalT: number; tchRealParcial: number }) => [
-    l.areaColhidaHa > 0 ? fmtHa(l.areaColhidaHa) : "–",
-    l.producaoTotalT > 0 ? fmtT(l.producaoTotalT) : "–",
-    l.tchRealParcial > 0 ? fmtTch(l.tchRealParcial) : "–",
+  const nDet = (x: number | null, f: (y: number) => string) => (x !== null && x > 0 ? f(x) : "–");
+  // estimado · realizado · a colher · projetado (mesmas colunas da tela)
+  const fmtDetalhe = (l: TotaisResumoDetalhado, estimadoNoAColher = false) => [
+    nDet(l.areaTotalHa, fmtHa),
+    nDet(l.tchEst, fmtTch),
+    nDet(l.tonEst, fmtT),
+    nDet(l.areaColhidaHa, fmtHa),
+    nDet(l.producaoTotalT, fmtT),
+    nDet(l.tchRealParcial, fmtTch),
+    nDet(l.areaAColherHa, fmtHa),
+    `${nDet(l.tchAColher, fmtTch)}${estimadoNoAColher ? "*" : ""}`,
+    nDet(l.tonAColher, fmtT),
+    nDet(l.tonProjetada, fmtT),
+  ];
+  const BLOCOS_DETALHE: { titulo: string; cor: [number, number, number] }[] = [
+    { titulo: "Estimado", cor: [26, 58, 99] },
+    { titulo: "Realizado", cor: [22, 100, 48] },
+    { titulo: "A colher", cor: [184, 101, 43] },
   ];
 
   /** Desenha as frentes `grupos` (com total geral, se pedido) em `d`, na coluna que começa em `x` com `largura`. */
@@ -941,7 +955,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     const subtotais = new Set<number>();
     for (const grupo of grupos) {
       grupo.linhas.forEach((l, i) => {
-        corpo.push([i === 0 ? l.frente : "", l.ordem, l.fazendaCodigo, l.fazendaNome, ...fmtDetalhe(l)]);
+        corpo.push([i === 0 ? l.frente : "", l.ordem, l.fazendaCodigo, l.fazendaNome, ...fmtDetalhe(l, l.tchAColherEstimado)]);
       });
       corpo.push([`${grupo.frente} Total`, "", "", "", ...fmtDetalhe({ ...grupo.subtotal })]);
       subtotais.add(corpo.length - 1);
@@ -952,14 +966,33 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     const indiceTotalGeral = comTotalGeral ? corpo.length - 1 : -1;
     const fonte = Math.max(5.2, 6.8 * escala);
     const pad = Math.max(0.45, 1.1 * escala);
+    const numericas: Record<number, { halign: "right" }> = {};
+    for (let c = 4; c <= 13; c++) numericas[c] = { halign: "right" };
     autoTable(d, {
       startY: topo,
-      head: [["Frente", "Ordem", "Fazenda", "Descrição Fazenda", "Área Colhida (ha)", "Produção Acum. (t)", "TCH Parcial (t/ha)"]],
+      head: [
+        [
+          { content: "", colSpan: 4 },
+          ...BLOCOS_DETALHE.map((b) => ({ content: b.titulo, colSpan: 3, styles: { halign: "center" as const, fillColor: b.cor } })),
+          { content: "Projetado", styles: { halign: "center" as const, fillColor: [8, 36, 66] as [number, number, number] } },
+        ],
+        [
+          "Frente", "Ordem", "Fazenda", "Descrição Fazenda",
+          "Área Total OC (ha)", "TCH Est. (t/ha)", "Ton Est. (t)",
+          "Área Colhida (ha)", "Produção Acum. (t)", "TCH Parcial (t/ha)",
+          "Área a Colher (ha)", "TCH (t/ha)", "Ton (t)",
+          "Ton Projetada (t)",
+        ],
+      ],
       body: corpo,
       styles: { fontSize: fonte, cellPadding: pad },
       headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold" },
-      columnStyles: { 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
+      columnStyles: numericas,
       didParseCell: (data) => {
+        if (data.section === "head") {
+          if (data.row.index === 1 && data.column.index >= 4) data.cell.styles.halign = "right";
+          return;
+        }
         if (data.section !== "body") return;
         if (data.row.index === indiceTotalGeral) {
           data.cell.styles.fillColor = NAVY;
@@ -975,6 +1008,20 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       margin: { top: 22, left: x, right: pageWidth - x - largura, bottom: RODAPE_ALTURA },
       didDrawPage: aoNovaPagina ? (dp) => aoNovaPagina && dp.pageNumber > 0 && aoNovaPagina() : undefined,
     });
+    if (comTotalGeral) {
+      const fim = (d as unknown as LastAuto).lastAutoTable.finalY;
+      d.setFont("helvetica", "normal");
+      d.setFontSize(Math.max(5.2, 6.2 * escala));
+      d.setTextColor(100, 110, 125);
+      // só caracteres da fonte padrão do PDF
+      d.text(
+        "A colher = area total da O.C. - area colhida (0 na ordem encerrada), pelo TCH parcial; sem TCH parcial, pelo TCH estimado (*). Ton projetada = producao acumulada + ton a colher.",
+        x,
+        fim + 3
+      );
+      d.setTextColor(...INK);
+      (d as unknown as LastAuto).lastAutoTable.finalY = fim + 4;
+    }
   }
 
   function tituloDetalhado(y: number) {
@@ -988,29 +1035,8 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   if (gruposDetalhado.length > 0) {
     const larguraTotal = pageWidth - MARGEM * 2;
     const umaColuna = (d: DocPdf, e: number, topo: number) => desenharDetalhado(d, gruposDetalhado, true, e, topo, MARGEM, larguraTotal);
-    // duas colunas lado a lado, equilibradas pelo número de linhas
-    const totalLinhas = gruposDetalhado.reduce((s, g) => s + g.linhas.length + 1, 0);
-    let acumulado = 0;
-    let corte = 0;
-    for (let i = 0; i < gruposDetalhado.length; i++) {
-      if (acumulado >= totalLinhas / 2) break;
-      acumulado += gruposDetalhado[i].linhas.length + 1;
-      corte = i + 1;
-    }
-    corte = Math.min(Math.max(corte, 1), gruposDetalhado.length - 1);
-    const larguraMeia = (larguraTotal - GAP) / 2;
-    const esq = gruposDetalhado.slice(0, corte);
-    const dir = gruposDetalhado.slice(corte);
-    const duasColunas = (d: DocPdf, e: number, topo: number) => {
-      desenharDetalhado(d, esq, false, e, topo, MARGEM, larguraMeia);
-      const yEsq = (d as unknown as LastAuto).lastAutoTable.finalY;
-      desenharDetalhado(d, dir, true, e, topo, MARGEM + larguraMeia + GAP, larguraMeia);
-      // a altura que vale é a da coluna mais comprida
-      (d as unknown as LastAuto).lastAutoTable.finalY = Math.max(yEsq, (d as unknown as LastAuto).lastAutoTable.finalY);
-    };
-
-    // 1) cabe inteiro na página dos cards, no tamanho quase normal? 2) página própria, uma coluna;
-    // 3) página própria, duas colunas; 4) último recurso: segue em várias páginas
+    // 1) cabe inteiro na página dos cards, no tamanho quase normal? 2) página própria;
+    // 3) último recurso: segue em várias páginas
     const sobra = limiteY - cursorY - 7;
     const escalaAqui = sobra > 30 ? escolherEscala(umaColuna, cursorY + 7, sobra, 0.8) : null;
     if (escalaAqui !== null) {
@@ -1022,9 +1048,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       tituloDetalhado(22);
       const espaco = limiteY - 22 - 7 - 0.5;
       const e1 = escolherEscala(umaColuna, 29, espaco, 0.7);
-      const e2 = e1 === null && gruposDetalhado.length > 1 ? escolherEscala(duasColunas, 29, espaco, 0.6) : null;
       if (e1 !== null) umaColuna(doc, e1, 29);
-      else if (e2 !== null) duasColunas(doc, e2, 29);
       else {
         const paginaIni = doc.getNumberOfPages();
         desenharDetalhado(doc, gruposDetalhado, true, 0.7, 29, MARGEM, larguraTotal, () => {

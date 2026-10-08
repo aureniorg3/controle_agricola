@@ -24,6 +24,8 @@ import {
   type ResumoMensal,
   startOfMonth,
   startOfWeekMonday,
+  totaisResumoDetalhado,
+  type TotaisResumoDetalhado,
 } from "@/lib/period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev, todayISO } from "@/lib/format";
 import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
@@ -667,7 +669,15 @@ export default function OrdensCorteClient({
   // resumo detalhado no final do relatório segue só as ordens marcadas e
   // mostradas nos cards — mesmo critério das colunas "Ordens"/"Área
   // Selecionada" lá em cima.
-  const resumoDetalhado = useMemo(() => resumoDetalhadoPorOrdemFazenda(ordensFiltradas, referencia), [ordensFiltradas, referencia]);
+  const resumoDetalhado = useMemo(
+    () =>
+      resumoDetalhadoPorOrdemFazenda(
+        ordensFiltradas,
+        referencia,
+        (numero) => historicoTch.porOrdem[numero]?.find((h) => h.safra === historicoTch.safraAtual)?.tchEst ?? null
+      ),
+    [ordensFiltradas, referencia, historicoTch]
+  );
 
   const resumoDetalhadoPorFrenteComSubtotal = useMemo(() => {
     const grupos = new Map<string, LinhaResumoDetalhado[]>();
@@ -677,31 +687,11 @@ export default function OrdensCorteClient({
       grupos.set(linha.frente, arr);
     }
     return Array.from(grupos.entries())
-      .map(([frente, linhas]) => {
-        const areaColhidaHa = Math.round(linhas.reduce((s, l) => s + l.areaColhidaHa, 0) * 100) / 100;
-        const producaoTotalT = Math.round(linhas.reduce((s, l) => s + l.producaoTotalT, 0) * 100) / 100;
-        return {
-          frente,
-          linhas,
-          subtotal: {
-            areaColhidaHa,
-            producaoTotalT,
-            tchRealParcial: areaColhidaHa > 0 ? Math.round((producaoTotalT / areaColhidaHa) * 100) / 100 : 0,
-          },
-        };
-      })
+      .map(([frente, linhas]) => ({ frente, linhas, subtotal: totaisResumoDetalhado(linhas) }))
       .sort((a, b) => a.frente.localeCompare(b.frente));
   }, [resumoDetalhado]);
 
-  const resumoDetalhadoTotalGeral = useMemo(() => {
-    const areaColhidaHa = Math.round(resumoDetalhado.reduce((s, l) => s + l.areaColhidaHa, 0) * 100) / 100;
-    const producaoTotalT = Math.round(resumoDetalhado.reduce((s, l) => s + l.producaoTotalT, 0) * 100) / 100;
-    return {
-      areaColhidaHa,
-      producaoTotalT,
-      tchRealParcial: areaColhidaHa > 0 ? Math.round((producaoTotalT / areaColhidaHa) * 100) / 100 : 0,
-    };
-  }, [resumoDetalhado]);
+  const resumoDetalhadoTotalGeral = useMemo(() => totaisResumoDetalhado(resumoDetalhado), [resumoDetalhado]);
 
   const rotulosResumo = useMemo(() => {
     // Semana/Quinzena/Mês Atual vão até o dia anterior à referência (o dia
@@ -1372,23 +1362,46 @@ export default function OrdensCorteClient({
             Selecionada" no resumo por frente), uma linha por fazenda dentro
             de cada ordem, igual ao relatório impresso de referência. */}
         {resumoDetalhado.length > 0 && (
-          <div className="mb-4 max-w-5xl overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
+          <div className="mb-4 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
             <div className="border-b border-line px-2.5 py-0.5">
               <div className="text-[12.5px] font-bold text-ink">Resumo Detalhado por Ordem e Fazenda</div>
               <div className="text-[10.5px] text-muted">
-                Área colhida, produção total e TCH parcial das ordens marcadas e mostradas nos cards, por fazenda.
+                Estimado, realizado, a colher e projeção das ordens marcadas e mostradas nos cards, por fazenda.
               </div>
             </div>
             <table className="w-full text-[11.5px] leading-tight">
               <thead>
+                <tr className="text-center text-[10.5px] font-semibold text-white">
+                  <th className="bg-navy-900 px-3 py-0.5" colSpan={4} />
+                  <th className="border-l border-white/30 bg-navy-700 px-2.5 py-0.5" colSpan={3}>Estimado</th>
+                  <th className="border-l border-white/30 bg-good-600 px-2.5 py-0.5" colSpan={3}>Realizado</th>
+                  <th className="border-l border-white/30 bg-[#B8652B] px-2.5 py-0.5" colSpan={3}>A colher</th>
+                  <th className="border-l border-white/30 bg-navy-950 px-2.5 py-0.5">Projetado</th>
+                </tr>
                 <tr className="border-b border-line bg-navy-900 text-left text-white">
-                  <th className="px-3 py-1 font-semibold">Frente</th>
-                  <th className="px-2.5 py-1 font-semibold">Ordem</th>
-                  <th className="px-2.5 py-1 font-semibold">Fazenda</th>
-                  <th className="px-2.5 py-1 font-semibold">Descrição Fazenda</th>
-                  <th className="whitespace-nowrap px-2.5 py-1 text-right text-[10.5px] font-semibold">Área Colhida (ha)</th>
-                  <th className="whitespace-nowrap px-2.5 py-1 text-right text-[10.5px] font-semibold">Produção Acumulada (t)</th>
-                  <th className="whitespace-nowrap px-3 py-1 text-right text-[10.5px] font-semibold">TCH Parcial (t/ha)</th>
+                  <th className="px-3 py-1 align-bottom font-semibold">Frente</th>
+                  <th className="px-2.5 py-1 align-bottom font-semibold">Ordem</th>
+                  <th className="px-2.5 py-1 align-bottom font-semibold">Fazenda</th>
+                  <th className="px-2.5 py-1 align-bottom font-semibold">Descrição Fazenda</th>
+                  {[
+                    "Área Total OC (ha)",
+                    "TCH Est. (t/ha)",
+                    "Ton Est. (t)",
+                    "Área Colhida (ha)",
+                    "Produção Acum. (t)",
+                    "TCH Parcial (t/ha)",
+                    "Área a Colher (ha)",
+                    "TCH (t/ha)",
+                    "Ton (t)",
+                    "Ton Projetada (t)",
+                  ].map((t, i) => (
+                    <th
+                      key={t}
+                      className={`px-2 py-1 text-right align-bottom text-[10.5px] font-semibold leading-tight ${i % 3 === 0 ? "border-l border-white/30" : ""} ${i === 9 ? "pr-3" : ""}`}
+                    >
+                      {t}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -1399,28 +1412,18 @@ export default function OrdensCorteClient({
                         key={`${l.ordem}-${l.fazendaCodigo}`}
                         className={`border-b border-line/60 ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}
                       >
-                        <td className="px-3 py-0.5 text-ink">{i === 0 ? l.frente : ""}</td>
+                        <td className="whitespace-nowrap px-3 py-0.5 text-ink">{i === 0 ? l.frente : ""}</td>
                         <td className="px-2.5 py-0.5 text-ink">{l.ordem}</td>
                         <td className="px-2.5 py-0.5 text-muted">{l.fazendaCodigo}</td>
                         <td className="px-2.5 py-0.5 text-ink">{l.fazendaNome}</td>
-                        <td className="px-2.5 py-0.5 text-right tabular text-ink">
-                          {l.areaColhidaHa > 0 ? fmtHa(l.areaColhidaHa) : "–"}
-                        </td>
-                        <td className="px-2.5 py-0.5 text-right tabular text-ink">
-                          {l.producaoTotalT > 0 ? fmtT(l.producaoTotalT) : "–"}
-                        </td>
-                        <td className="px-3 py-0.5 text-right tabular font-medium text-ink">
-                          {l.tchRealParcial > 0 ? fmtTch(l.tchRealParcial) : "–"}
-                        </td>
+                        <CelulasResumoDetalhado v={l} tchEstimadoNoAColher={l.tchAColherEstimado} />
                       </tr>
                     ))}
                     <tr className="bg-navy-900 font-semibold text-white">
                       <td className="px-3 py-0.5" colSpan={4}>
                         {grupo.frente} Total
                       </td>
-                      <td className="px-2.5 py-0.5 text-right tabular">{fmtHa(grupo.subtotal.areaColhidaHa)}</td>
-                      <td className="px-2.5 py-0.5 text-right tabular">{fmtT(grupo.subtotal.producaoTotalT)}</td>
-                      <td className="px-3 py-0.5 text-right tabular">{fmtTch(grupo.subtotal.tchRealParcial)}</td>
+                      <CelulasResumoDetalhado v={grupo.subtotal} total />
                     </tr>
                   </Fragment>
                 ))}
@@ -1428,12 +1431,14 @@ export default function OrdensCorteClient({
                   <td className="px-3 py-1" colSpan={4}>
                     Total Geral
                   </td>
-                  <td className="px-2.5 py-1 text-right tabular">{fmtHa(resumoDetalhadoTotalGeral.areaColhidaHa)}</td>
-                  <td className="px-2.5 py-1 text-right tabular">{fmtT(resumoDetalhadoTotalGeral.producaoTotalT)}</td>
-                  <td className="px-3 py-1 text-right tabular">{fmtTch(resumoDetalhadoTotalGeral.tchRealParcial)}</td>
+                  <CelulasResumoDetalhado v={resumoDetalhadoTotalGeral} total />
                 </tr>
               </tbody>
             </table>
+            <div className="border-t border-line px-2.5 py-1 text-[10.5px] text-muted">
+              A colher = área total da O.C. − área colhida (0 na ordem encerrada), pelo TCH parcial; sem TCH parcial, pelo TCH estimado (*).
+              Ton projetada = produção acumulada + ton a colher.
+            </div>
           </div>
         )}
 
@@ -1459,6 +1464,31 @@ export default function OrdensCorteClient({
 
       {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} onImportado={() => refetch(true)} admin={ehAdmin(perfil)} />}
     </div>
+  );
+}
+
+/** As 10 colunas numéricas do resumo detalhado (estimado · realizado · a colher · projetado). */
+function CelulasResumoDetalhado({ v, total, tchEstimadoNoAColher }: { v: TotaisResumoDetalhado; total?: boolean; tchEstimadoNoAColher?: boolean }) {
+  const n = (x: number | null, f: (y: number) => string) => (x !== null && x > 0 ? f(x) : "–");
+  const base = `whitespace-nowrap px-2 text-right tabular ${total ? "py-1" : "py-0.5"}`;
+  const bloco = `${base} border-l ${total ? "border-white/25" : "border-line/70"}`;
+  const cor = (c: string) => (total ? "" : c);
+  return (
+    <>
+      <td className={`${bloco} ${cor("text-ink")}`}>{n(v.areaTotalHa, fmtHa)}</td>
+      <td className={`${base} ${cor("text-ink")}`}>{n(v.tchEst, fmtTch)}</td>
+      <td className={`${base} ${cor("text-ink")}`}>{n(v.tonEst, fmtT)}</td>
+      <td className={`${bloco} ${cor("text-ink")}`}>{n(v.areaColhidaHa, fmtHa)}</td>
+      <td className={`${base} ${cor("text-ink")}`}>{n(v.producaoTotalT, fmtT)}</td>
+      <td className={`${base} font-medium ${cor("text-good-600")}`}>{n(v.tchRealParcial, fmtTch)}</td>
+      <td className={`${bloco} ${cor("text-ink")}`}>{n(v.areaAColherHa, fmtHa)}</td>
+      <td className={`${base} ${cor("text-ink")}`} title={tchEstimadoNoAColher ? "Sem TCH parcial: usa o TCH estimado" : undefined}>
+        {n(v.tchAColher, fmtTch)}
+        {tchEstimadoNoAColher ? "*" : ""}
+      </td>
+      <td className={`${base} ${cor("text-ink")}`}>{n(v.tonAColher, fmtT)}</td>
+      <td className={`${bloco} pr-3 font-semibold ${cor("text-navy-900")}`}>{n(v.tonProjetada, fmtT)}</td>
+    </>
   );
 }
 
