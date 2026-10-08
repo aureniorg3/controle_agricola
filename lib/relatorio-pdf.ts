@@ -12,7 +12,7 @@ import {
   startOfWeekMonday,
 } from "./period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev } from "./format";
-import { codigoFazendaBase, rotuloClima, type ClimaResp } from "./clima";
+import { agruparClimaPorEstacao, itensClima, rotuloClima, type ClimaResp } from "./clima";
 import type { HistoricoTchOrdem, OrdemCorte, Periodo, TalhaoOrdem } from "./types";
 
 const EMPRESA = "CRV Industrial";
@@ -266,9 +266,12 @@ function montarCardOrdem(
     ...(variasFazendas ? [{ faixa: `${g.fazendaCodigo} · ${g.fazendaNome}` }] : []),
     ...g.talhoes.map((t) => ({ talhao: t })),
   ]);
-  // rodapé de clima (Zeus): um bloco por fazenda, 2 linhas x 3 itens quando há leitura
+  // rodapé de clima (Zeus): um bloco por estação (fazendas da mesma estação juntas), 2 linhas x 3 itens quando há leitura
   const climaFazendas = clima
-    ? gruposFazenda.map((g) => ({ g, c: clima.fazendas[codigoFazendaBase(g.fazendaCodigo)] ?? null }))
+    ? agruparClimaPorEstacao(
+        gruposFazenda.map((g) => ({ codigo: g.fazendaCodigo, nome: g.fazendaNome })),
+        clima
+      )
     : [];
   const temClima = climaFazendas.some((x) => x.c);
   const alturaLinhaClima = 6.6;
@@ -547,12 +550,13 @@ function montarCardOrdem(
       fy += 4.2;
 
       const cw = larguraInterna / 3;
-      for (const { g, c } of climaFazendas) {
+      for (const { fazendas: fs, c } of climaFazendas) {
         if (variasFazendas) {
           doc.setFont("helvetica", "bold");
           doc.setFontSize(5);
           doc.setTextColor(...NAVY);
-          doc.text((doc.splitTextToSize(`${g.fazendaCodigo} · ${g.fazendaNome}`, larguraInterna) as string[])[0], xi, fy + 2);
+          const rotulo = fs.map((f) => `${f.codigo} · ${f.nome}`).join(" / ");
+          doc.text((doc.splitTextToSize(rotulo, larguraInterna) as string[])[0], xi, fy + 2);
           fy += 3;
         }
         const d = c?.dia;
@@ -564,26 +568,8 @@ function montarCardOrdem(
           fy += 3.4 + 3;
           continue;
         }
-        const itens: { icone: TipoIcone; rotulo: string; valor: string; unidade: string; destaque?: boolean }[] = [
-          { icone: "chuva", rotulo: clima.periodo ? "Chuva acumulada" : "Chuva", valor: fmtClima(d.chuvaMm, 1), unidade: "mm", destaque: true },
-          clima.periodo
-            ? { icone: "chuva", rotulo: "Dias com chuva (≥1 mm)", valor: `${d.diasComChuva} de ${d.nDias}`, unidade: "" }
-            : { icone: "chuva", rotulo: "Dia anterior", valor: fmtClima(c.anteriorMm, 1), unidade: "mm" },
-          {
-            icone: "termometro",
-            rotulo: "Temp. mín–máx",
-            valor: d.tMin == null || d.tMax == null ? "—" : `${fmtClima(d.tMin)}–${fmtClima(d.tMax)}`,
-            unidade: "°C",
-          },
-          { icone: "gota", rotulo: "Umidade", valor: fmtClima(d.umidadeMed), unidade: "%" },
-          {
-            icone: "vento",
-            rotulo: "Vento (rajada)",
-            valor: d.ventoMedKmh == null ? "—" : `${fmtClima(d.ventoMedKmh)} (${fmtClima(d.rajadaMaxKmh)})`,
-            unidade: "km/h",
-          },
-          { icone: "sol", rotulo: clima.periodo ? "Radiação (média/dia)" : "Radiação", valor: fmtClima(d.radiacaoWhm2), unidade: "Wh/m²" },
-        ];
+        // umidade, vento, temperatura, dia anterior e chuva do dia (sem radiação)
+        const itens: { icone: TipoIcone; rotulo: string; valor: string; unidade: string; destaque?: boolean }[] = itensClima(c, clima.periodo, fmtClima);
         itens.forEach((it, i) => {
           const ix = xi + (i % 3) * cw;
           const iy = fy + Math.floor(i / 3) * alturaLinhaClima;

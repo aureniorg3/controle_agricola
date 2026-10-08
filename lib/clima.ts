@@ -64,3 +64,41 @@ export function rotuloClima(resp: ClimaResp, referencia: string, ultimaLeitura?:
     ? `hoje${ultimaLeitura ? ` · leitura até ${ultimaLeitura.slice(11, 16)}` : ""}`
     : `histórico · ${fmtDateBR(referencia)}`;
 }
+
+/**
+ * Agrupa as fazendas da ordem pela estação da Zeus: fazendas da mesma estação mostram o clima uma vez só; estações
+ * diferentes (ou fazenda sem estação) ficam em blocos separados.
+ */
+export function agruparClimaPorEstacao<F extends { codigo: string; nome: string }>(
+  fazendas: F[],
+  resp: ClimaResp
+): { fazendas: F[]; c: ClimaFazenda | null }[] {
+  const grupos = new Map<string, { fazendas: F[]; c: ClimaFazenda | null }>();
+  for (const f of fazendas) {
+    const c = resp.fazendas[codigoFazendaBase(f.codigo)] ?? null;
+    const chave = c ? `pic:${c.pic}` : `sem:${f.codigo}`;
+    if (!grupos.has(chave)) grupos.set(chave, { fazendas: [], c });
+    grupos.get(chave)!.fazendas.push(f);
+  }
+  return [...grupos.values()];
+}
+
+export type IconeClima = "gota" | "vento" | "termometro" | "chuva";
+
+/** Itens do clima na ordem da tela e do PDF: umidade, vento, temperatura, dia anterior e chuva do dia (ou do período). */
+export function itensClima(
+  c: ClimaFazenda,
+  periodo: boolean,
+  fmt: (n: number | null | undefined, casas?: number) => string
+): { icone: IconeClima; rotulo: string; valor: string; unidade: string; destaque?: boolean }[] {
+  const d = c.dia!;
+  return [
+    { icone: "gota", rotulo: "Umidade", valor: fmt(d.umidadeMed), unidade: "%" },
+    { icone: "vento", rotulo: "Vento (rajada)", valor: d.ventoMedKmh == null ? "—" : `${fmt(d.ventoMedKmh)} (${fmt(d.rajadaMaxKmh)})`, unidade: "km/h" },
+    { icone: "termometro", rotulo: "Temp. mín–máx", valor: d.tMin == null || d.tMax == null ? "—" : `${fmt(d.tMin)}–${fmt(d.tMax)}`, unidade: "°C" },
+    periodo
+      ? { icone: "chuva", rotulo: "Dias com chuva (≥1 mm)", valor: `${d.diasComChuva} de ${d.nDias}`, unidade: "" }
+      : { icone: "chuva", rotulo: "Dia anterior", valor: fmt(c.anteriorMm, 1), unidade: "mm" },
+    { icone: "chuva", rotulo: periodo ? "Chuva acumulada" : "Chuva dia atual", valor: fmt(d.chuvaMm, 1), unidade: "mm", destaque: true },
+  ];
+}

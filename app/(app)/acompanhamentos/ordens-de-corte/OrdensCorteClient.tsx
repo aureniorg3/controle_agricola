@@ -35,7 +35,6 @@ import {
   IconChuva,
   IconFechar,
   IconGota,
-  IconSol,
   IconTermometro,
   IconVento,
   IconImportar,
@@ -49,7 +48,7 @@ import {
   IconTch,
 } from "@/components/icons";
 import { ehAdmin, podeEditar } from "@/lib/permissoes";
-import { codigoFazendaBase, janelaClima, rotuloClima, type ClimaResp } from "@/lib/clima";
+import { agruparClimaPorEstacao, codigoFazendaBase, itensClima, janelaClima, rotuloClima, type ClimaResp, type IconeClima } from "@/lib/clima";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const PERIODOS: { key: Periodo; label: string }[] = [
@@ -1701,9 +1700,16 @@ function ClimaRodape({
   fazendas: { codigo: string; nome: string }[];
   referencia: string;
 }) {
-  const linhas = fazendas.map((f) => ({ f, c: resp.fazendas[codigoFazendaBase(f.codigo)] ?? null }));
-  if (linhas.every((l) => !l.c)) return null;
-  const ultima = linhas.map((l) => l.c?.ultimaLeitura).filter(Boolean).sort().pop();
+  // fazendas da mesma estação mostram o clima uma vez só
+  const grupos = agruparClimaPorEstacao(fazendas, resp);
+  if (grupos.every((g) => !g.c)) return null;
+  const ultima = grupos.map((g) => g.c?.ultimaLeitura).filter(Boolean).sort().pop();
+  const icones: Record<IconeClima, ReactNode> = {
+    gota: <IconGota size={16} />,
+    vento: <IconVento size={16} />,
+    termometro: <IconTermometro size={16} />,
+    chuva: <IconChuva size={16} />,
+  };
   return (
     <div className="border-t border-line bg-surface/50 px-4 py-2.5">
       <div className="mb-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-wide text-muted">
@@ -1711,29 +1717,23 @@ function ClimaRodape({
         <span className="font-medium normal-case">{rotuloClima(resp, referencia, ultima ?? undefined)}</span>
       </div>
       <div className="flex flex-col gap-2">
-        {linhas.map(({ f, c }) => {
+        {grupos.map(({ fazendas: fs, c }) => {
           const d = c?.dia;
           return (
-            <div key={f.codigo}>
-              {linhas.length > 1 && (
-                <div className="mb-1 truncate text-[10.5px] text-muted">
-                  {f.codigo} · {f.nome}
+            <div key={fs.map((f) => f.codigo).join("|")}>
+              {fazendas.length > 1 && (
+                <div className="mb-1 truncate text-[10.5px] text-muted" title={fs.map((f) => `${f.codigo} · ${f.nome}`).join(" / ")}>
+                  {fs.map((f) => `${f.codigo} · ${f.nome}`).join(" / ")}
                 </div>
               )}
               {!c || !d ? (
                 <div className="text-[11px] text-muted">{c ? "Sem leituras no período." : "Fazenda sem estação na Zeus."}</div>
               ) : (
-                <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 xl:grid-cols-6">
-                  <ClimaItem destaque icone={<IconChuva size={16} />} rotulo={resp.periodo ? "Chuva acumulada" : "Chuva"} valor={fmtN(d.chuvaMm, 1)} unidade="mm" />
-                  {resp.periodo ? (
-                    <ClimaItem icone={<IconChuva size={16} />} rotulo="Dias com chuva (≥1 mm)" valor={`${d.diasComChuva} de ${d.nDias}`} />
-                  ) : (
-                    <ClimaItem icone={<IconChuva size={16} />} rotulo="Dia anterior" valor={fmtN(c.anteriorMm, 1)} unidade="mm" />
-                  )}
-                  <ClimaItem icone={<IconTermometro size={16} />} rotulo="Temp. mín–máx" valor={d.tMin == null || d.tMax == null ? "—" : `${fmtN(d.tMin)}–${fmtN(d.tMax)}`} unidade="°C" />
-                  <ClimaItem icone={<IconGota size={16} />} rotulo="Umidade" valor={fmtN(d.umidadeMed)} unidade="%" />
-                  <ClimaItem icone={<IconVento size={16} />} rotulo="Vento (rajada)" valor={d.ventoMedKmh == null ? "—" : `${fmtN(d.ventoMedKmh)} (${fmtN(d.rajadaMaxKmh)})`} unidade="km/h" />
-                  <ClimaItem icone={<IconSol size={16} />} rotulo={resp.periodo ? "Radiação (média/dia)" : "Radiação"} valor={fmtN(d.radiacaoWhm2)} unidade="Wh/m²" />                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 xl:grid-cols-5">
+                  {itensClima(c, resp.periodo, fmtN).map((it) => (
+                    <ClimaItem key={it.rotulo} destaque={it.destaque} icone={icones[it.icone]} rotulo={it.rotulo} valor={it.valor} unidade={it.unidade || undefined} />
+                  ))}
+                </div>
               )}
               {c && <div className="mt-1 truncate text-[9.5px] text-muted">Estação {c.pic}</div>}
             </div>
