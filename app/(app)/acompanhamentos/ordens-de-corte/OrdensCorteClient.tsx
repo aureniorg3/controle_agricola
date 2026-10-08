@@ -2017,7 +2017,12 @@ interface ResultadoImportacaoUI {
   viagensNovas?: number;
   viagensSubstituidas?: number;
   viagensMantidas?: number;
+  viagensCorrigidas?: number;
+  viagensRemovidas?: number;
+  alteracoesPorData?: { data: string; antesT: number; depoisT: number; novas: number; alteradas: number; corrigidas: number; removidas: number }[];
   periodo?: string | null;
+  /** só a prévia da pesagem: nada foi gravado ainda */
+  previa?: boolean;
 }
 
 const emptyResultado: ResultadoImportacaoUI = {
@@ -2178,7 +2183,8 @@ function ImportarModal({
   const [resultado, setResultado] = useState<ResultadoImportacaoUI | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
-  async function enviar() {
+  /** Com pesagem, primeiro a prévia (o que muda em cada data); grava só ao confirmar. */
+  async function enviar(aplicar = arqPesagem.length === 0) {
     if (arqOrdens.length === 0 && arqPesagem.length === 0) return;
     setEnviando(true);
     setErro(null);
@@ -2187,6 +2193,7 @@ function ImportarModal({
       const form = new FormData();
       arqOrdens.forEach((f) => form.append("ordens", f));
       arqPesagem.forEach((f) => form.append("pesagem", f));
+      form.append("aplicar", aplicar ? "1" : "0");
       const res = await fetch("/api/ordens-corte/importar", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) {
@@ -2195,7 +2202,7 @@ function ImportarModal({
         return;
       }
       setResultado(data);
-      await onImportado();
+      if (!data.previa) await onImportado();
     } catch {
       setErro("Não foi possível enviar os arquivos. Verifique a conexão e tente novamente.");
     } finally {
@@ -2221,7 +2228,10 @@ function ImportarModal({
             type="file"
             multiple
             accept=".xlsx,.xls"
-            onChange={(e) => setArqOrdens(Array.from(e.target.files ?? []).slice(0, 10))}
+            onChange={(e) => {
+              setArqOrdens(Array.from(e.target.files ?? []).slice(0, 10));
+              setResultado(null);
+            }}
             className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
           />
         </Campo>
@@ -2230,7 +2240,10 @@ function ImportarModal({
             type="file"
             multiple
             accept=".xlsx,.xls"
-            onChange={(e) => setArqPesagem(Array.from(e.target.files ?? []).slice(0, 10))}
+            onChange={(e) => {
+              setArqPesagem(Array.from(e.target.files ?? []).slice(0, 10));
+              setResultado(null);
+            }}
             className="block w-full text-[12.5px] text-ink file:mr-3 file:rounded-md file:border-0 file:bg-navy-900 file:px-3 file:py-1.5 file:text-[12.5px] file:font-semibold file:text-white"
           />
         </Campo>
@@ -2243,14 +2256,59 @@ function ImportarModal({
       )}
 
       {resultado && !erro && (
-        <div className="mt-3 rounded-lg border border-good-500/30 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">
+        <div
+          className={`mt-3 rounded-lg border px-3 py-2 text-[12.5px] ${
+            resultado.previa ? "border-[#2E5FA8]/30 bg-[#2E5FA8]/[0.06] text-ink" : "border-good-500/30 bg-good-50 text-good-700"
+          }`}
+        >
+          {resultado.previa && (
+            <p className="mb-1 font-semibold text-[#2E5FA8]">Prévia — nada foi gravado ainda. Confira o que muda em cada data e confirme.</p>
+          )}
           <p className="font-semibold">
             {resultado.modo === "ordens"
               ? `${resultado.totalOrdens} ordem(ns) no cadastro · entradas de cana mantidas.`
               : `${resultado.modo === "ambos" ? `${resultado.totalOrdens} ordem(ns) · ` : ""}${resultado.totalViagens} viagem(ns) lida(s)${
                   resultado.periodo ? ` (${resultado.periodo})` : ""
-                } · ${resultado.viagensNovas ?? 0} nova(s), ${resultado.viagensSubstituidas ?? 0} alterada(s) e substituída(s), ${resultado.viagensMantidas ?? 0} sem alteração (histórico mantido).`}
+                } · ${resultado.viagensNovas ?? 0} nova(s), ${resultado.viagensSubstituidas ?? 0} alterada(s), ${resultado.viagensCorrigidas ?? 0} corrigida(s) de data/ordem, ${resultado.viagensRemovidas ?? 0} removida(s) (não estão mais no relatório) e ${resultado.viagensMantidas ?? 0} sem alteração.`}
           </p>
+          {resultado.alteracoesPorData && resultado.alteracoesPorData.length > 0 && (
+            <div className="mt-2 max-h-[220px] overflow-y-auto rounded-md border border-good-500/30 bg-card">
+              <table className="w-full text-[11.5px] text-ink">
+                <thead className="sticky top-0 bg-surface text-muted">
+                  <tr>
+                    <th className="px-2 py-1 text-left font-medium">Data</th>
+                    <th className="px-2 py-1 text-right font-medium">Antes (t)</th>
+                    <th className="px-2 py-1 text-right font-medium">Depois (t)</th>
+                    <th className="px-2 py-1 text-right font-medium">Diferença</th>
+                    <th className="px-2 py-1 text-right font-medium">Novas</th>
+                    <th className="px-2 py-1 text-right font-medium">Alteradas</th>
+                    <th className="px-2 py-1 text-right font-medium">Corrigidas</th>
+                    <th className="px-2 py-1 text-right font-medium">Removidas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resultado.alteracoesPorData.map((d) => {
+                    const dif = Math.round((d.depoisT - d.antesT) * 100) / 100;
+                    return (
+                      <tr key={d.data} className="border-t border-line/60">
+                        <td className="px-2 py-1">{fmtDateBR(d.data)}</td>
+                        <td className="px-2 py-1 text-right tabular">{fmtT(d.antesT)}</td>
+                        <td className="px-2 py-1 text-right tabular">{fmtT(d.depoisT)}</td>
+                        <td className={`px-2 py-1 text-right tabular font-medium ${dif < 0 ? "text-alert-600" : dif > 0 ? "text-good-700" : "text-muted"}`}>
+                          {dif > 0 ? "+" : ""}
+                          {fmtT(dif)}
+                        </td>
+                        <td className="px-2 py-1 text-right tabular">{d.novas || "–"}</td>
+                        <td className="px-2 py-1 text-right tabular">{d.alteradas || "–"}</td>
+                        <td className="px-2 py-1 text-right tabular">{d.corrigidas || "–"}</td>
+                        <td className="px-2 py-1 text-right tabular">{d.removidas || "–"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
           {resultado.viagensSemOrdem > 0 && (
             <p className="mt-1 text-good-600">{resultado.viagensSemOrdem} sem ordem cadastrada.</p>
           )}
@@ -2292,10 +2350,10 @@ function ImportarModal({
         <button
           type="button"
           disabled={(arqOrdens.length === 0 && arqPesagem.length === 0) || enviando}
-          onClick={enviar}
+          onClick={() => enviar(resultado?.previa ? true : arqPesagem.length === 0)}
           className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40"
         >
-          {enviando ? "Importando…" : "Importar"}
+          {enviando ? (resultado?.previa ? "Gravando…" : "Conferindo…") : resultado?.previa ? "Confirmar importação" : arqPesagem.length > 0 ? "Conferir" : "Importar"}
         </button>
       </div>
     </ModalShell>

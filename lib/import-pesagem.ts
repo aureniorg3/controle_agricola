@@ -348,6 +348,10 @@ export async function lerViagensPesagem(
   periodoCabecalho: { inicio: string; fim: string } | null;
   /** menor e maior Data Mov. realmente encontradas */
   periodoLido: { inicio: string; fim: string } | null;
+  /** o relatório saiu sem filtro (todas as propriedades, veículos e turnos): vale como retrato completo do período */
+  completo: boolean;
+  /** filtros que restringiram o relatório (ex.: "Propriedade : 9529 a 9529") */
+  filtros: string[];
   avisos: string[];
   erros: string[];
 }> {
@@ -364,12 +368,23 @@ export async function lerViagensPesagem(
   let periodoCabecalho: { inicio: string; fim: string } | null = null;
   let colVeiculo = -1;
   let colFrente = -1;
+  // "Propriedade : 0 0 a 99999999 99", "Veículo : 0 a 9999999999", "Turno : 0 a 999" — faixa inteira = sem filtro
+  const filtros: string[] = [];
+  let filtrosVistos = 0;
   const norm = (v: unknown) => texto(v).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
   await paraCadaLinha(buffer, (l) => {
     const linhaAtual = numLinha++;
 
     if (idxCabecalho === null) {
+      for (const c of l) {
+        const m = texto(c).match(/^(Propriedade|Ve[ií]culo|Turno)\s*:\s*(.+?)\s+a\s+(.+)$/i);
+        if (!m) continue;
+        filtrosVistos++;
+        const de = m[2].replace(/\s/g, "");
+        const ate = m[3].replace(/\s/g, "");
+        if (!(/^0+$/.test(de) && /^9+$/.test(ate))) filtros.push(texto(c));
+      }
       const periodo = texto(l[2]).match(/(\d{2})\/(\d{2})\/(\d{2,4})\s*a\s*(\d{2})\/(\d{2})\/(\d{2,4})/);
       if (periodo && !periodoCabecalho) {
         const ano = (v: string) => (v.length === 2 ? `20${v}` : v);
@@ -466,7 +481,16 @@ export async function lerViagensPesagem(
     );
   }
 
-  return { viagens, linhasLidas, repetidasNoArquivo, semOrdem, ordensNaoCadastradas, periodoCabecalho, periodoLido, avisos, erros };
+  // sem os filtros no cabeçalho não dá para garantir que o relatório traz tudo do período
+  const completo = filtrosVistos > 0 && filtros.length === 0;
+  if (!completo) {
+    avisos.push(
+      filtros.length
+        ? `Relatório emitido com filtro (${filtros.join("; ")}): as viagens do arquivo foram gravadas e corrigidas, mas as que não vieram nele foram mantidas.`
+        : "O cabeçalho do relatório não informa os filtros de emissão: as viagens que não vieram no arquivo foram mantidas."
+    );
+  }
+  return { viagens, linhasLidas, repetidasNoArquivo, semOrdem, ordensNaoCadastradas, periodoCabecalho, periodoLido, completo, filtros, avisos, erros };
 }
 
 // ---------------------------------------------------------------------------

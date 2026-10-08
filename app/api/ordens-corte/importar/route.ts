@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { auditar } from "@/lib/auditar";
 import {
   getPool,
+  gravarPesagens,
   listNumerosOrdens,
   listOrdens,
   reconstruirEntradas,
   substituirOrdens,
-  upsertViagens,
   usuarioDaRequisicao,
+  type LotePesagem,
+  type ResultadoPesagem,
 } from "@/lib/db";
 import { lerViagensPesagem, montarOrdens, parseOrdemColheita } from "@/lib/import-pesagem";
 import { podeEditar } from "@/lib/permissoes";
@@ -52,6 +54,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Não foi possível ler os arquivos enviados." }, { status: 400 });
   }
 
+  // aplicar = "0": só a prévia da pesagem (o que muda em cada data), sem gravar nada
+  const aplicar = form.get("aplicar") !== "0";
   const arquivosOrdens = arquivosValidos(form, "ordens");
   const arquivosPesagem = arquivosValidos(form, "pesagem");
   if (arquivosOrdens.length === 0 && arquivosPesagem.length === 0) {
@@ -102,9 +106,10 @@ export async function POST(req: NextRequest) {
 
   // Pesagem: viagens de todos os arquivos juntas; mesma data + ordem + controle vale a do último arquivo
   type ResPes = Awaited<ReturnType<typeof lerViagensPesagem>>;
-  let resPesagem: { viagens: ResPes["viagens"]; semOrdem: number; ordensNaoCadastradas: Set<string>; periodoLido: ResPes["periodoLido"]; avisos: string[] } | null = null;
+  let resPesagem: { lotes: LotePesagem[]; total: number; semOrdem: number; ordensNaoCadastradas: Set<string>; periodoLido: ResPes["periodoLido"]; avisos: string[] } | null = null;
   if (arquivosPesagem.length > 0) {
-    const viagens = new Map<string, ResPes["viagens"][number]>();
+    // cada arquivo é um lote, aplicado na ordem em que veio (o mais recente por último)
+    const lotes: LotePesagem[] = [];
     const acc = { semOrdem: 0, ordensNaoCadastradas: new Set<string>(), periodoLido: null as ResPes["periodoLido"], avisos: [] as string[] };
     for (const arq of arquivosPesagem) {
       let lido: ResPes;
@@ -126,7 +131,7 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-      for (const v of lido.viagens) viagens.set(`${v.data}|${v.ordem}|${v.controle}`, v);
+      lotes.push({ arquivo: arq.name, viagens: lido.viagens, periodo: lido.periodoCabecalho ?? lido.periodoLido, completo: lido.completo });
       acc.semOrdem += lido.semOrdem;
       lido.ordensNaoCadastradas.forEach((o) => acc.ordensNaoCadastradas.add(o));
       if (lido.periodoLido) {
@@ -139,10 +144,31 @@ export async function POST(req: NextRequest) {
       }
       acc.avisos.push(...lido.avisos.map((a) => (arquivosPesagem.length > 1 ? `${arq.name}: ${a}` : a)));
     }
-    resPesagem = { viagens: [...viagens.values()], ...acc };
+    resPesagem = { lotes, total: lotes.reduce((s, l) => s + l.viagens.length, 0), ...acc };
   }
 
   const avisos: string[] = [...avisosOrdens];
+
+  if (!aplicar) {
+    if (!resPesagem) return NextResponse.json({ error: "A prévia é só para o Relatório de Pesagem." }, { status: 400 });
+    const previa = await gravarPesagens(resPesagem.lotes, false);
+    return NextResponse.json({
+      previa: true,
+      modo: resOrdens ? "ambos" : "pesagem",
+      totalOrdens: resOrdens ? resOrdens.ordens.length : ordensCadastradas.size,
+      totalViagens: resPesagem.total,
+      viagensNovas: previa.novas,
+      viagensSubstituidas: previa.alteradas,
+      viagensMantidas: previa.mantidas,
+      viagensCorrigidas: previa.corrigidas,
+      viagensRemovidas: previa.removidas,
+      alteracoesPorData: previa.porData,
+      periodo: resPesagem.periodoLido ? `${fmtBR(resPesagem.periodoLido.inicio)} a ${fmtBR(resPesagem.periodoLido.fim)}` : null,
+      viagensSemOrdem: resPesagem.semOrdem,
+      avisos: [...avisos, ...resPesagem.avisos],
+      erros: [] as string[],
+    });
+  }
 
   // 1) cadastro de ordens (mantém as entradas já existentes)
   let totalOrdens = ordensCadastradas.size;
@@ -156,12 +182,10 @@ export async function POST(req: NextRequest) {
     totalOrdens = resultado.totalOrdens;
   }
 
-  // 2) viagens da pesagem: substitui por data + liberação + controle, sem apagar o resto
-  let novas = 0;
-  let substituidas = 0;
-  let mantidas = 0;
+  // 2) viagens da pesagem: conferência linha a linha pelo controle (ver gravarPesagens)
+  let pes: ResultadoPesagem = { novas: 0, alteradas: 0, mantidas: 0, corrigidas: 0, removidas: 0, porData: [] };
   if (resPesagem) {
-    ({ novas, substituidas, mantidas } = await upsertViagens(resPesagem.viagens));
+    pes = await gravarPesagens(resPesagem.lotes);
     avisos.push(...resPesagem.avisos);
     if (resPesagem.ordensNaoCadastradas.size > 0) {
       avisos.push(
@@ -182,10 +206,13 @@ export async function POST(req: NextRequest) {
     acao: "importacao",
     depois: {
       ordens: resOrdens ? resOrdens.ordens.length : 0,
-      viagens: resPesagem?.viagens.length ?? 0,
-      novas,
-      substituidas,
-      mantidas,
+      viagens: resPesagem?.total ?? 0,
+      novas: pes.novas,
+      alteradas: pes.alteradas,
+      mantidas: pes.mantidas,
+      corrigidas: pes.corrigidas,
+      removidas: pes.removidas,
+      porData: pes.porData.map((d) => `${fmtBR(d.data)}: ${d.antesT} → ${d.depoisT} t`).join("; ") || undefined,
     },
   });
 
@@ -195,10 +222,13 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     modo: resOrdens && resPesagem ? "ambos" : resOrdens ? "ordens" : "pesagem",
     totalOrdens,
-    totalViagens: resPesagem?.viagens.length ?? 0,
-    viagensNovas: novas,
-    viagensSubstituidas: substituidas,
-    viagensMantidas: mantidas,
+    totalViagens: resPesagem?.total ?? 0,
+    viagensNovas: pes.novas,
+    viagensSubstituidas: pes.alteradas,
+    viagensMantidas: pes.mantidas,
+    viagensCorrigidas: pes.corrigidas,
+    viagensRemovidas: pes.removidas,
+    alteracoesPorData: pes.porData,
     periodo: resPesagem?.periodoLido ? `${fmtBR(resPesagem.periodoLido.inicio)} a ${fmtBR(resPesagem.periodoLido.fim)}` : null,
     viagensSemOrdem: resPesagem?.semOrdem ?? 0,
     avisos,

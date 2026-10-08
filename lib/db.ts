@@ -764,71 +764,171 @@ export async function listNumerosOrdens(): Promise<string[]> {
   return rows.map((r) => r.num);
 }
 
+export interface LotePesagem {
+  arquivo: string;
+  viagens: { data: string; ordem: string; controle: string; fazendaCodigo: string; talhao: string; toneladas: number; hora: string; tara: number; veiculo: string; frente: string }[];
+  /** período do relatório (cabeçalho; senão, as datas lidas) */
+  periodo: { inicio: string; fim: string } | null;
+  /** relatório sem filtro: o que não veio nele, dentro do período, deixou de existir na origem */
+  completo: boolean;
+}
+
+export interface AlteracaoPesagemDia {
+  data: string;
+  antesT: number;
+  depoisT: number;
+  novas: number;
+  alteradas: number;
+  /** mudaram de data ou de ordem na origem (mesmo controle) */
+  corrigidas: number;
+  removidas: number;
+}
+
+export interface ResultadoPesagem {
+  novas: number;
+  alteradas: number;
+  mantidas: number;
+  corrigidas: number;
+  removidas: number;
+  porData: AlteracaoPesagemDia[];
+}
+
 /**
- * Grava as viagens do arquivo. Para a mesma chave (data + liberação + controle) confere fazenda, talhão e
- * tonelada: se algum mudou a viagem é substituída; se não, o histórico anterior é mantido (só completa
- * veículo e frente quando estavam vazios). Devolve quantas eram novas, substituídas e mantidas.
+ * Grava os relatórios de pesagem conferindo linha a linha. O Controle identifica a viagem (é único na safra):
+ *  1) viagem que mudou de data ou de ordem na origem tem a versão antiga apagada (em qualquer data);
+ *  2) relatório sem filtro vale como retrato completo do seu período: viagem gravada nesse período que não veio no
+ *     arquivo foi excluída/refeita na origem e sai;
+ *  3) as do arquivo entram ou são atualizadas (fazenda, talhão, tonelada); iguais ficam como estão.
+ * Cada arquivo é aplicado na ordem em que veio. Devolve o que mudou, por data (toneladas antes e depois).
+ * Com `aplicar = false` é só a prévia: mede o efeito e desfaz.
  */
-export async function upsertViagens(
-  viagens: { data: string; ordem: string; controle: string; fazendaCodigo: string; talhao: string; toneladas: number; hora: string; tara: number; veiculo: string; frente: string }[]
-): Promise<{ novas: number; substituidas: number; mantidas: number }> {
+export async function gravarPesagens(lotes: LotePesagem[], aplicar = true): Promise<ResultadoPesagem> {
   const pool = getPool();
   await prepararBanco(pool);
   const client = await pool.connect();
-  let substituidas = 0;
-  let mantidas = 0;
+  const res: ResultadoPesagem = { novas: 0, alteradas: 0, mantidas: 0, corrigidas: 0, removidas: 0, porData: [] };
+  const dias = new Map<string, AlteracaoPesagemDia>();
+  const dia = (d: string) => {
+    if (!dias.has(d)) dias.set(d, { data: d, antesT: 0, depoisT: 0, novas: 0, alteradas: 0, corrigidas: 0, removidas: 0 });
+    return dias.get(d)!;
+  };
+  // toneladas que entram nas entradas de cana (viagem com tara)
+  const toneladasPorDia = async (datas: string[]) =>
+    new Map(
+      (
+        await client.query<{ d: string; t: number }>(
+          "SELECT dt::text AS d, COALESCE(SUM(ton) FILTER (WHERE tara IS NULL OR tara > 0), 0)::float AS t FROM pes_viag WHERE dt = ANY($1::date[]) GROUP BY dt",
+          [datas]
+        )
+      ).rows.map((r) => [r.d, r.t])
+    );
   const ALT = "((pes_viag.faz_cod, pes_viag.tlh, ROUND(pes_viag.ton, 3)) IS DISTINCT FROM (EXCLUDED.faz_cod, EXCLUDED.tlh, ROUND(EXCLUDED.ton, 3)))";
   try {
     await client.query("BEGIN");
-    for (let i = 0; i < viagens.length; i += 5000) {
-      const lote = viagens.slice(i, i + 5000);
-      const dts = lote.map((v) => v.data);
-      const ords = lote.map((v) => v.ordem);
-      const ctls = lote.map((v) => v.controle);
-      const { rows } = await client.query<{ n: number; alt: number }>(
-        `SELECT COUNT(*)::int AS n,
-                COUNT(*) FILTER (WHERE (p.faz_cod, p.tlh, ROUND(p.ton, 3)) IS DISTINCT FROM (u.f, u.t, ROUND(u.q, 3)))::int AS alt
-           FROM pes_viag p
-           JOIN unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[]) AS u(d, o, c, f, t, q)
-             ON p.dt = u.d AND p.ord_num = u.o AND p.ctl = u.c`,
-        [dts, ords, ctls, lote.map((v) => v.fazendaCodigo), lote.map((v) => v.talhao), lote.map((v) => v.toneladas)]
-      );
-      substituidas += rows[0].alt;
-      mantidas += rows[0].n - rows[0].alt;
-      await client.query(
-        `INSERT INTO pes_viag (dt, ord_num, ctl, faz_cod, tlh, ton, hsd, tara, veic, frt)
-         SELECT * FROM unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::numeric[], $9::text[], $10::text[])
-         ON CONFLICT (dt, ord_num, ctl) DO UPDATE SET
-           faz_cod = CASE WHEN ${ALT} THEN EXCLUDED.faz_cod ELSE pes_viag.faz_cod END,
-           tlh = CASE WHEN ${ALT} THEN EXCLUDED.tlh ELSE pes_viag.tlh END,
-           ton = CASE WHEN ${ALT} THEN EXCLUDED.ton ELSE pes_viag.ton END,
-           hsd = CASE WHEN ${ALT} THEN EXCLUDED.hsd ELSE pes_viag.hsd END,
-           tara = CASE WHEN ${ALT} THEN EXCLUDED.tara ELSE pes_viag.tara END,
-           veic = CASE WHEN ${ALT} OR pes_viag.veic = '' THEN EXCLUDED.veic ELSE pes_viag.veic END,
-           frt = CASE WHEN ${ALT} OR pes_viag.frt = '' THEN EXCLUDED.frt ELSE pes_viag.frt END`,
-        [
-          dts,
-          ords,
-          ctls,
-          lote.map((v) => v.fazendaCodigo),
-          lote.map((v) => v.talhao),
-          lote.map((v) => v.toneladas),
-          lote.map((v) => v.hora),
-          lote.map((v) => v.tara),
-          lote.map((v) => v.veiculo),
-          lote.map((v) => v.frente),
-        ]
-      );
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('pes_viag_importacao'))");
+    // datas mexidas: as do arquivo, as do período e as de onde viagens corrigidas vão sair
+    const datasArquivo = new Set<string>();
+    for (const l of lotes) {
+      l.viagens.forEach((v) => datasArquivo.add(v.data));
+      if (l.periodo) for (let d = l.periodo.inicio; d <= l.periodo.fim; d = addDias(d, 1)) datasArquivo.add(d);
     }
-    await client.query("COMMIT");
+    const ctlsTodos = lotes.flatMap((l) => l.viagens.map((v) => v.controle));
+    const deOutrasDatas = (
+      await client.query<{ d: string }>("SELECT DISTINCT dt::text AS d FROM pes_viag WHERE ctl = ANY($1::text[])", [ctlsTodos])
+    ).rows.map((r) => r.d);
+    deOutrasDatas.forEach((d) => datasArquivo.add(d));
+    const antes = await toneladasPorDia([...datasArquivo]);
+
+    for (const lote of lotes) {
+      const ctls = lote.viagens.map((v) => v.controle);
+      // 1) mesmo controle em outra data/ordem: a versão antiga sai
+      const movidas = await client.query<{ d: string; c: string }>(
+        `DELETE FROM pes_viag p USING unnest($1::text[], $2::date[], $3::text[]) AS u(c, d, o)
+          WHERE p.ctl = u.c AND (p.dt, p.ord_num) IS DISTINCT FROM (u.d, u.o)
+          RETURNING p.dt::text AS d, p.ctl AS c`,
+        [ctls, lote.viagens.map((v) => v.data), lote.viagens.map((v) => v.ordem)]
+      );
+      for (const r of movidas.rows) dia(r.d).corrigidas++;
+      res.corrigidas += movidas.rowCount ?? 0;
+      // a versão corrigida entra de novo no passo 3, mas não é viagem nova
+      const corrigidasCtl = new Set(movidas.rows.map((r) => r.c));
+      // 2) relatório completo: o que não veio no período deixou de existir na origem
+      if (lote.completo && lote.periodo) {
+        const fora = await client.query<{ d: string }>(
+          "DELETE FROM pes_viag WHERE dt BETWEEN $1::date AND $2::date AND NOT (ctl = ANY($3::text[])) RETURNING dt::text AS d",
+          [lote.periodo.inicio, lote.periodo.fim, ctls]
+        );
+        for (const r of fora.rows) dia(r.d).removidas++;
+        res.removidas += fora.rowCount ?? 0;
+      }
+      // 3) grava: novas entram, alteradas são atualizadas, iguais ficam
+      for (let i = 0; i < lote.viagens.length; i += 5000) {
+        const v = lote.viagens.slice(i, i + 5000);
+        const dts = v.map((x) => x.data);
+        const ords = v.map((x) => x.ordem);
+        const cts = v.map((x) => x.controle);
+        const { rows: ja } = await client.query<{ d: string; o: string; c: string; alt: boolean }>(
+          `SELECT u.d::text AS d, u.o, u.c, (p.faz_cod, p.tlh, ROUND(p.ton, 3)) IS DISTINCT FROM (u.f, u.t, ROUND(u.q, 3)) AS alt
+             FROM pes_viag p
+             JOIN unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[]) AS u(d, o, c, f, t, q)
+               ON p.dt = u.d AND p.ord_num = u.o AND p.ctl = u.c`,
+          [dts, ords, cts, v.map((x) => x.fazendaCodigo), v.map((x) => x.talhao), v.map((x) => x.toneladas)]
+        );
+        const existe = new Set(ja.map((r) => `${r.d}|${r.o}|${r.c}`));
+        for (const r of ja) {
+          if (r.alt) {
+            res.alteradas++;
+            dia(r.d).alteradas++;
+          } else res.mantidas++;
+        }
+        // nova = chave que não existia e controle que não tinha versão antiga (essa conta como corrigida)
+        for (const x of v) {
+          if (existe.has(`${x.data}|${x.ordem}|${x.controle}`) || corrigidasCtl.has(x.controle)) continue;
+          res.novas++;
+          dia(x.data).novas++;
+        }
+        await client.query(
+          `INSERT INTO pes_viag (dt, ord_num, ctl, faz_cod, tlh, ton, hsd, tara, veic, frt)
+           SELECT * FROM unnest($1::date[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::numeric[], $9::text[], $10::text[])
+           ON CONFLICT (dt, ord_num, ctl) DO UPDATE SET
+             faz_cod = CASE WHEN ${ALT} THEN EXCLUDED.faz_cod ELSE pes_viag.faz_cod END,
+             tlh = CASE WHEN ${ALT} THEN EXCLUDED.tlh ELSE pes_viag.tlh END,
+             ton = CASE WHEN ${ALT} THEN EXCLUDED.ton ELSE pes_viag.ton END,
+             hsd = CASE WHEN ${ALT} OR pes_viag.hsd = '' THEN EXCLUDED.hsd ELSE pes_viag.hsd END,
+             tara = CASE WHEN ${ALT} OR pes_viag.tara IS DISTINCT FROM EXCLUDED.tara THEN EXCLUDED.tara ELSE pes_viag.tara END,
+             veic = CASE WHEN ${ALT} OR pes_viag.veic = '' THEN EXCLUDED.veic ELSE pes_viag.veic END,
+             frt = CASE WHEN ${ALT} OR pes_viag.frt = '' THEN EXCLUDED.frt ELSE pes_viag.frt END`,
+          [dts, ords, cts, v.map((x) => x.fazendaCodigo), v.map((x) => x.talhao), v.map((x) => x.toneladas), v.map((x) => x.hora), v.map((x) => x.tara), v.map((x) => x.veiculo), v.map((x) => x.frente)]
+        );
+      }
+    }
+    const depois = await toneladasPorDia([...datasArquivo]);
+    for (const d of datasArquivo) {
+      const a = Math.round((antes.get(d) ?? 0) * 100) / 100;
+      const b = Math.round((depois.get(d) ?? 0) * 100) / 100;
+      const x = dia(d);
+      x.antesT = a;
+      x.depoisT = b;
+    }
+    res.porData = [...dias.values()]
+      .filter((x) => x.antesT !== x.depoisT || x.novas || x.alteradas || x.corrigidas || x.removidas)
+      .sort((p, q) => p.data.localeCompare(q.data));
+    // prévia: faz tudo dentro da transação para medir o efeito e desfaz
+    await client.query(aplicar ? "COMMIT" : "ROLLBACK");
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
   } finally {
     client.release();
   }
-  return { novas: viagens.length - substituidas - mantidas, substituidas, mantidas };
+  return res;
 }
+
+const addDias = (iso: string, n: number) => {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
 
 /**
  * Refaz as entradas diárias (por ordem + data + fazenda + talhão) a partir das
