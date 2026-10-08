@@ -246,7 +246,6 @@ function montarCardOrdem(
       ]
     : [];
   const alturaLinhaTch = 3.3;
-  const alturaBlocoTch = linhasTch.length > 0 ? linhasTch.length * alturaLinhaTch + 2.5 : 0;
 
   const nTalhoes = ordem.talhoes.length;
   const alturaLinhaTalhao = 3.3;
@@ -275,15 +274,23 @@ function montarCardOrdem(
     : [];
   const temClima = climaFazendas.some((x) => x.c);
   const alturaLinhaClima = 6.6;
-  const alturaBlocoClima = (c: (typeof climaFazendas)[number]["c"]) =>
-    (variasFazendas ? 3 : 0) + (c?.dia ? alturaLinhaClima * 2 : 3.4) + 3;
-  const alturaClima = temClima ? 4.2 + climaFazendas.reduce((s, x) => s + alturaBlocoClima(x.c), 0) + 0.5 : 0;
+  // título de cada bloco (as fazendas da estação), quebrado em quantas linhas precisar
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(5);
+  const rotulosClima = climaFazendas.map((g) =>
+    variasFazendas ? (doc.splitTextToSize(g.fazendas.map((f) => `${f.codigo} · ${f.nome}`).join(" / "), larguraInterna) as string[]) : []
+  );
+  const alturaBlocoClima = (i: number) =>
+    (rotulosClima[i].length ? rotulosClima[i].length * 2.4 + 0.6 : 0) + (climaFazendas[i].c?.dia ? alturaLinhaClima * 2 : 3.4) + 3;
+  const alturaClima = temClima ? 4.2 + climaFazendas.reduce((s, _x, i) => s + alturaBlocoClima(i), 0) + 0.5 : 0;
 
-  const alturaCabecalho = 3.6 + linhasFazenda.length * 3 + 1.5;
+  // as alturas abaixo seguem exatamente o que `desenhar` ocupa (o clima fica ancorado no rodapé e não pode cobrir o corpo)
+  const alturaCabecalho = 3.4 + 3.6 + linhasFazenda.length * 3;
   const alturaEsq =
-    3 + (nTalhoes > 0 ? 4 + linhasTalhoes.length * alturaLinhaTalhao + 3.8 + 2 : 4) + alturaBlocoTch;
-  const alturaDir = 9.5 + 2 + 5.5 + 2 + 11.5 + 2 + 10.5 + 2 + 4.6;
-  const altura = pad + alturaCabecalho + Math.max(alturaEsq, alturaDir) + alturaClima + pad;
+    2.4 + 3 + (nTalhoes > 0 ? 4 + linhasTalhoes.length * alturaLinhaTalhao + 3.8 + 2 : 4) + (linhasTch.length > 0 ? 0.4 + linhasTch.length * alturaLinhaTch : 0);
+  const alturaDir = 1 + 9.5 + 2 + 5.5 + 2 + 11.5 + 2 + 10.5 + 2 + (ordem.tipoCana ? 3.6 : 0);
+  const respiroClima = temClima ? 2.5 : 0;
+  const altura = pad + alturaCabecalho + Math.max(alturaEsq, alturaDir) + respiroClima + alturaClima + pad;
 
   function caixa(bx: number, by: number, bw: number, bh: number, fundo: [number, number, number]) {
     doc.setFillColor(...fundo);
@@ -550,14 +557,13 @@ function montarCardOrdem(
       fy += 4.2;
 
       const cw = larguraInterna / 3;
-      for (const { fazendas: fs, c } of climaFazendas) {
-        if (variasFazendas) {
+      for (const [gi, { c }] of climaFazendas.entries()) {
+        if (rotulosClima[gi].length) {
           doc.setFont("helvetica", "bold");
           doc.setFontSize(5);
           doc.setTextColor(...NAVY);
-          const rotulo = fs.map((f) => `${f.codigo} · ${f.nome}`).join(" / ");
-          doc.text((doc.splitTextToSize(rotulo, larguraInterna) as string[])[0], xi, fy + 2);
-          fy += 3;
+          rotulosClima[gi].forEach((l, li) => doc.text(l, xi, fy + 2 + li * 2.4));
+          fy += rotulosClima[gi].length * 2.4 + 0.6;
         }
         const d = c?.dia;
         if (!c || !d) {
