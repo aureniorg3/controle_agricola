@@ -1,5 +1,5 @@
 import { fmtDateBR } from "./format";
-import { totaisEstoque, type LinhaEstoque } from "./estoque-insumos";
+import { GRUPOS_PADRAO_ESTOQUE, type LinhaEstoque } from "./estoque-insumos";
 import { carregarImagemInfo } from "./relatorio-pdf";
 
 type Cor = [number, number, number];
@@ -7,13 +7,16 @@ const NAVY: Cor = [35, 57, 107];
 const GREEN: Cor = [45, 138, 90];
 const LINE: Cor = [213, 219, 225];
 const INK: Cor = [20, 26, 36];
-const GRUPO: Cor = [226, 232, 242];
+const MUTED: Cor = [92, 102, 117];
+const ALT: Cor = [244, 246, 248];
+/** Dosagem e Disp. (ha) em destaque, como na planilha Resumo_Estoque */
+const DOSAGEM: Cor = [251, 228, 213];
+const HECTARES: Cor = [226, 239, 218];
 const MARGEM = 8;
 const CABECALHO = 17.4;
 const RODAPE = 14;
 
 const nf = (n: number, c = 2) => n.toLocaleString("pt-BR", { minimumFractionDigits: c, maximumFractionDigits: c });
-const cel = (n: number | null, c = 2) => (n === null || Math.abs(n) < 0.0005 ? "–" : nf(n, c));
 
 export interface DadosRelatorioEstoque {
   dt: string;
@@ -21,19 +24,26 @@ export interface DadosRelatorioEstoque {
   linhas: LinhaEstoque[];
   empresasTexto: string;
   gruposTexto: string;
+  /** grupos escolhidos na tela (só herbicidas e adjuvantes = "Estoque Herbicida") */
+  grupos?: string[];
   nomeUsuario: string;
 }
 
-/** PDF "Estoque de Insumos" (A4 paisagem), no padrão dos relatórios do sistema: produtos por grupo e total geral. */
+/**
+ * PDF do estoque (A4 retrato), no modelo da planilha "Estoque Herbicida": Descrição, Código, Est Real, Estoque Disp,
+ * Dif Real x Disp, Dosagem, Vlr Unit. e Disp. (ha), produto a produto, com o cabeçalho e o rodapé padrão do sistema.
+ */
 export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promise<void> {
   const { default: JsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
   const logo = await carregarImagemInfo("/logo-crv-branca-pdf.png");
-  const doc = new JsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const larg = doc.internal.pageSize.getWidth();
   const alt = doc.internal.pageSize.getHeight();
   const geradoEm = new Date();
-  const titulo = "Estoque de Insumos";
+  const soHerbicidas =
+    !!d.grupos?.length && d.grupos.every((g) => GRUPOS_PADRAO_ESTOQUE.includes(g)) && GRUPOS_PADRAO_ESTOQUE.every((g) => d.grupos!.includes(g));
+  const titulo = `${soHerbicidas ? "Estoque Herbicida" : "Estoque de Insumos"} – Safra ${d.dt.slice(0, 4)}`;
 
   function cabecalho() {
     doc.setFillColor(...NAVY);
@@ -46,7 +56,7 @@ export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promis
     doc.text(titulo, MARGEM, 10);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
-    doc.text(`CRV Industrial · Unidade Capinópolis/MG · Data do relatório ${fmtDateBR(d.dt)} · ${d.empresasTexto} · ${d.gruposTexto}`, MARGEM, 14);
+    doc.text(`CRV Industrial Ltda · Unidade Capinópolis-MG · Data atualização: ${fmtDateBR(d.dt)} · ${d.empresasTexto}`, MARGEM, 14);
     if (logo) {
       const h = 10.5;
       const w = (logo.largura / logo.altura) * h;
@@ -55,81 +65,67 @@ export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promis
     doc.setTextColor(...INK);
   }
 
-  type Tipo = "grupo" | "item" | "total";
-  const tipos: Tipo[] = [];
-  const corpo: string[][] = [];
-  let grpAtual = "";
-  for (const l of d.linhas) {
-    if (l.grp !== grpAtual) {
-      grpAtual = l.grp;
-      corpo.push([`${l.grp.trim()}${l.grpDs ? ` · ${l.grpDs}` : ""}`, "", "", "", "", "", "", "", "", "", ""]);
-      tipos.push("grupo");
-    }
-    const variacao = l.dispAnterior === null ? null : l.disp - l.dispAnterior;
-    corpo.push([
-      l.cod,
-      l.ds,
-      l.un,
-      cel(l.est, 3),
-      cel(l.disp, 3),
-      cel(l.dif, 3),
-      l.dose === null ? "–" : `${nf(l.dose, 3)}${l.doseOrigem === "dosagens" ? "*" : ""}`,
-      l.vlrUnit === null ? "–" : `R$ ${nf(l.vlrUnit)}`,
-      `R$ ${nf(l.vr)}`,
-      cel(l.ha),
-      variacao === null ? "–" : `${variacao > 0 ? "+" : ""}${cel(variacao, 3)}`,
-    ]);
-    tipos.push("item");
-  }
-  const t = totaisEstoque(d.linhas);
-  corpo.push(["Total geral", "", "", nf(t.est, 3), nf(t.disp, 3), nf(t.dif, 3), "", "", `R$ ${nf(t.vr)}`, nf(t.ha), ""]);
-  tipos.push("total");
+  const corpo = d.linhas.map((l) => [
+    l.ds,
+    l.cod,
+    nf(l.est),
+    nf(l.disp),
+    nf(l.dif),
+    l.dose === null ? "–" : `${nf(l.dose, 3)}${l.doseOrigem === "dosagens" ? "*" : ""}`,
+    l.vlrUnit === null ? "–" : `R$ ${nf(l.vlrUnit)}`,
+    l.ha === null ? "–" : nf(l.ha),
+  ]);
 
   cabecalho();
   autoTable(doc, {
     startY: 21,
-    head: [["Código", "Descrição", "UN", "Est. Real", "Estoque Disp.", "Dif. Real × Disp.", "Dosagem /ha", "Vlr Unit.", "Vlr Total", "Hectares", `Var. disp.${d.dtAnterior ? ` × ${fmtDateBR(d.dtAnterior).slice(0, 5)}` : ""}`]],
+    head: [["Descrição", "Código", "Est Real", "Estoque Disp", "Dif Real x Disp", "Dosagem", "Vlr Unit.", "Disp. (ha)"]],
     body: corpo,
-    styles: { fontSize: 7, cellPadding: { top: 0.9, bottom: 0.9, left: 1.2, right: 1.2 }, textColor: INK, lineColor: LINE, lineWidth: 0.1 },
-    headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontSize: 7, halign: "right" },
-    columnStyles: { 0: { cellWidth: 16 }, 1: { cellWidth: 74 }, 2: { cellWidth: 10, halign: "center" } },
-    margin: { top: 21, left: MARGEM, right: MARGEM, bottom: RODAPE + 4 },
-    didParseCell: (data) => {
-      if (data.section === "head") {
-        if (data.column.index < 2) data.cell.styles.halign = "left";
-        if (data.column.index === 2) data.cell.styles.halign = "center";
+    styles: { fontSize: 8, cellPadding: { top: 1.1, bottom: 1.1, left: 1.5, right: 1.5 }, textColor: INK, lineColor: LINE, lineWidth: 0.1, valign: "middle" },
+    headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8, halign: "center" },
+    columnStyles: {
+      0: { cellWidth: 62, halign: "left" },
+      1: { cellWidth: 18, halign: "center" },
+      2: { halign: "right" },
+      3: { halign: "right" },
+      4: { halign: "right" },
+      5: { halign: "right", fillColor: DOSAGEM },
+      6: { halign: "right", cellWidth: 24 },
+      7: { halign: "right", fillColor: HECTARES, fontStyle: "bold" },
+    },
+    didParseCell: (c) => {
+      if (c.section === "head") {
+        if (c.column.index === 0) c.cell.styles.halign = "left";
         return;
       }
-      if (data.column.index > 2) data.cell.styles.halign = "right";
-      const tipo = tipos[data.row.index];
-      if (tipo === "grupo") {
-        data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fillColor = GRUPO;
-        data.cell.styles.textColor = NAVY;
-        if (data.column.index === 0) {
-          data.cell.colSpan = 11;
-          data.cell.styles.halign = "left";
-        }
-      } else if (tipo === "total") {
-        data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fillColor = NAVY;
-        data.cell.styles.textColor = [255, 255, 255];
-        if (data.column.index === 0) data.cell.colSpan = 3;
+      if (c.row.index % 2 === 1 && c.column.index < 5) c.cell.styles.fillColor = ALT;
+      // sem dosagem (ou sem estoque) não há hectares para destacar
+      if (c.column.index === 7 && (d.linhas[c.row.index].ha ?? 0) <= 0) {
+        c.cell.styles.fillColor = c.row.index % 2 === 1 ? ALT : [255, 255, 255];
+        c.cell.styles.fontStyle = "normal";
+      }
+      if (c.column.index === 4 && Math.abs(d.linhas[c.row.index].dif) >= 0.005) {
+        c.cell.styles.textColor = [178, 60, 43];
+        c.cell.styles.fontStyle = "bold";
       }
     },
-    didDrawPage: (data) => {
-      if (data.pageNumber > 1) cabecalho();
+    margin: { top: 21, left: MARGEM, right: MARGEM, bottom: RODAPE + 4 },
+    didDrawPage: (p) => {
+      if (p.pageNumber > 1) cabecalho();
     },
   });
 
-  const fimTabela = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 30;
+  const fim = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 30;
   doc.setFontSize(6.8);
-  doc.setTextColor(100, 110, 125);
+  doc.setTextColor(...MUTED);
   doc.text(
     // só caracteres da fonte padrão do PDF (sem ÷, › e −)
-    "Hectares = estoque real / dosagem. Dosagem da planilha de estoque; com *, do cadastro Insumos > Dosagens (produto sem dose na planilha). Dif. = disponível - real.",
+    [
+      "Disp. (ha) = estoque real / dosagem por hectare. Dif Real x Disp = estoque disponível - estoque real (em vermelho quando há diferença).",
+      `Dosagem da planilha de estoque; com *, do cadastro Insumos > Dosagens. ${d.gruposTexto}.`,
+    ],
     MARGEM,
-    Math.min(fimTabela + 4.5, alt - RODAPE - 2)
+    Math.min(fim + 4.5, alt - RODAPE - 5)
   );
 
   const total = doc.getNumberOfPages();
@@ -145,8 +141,8 @@ export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promis
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...INK);
     doc.text(`Gerado por: ${d.nomeUsuario} · ${geradoEm.toLocaleString("pt-BR")}`, MARGEM, y + 3.5);
-    doc.text(titulo, larg / 2, y + 1.5, { align: "center" });
+    doc.text(soHerbicidas ? "Estoque Herbicida" : "Estoque de Insumos", larg / 2, y + 1.5, { align: "center" });
     doc.text(`Página ${String(i).padStart(2, "0")} de ${String(total).padStart(2, "0")}`, larg - MARGEM, y + 1.5, { align: "right" });
   }
-  doc.save(`${titulo}_${d.dt.replace(/-/g, "")}.pdf`);
+  doc.save(`${soHerbicidas ? "Estoque Herbicida" : "Estoque de Insumos"}_${d.dt.replace(/-/g, "")}.pdf`);
 }

@@ -78,7 +78,7 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
     setGerandoPdf(true);
     try {
       const { gerarRelatorioEstoquePdf } = await import("@/lib/relatorio-estoque-pdf");
-      await gerarRelatorioEstoquePdf({ dt: dados.dt, dtAnterior: dados.dtAnterior, linhas, empresasTexto, gruposTexto, nomeUsuario });
+      await gerarRelatorioEstoquePdf({ dt: dados.dt, dtAnterior: dados.dtAnterior, linhas, empresasTexto, gruposTexto, grupos: selecionados, nomeUsuario });
     } finally {
       setGerandoPdf(false);
     }
