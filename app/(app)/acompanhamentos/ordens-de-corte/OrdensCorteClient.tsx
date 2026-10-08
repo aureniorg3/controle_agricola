@@ -1335,7 +1335,7 @@ export default function OrdensCorteClient({
                 </span>
               </button>
               {aberto && (
-                <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grade-ordens">
                   {lista.map((ordem) => (
                     <OrdemCard
                       key={ordem.id}
@@ -1859,7 +1859,7 @@ function OrdemCard({
     <div className="card-ordem flex overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
       <div className={`w-1.5 flex-shrink-0 ${ordem.status === "Aberta" ? "bg-good-500" : "bg-amber-500"}`} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
+        <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">
           <div className="min-w-0">
             <div className="text-[17px] font-extrabold tracking-tight text-navy-900">Ordem {ordem.numero}</div>
             <div className="truncate text-[11.5px] text-muted">
@@ -1882,7 +1882,7 @@ function OrdemCard({
           </div>
         </div>
 
-        <div className="card-ordem-corpo p-4">
+        <div className="card-ordem-corpo p-3">
           {/* Talhões */}
           <div className="flex min-w-0 flex-col">
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Talhões</div>
@@ -1976,19 +1976,18 @@ function OrdemCard({
               </div>
             </div>
 
-            <div className="rounded-lg px-3 py-2.5 text-right" style={{ backgroundColor: "rgb(255, 255, 209)" }}>
-              <div className="text-[11px] text-ink/80">Produção no período</div>
-              <div className="text-[19px] font-bold tabular text-ink">{fmtT(m.entradaPeriodoT)} t</div>
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg bg-surface px-3 py-2.5">
-              <div className="order-2 text-right">
-                <div className="text-[10.5px] text-muted">TCH médio realizado</div>
-                <div className="text-[17px] font-bold tabular text-ink">{fmtTch(tchMedio)}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg p-2.5 text-right" style={{ backgroundColor: "rgb(255, 255, 209)" }}>
+                <div className="text-[10.5px] text-ink/80">Produção no período</div>
+                <div className="text-[15px] font-bold tabular text-ink">{fmtT(m.entradaPeriodoT)} t</div>
               </div>
-              <span className="order-1">
-                <TchBadge tch={tchMedio} />
-              </span>
+              <div className="rounded-lg bg-surface p-2.5 text-right">
+                <div className="text-[10.5px] text-muted">TCH médio realizado</div>
+                <div className="text-[15px] font-bold tabular text-ink">{fmtTch(tchMedio)}</div>
+                <div className="mt-1">
+                  <TchBadge tch={tchMedio} />
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
