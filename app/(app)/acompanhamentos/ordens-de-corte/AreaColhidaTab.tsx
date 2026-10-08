@@ -7,6 +7,7 @@ import { fmtDateBR, fmtHa } from "@/lib/format";
 import { ratearArea } from "@/lib/rateio";
 import type { ApontamentoArea } from "@/lib/db-area";
 import type { OrdemCorte } from "@/lib/types";
+import { ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 const INPUT =
   "rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface";
@@ -37,7 +38,11 @@ export default function AreaColhidaTab({
   const raiz = useRef<HTMLDivElement>(null);
   const [dt, setDt] = useState(referencia);
   const [ordemNum, setOrdemNum] = useState(ordemInicial ?? "");
+  // valores = área do DIA por talhão (é o que se grava); no modo acumulado, o que se digita é o total até a data
   const [valores, setValores] = useState<Record<string, string>>({});
+  const [informar, setInformar] = usarPersistido<"acumulado" | "dia">("area-colhida.informar", "acumulado", ehUmDe(["acumulado", "dia"] as const));
+  const [acumTexto, setAcumTexto] = useState<Record<string, string>>({});
+  const [editHist, setEditHist] = useState<{ chave: string; valor: string } | null>(null);
   const [boletim, setBoletim] = useState("");
   // lançar pela ordem (o total do dia é rateado entre os talhões) ou direto em cada talhão
   const [modo, setModo] = useState<"talhao" | "ordem">("talhao");
@@ -84,6 +89,7 @@ export default function AreaColhidaTab({
       v[`${t.fazendaCodigo}|${t.talhao}`] = dia ? String(dia.ha).replace(".", ",") : "";
     }
     setValores(v);
+    setAcumTexto({});
   }, [ordem, dt]);
 
   useEffect(() => {
@@ -143,12 +149,61 @@ export default function AreaColhidaTab({
 
   const totalDia = arred(linhas.reduce((s, l) => s + l.dia, 0));
 
+  /** Valor mostrado no campo do talhão: a área do dia, ou o acumulado até a data. */
+  const textoCampo = (l: (typeof linhas)[number]) => {
+    if (informar === "dia") return valores[l.chave] ?? "";
+    if (l.chave in acumTexto) return acumTexto[l.chave];
+    return (valores[l.chave] ?? "").trim() ? String(l.acumulado).replace(".", ",") : "";
+  };
+  function digitarTalhao(l: (typeof linhas)[number], txt: string) {
+    if (informar === "dia") return setValores((v) => ({ ...v, [l.chave]: txt }));
+    setAcumTexto((a) => ({ ...a, [l.chave]: txt }));
+    // acumulado → área do dia = acumulado − colhido até o dia anterior (negativo fica marcado e é recusado ao gravar)
+    const acum = numero(txt);
+    setValores((v) => ({ ...v, [l.chave]: txt.trim() === "" || !Number.isFinite(acum) ? "" : String(arred(acum - l.anterior)).replace(".", ",") }));
+  }
+
+  /** Acumulado do talhão até a data do lançamento (saldo anterior ao apontamento + dias até a data). */
+  function acumuladoAte(ord: string, faz: string, tlh: string, d: string): number | null {
+    const t = ordens.find((o) => o.numero === ord)?.talhoes.find((x) => x.fazendaCodigo === faz && x.talhao === tlh);
+    if (!t) return null;
+    return arred(t.areaColhidaHa + (t.colhidaDias ?? []).filter((x) => x.d <= d).reduce((s, x) => s + x.ha, 0));
+  }
+
+  /** Edição direta na linha do histórico: grava a nova área daquele dia (0 apaga). */
+  async function salvarEdicaoHistorico(l: ApontamentoArea, txt: string) {
+    const ha = numero(txt.trim() || "0");
+    if (!Number.isFinite(ha) || ha < 0) return setErro("Informe uma área válida.");
+    setErro(null);
+    const res = await fetch("/api/area-colhida", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ordem: l.ord, dt: l.dt, boletim: l.boletim ?? 0, itens: [{ faz: l.faz, tlh: l.tlh, ha }] }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return setErro(j.error ?? "Não foi possível alterar.");
+    setEditHist(null);
+    setAviso(`Área do talhão ${l.tlh} em ${fmtDateBR(l.dt)} alterada para ${fmtHa(ha)} ha.`);
+    await onSalvo();
+    await carregarHistorico();
+  }
+
   function aplicarRateio() {
     setErro(null);
     setAviso(null);
     if (!ordem) return setErro("Escolha a ordem.");
-    const total = numero(totalOrdem);
-    if (totalOrdem.trim() === "" || !Number.isFinite(total) || total < 0) return setErro("Informe a área colhida no dia (ha) da ordem.");
+    const informado = numero(totalOrdem);
+    if (totalOrdem.trim() === "" || !Number.isFinite(informado) || informado < 0) {
+      return setErro(informar === "acumulado" ? "Informe a área colhida acumulada da ordem até a data (ha)." : "Informe a área colhida no dia (ha) da ordem.");
+    }
+    // acumulado: o dia é o total informado menos o que já estava colhido até o dia anterior
+    const anteriorOrdem = arred(linhas.reduce((s, l) => s + l.anterior, 0));
+    const total = informar === "acumulado" ? arred(informado - anteriorOrdem) : informado;
+    if (total < 0) {
+      return setErro(
+        `O acumulado informado (${fmtHa(informado)} ha) é menor que o já colhido até o dia anterior (${fmtHa(anteriorOrdem)} ha). Para diminuir, corrija os lançamentos dos dias anteriores no histórico.`
+      );
+    }
     // o que ainda cabe em cada talhão, sem contar o que já está lançado neste mesmo dia
     const itens = linhas.map((l) => {
       const disp = Math.max(0, arred(l.t.areaHa - l.anterior - l.posterior));
@@ -160,7 +215,12 @@ export default function AreaColhidaTab({
     }
     const r = ratearArea(total, itens);
     setValores(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v > 0 ? String(v).replace(".", ",") : ""])));
-    setAviso(`Total de ${fmtHa(total)} ha rateado entre os talhões. Confira, ajuste se precisar e grave.`);
+    setAcumTexto({});
+    setAviso(
+      informar === "acumulado"
+        ? `Acumulado de ${fmtHa(informado)} ha: ${fmtHa(total)} ha no dia, rateados entre os talhões. Confira, ajuste se precisar e grave.`
+        : `Total de ${fmtHa(total)} ha rateado entre os talhões. Confira, ajuste se precisar e grave.`
+    );
   }
 
   async function gravar() {
@@ -172,7 +232,14 @@ export default function AreaColhidaTab({
     if (!boletim.trim() && totalDia > 0) return setErro("Informe o número do boletim.");
     for (const l of linhas) {
       const txt = (valores[l.chave] ?? "").trim();
-      if (txt !== "" && (!Number.isFinite(numero(txt)) || numero(txt) < 0)) return setErro(`Talhão ${l.t.talhao}: informe um número válido.`);
+      if (txt !== "" && (!Number.isFinite(numero(txt)) || numero(txt) < 0)) {
+        if (informar === "acumulado" && Number.isFinite(numero(txt))) {
+          return setErro(
+            `Talhão ${l.t.talhao}: o acumulado informado é menor que o já colhido até o dia anterior (${fmtHa(l.anterior)} ha). Para diminuir, corrija os lançamentos dos dias anteriores no histórico.`
+          );
+        }
+        return setErro(`Talhão ${l.t.talhao}: informe um número válido.`);
+      }
     }
     setSalvando(true);
     try {
@@ -294,6 +361,29 @@ export default function AreaColhidaTab({
         {ordem && <div className="caixa-form-sub">Como lançar</div>}
         {ordem && (
           <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className={ROTULO}>Informar</label>
+              <div className="flex rounded-lg border border-line bg-card p-1">
+                {([
+                  ["acumulado", "Acumulado até a data"],
+                  ["dia", "Área do dia"],
+                ] as const).map(([k, rotulo]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => {
+                      setInformar(k);
+                      setAcumTexto({});
+                    }}
+                    className={`rounded-md px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                      informar === k ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-surface"
+                    }`}
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="flex rounded-lg border border-line bg-card p-1">
               {([
                 ["talhao", "Por talhão"],
@@ -314,7 +404,7 @@ export default function AreaColhidaTab({
             {modo === "ordem" && (
               <>
                 <div>
-                  <label className={ROTULO}>Área colhida no dia — ordem (ha)</label>
+                  <label className={ROTULO}>{informar === "acumulado" ? "Acumulado da ordem até a data (ha)" : "Área colhida no dia — ordem (ha)"}</label>
                   <input
                     value={totalOrdem}
                     onChange={(e) => setTotalOrdem(e.target.value)}
@@ -328,7 +418,7 @@ export default function AreaColhidaTab({
                     inputMode="decimal"
                     disabled={!podeGravar}
                     className={`${INPUT} w-[150px] text-right`}
-                    aria-label="Área colhida no dia na ordem"
+                    aria-label={informar === "acumulado" ? "Área colhida acumulada da ordem até a data" : "Área colhida no dia na ordem"}
                   />
                 </div>
                 <div>
@@ -349,9 +439,12 @@ export default function AreaColhidaTab({
               </>
             )}
             <p className="basis-full text-[11.5px] text-muted">
+              {informar === "acumulado"
+                ? "Informe o total colhido até a data (ex.: dia 01 = 15 ha e dia 02 = 35 ha grava 15 ha no dia 01 e 20 ha no dia 02). O sistema calcula a área do dia pelo que já estava colhido até o dia anterior. "
+                : "Informe só o que foi colhido no dia. "}
               {modo === "ordem"
-                ? "O total do dia é dividido entre os talhões da ordem; nenhum talhão passa do que ainda falta colher dele. O resultado aparece na tabela e pode ser ajustado talhão a talhão antes de gravar."
-                : "Digite a área colhida no dia em cada talhão."}
+                ? "O total da ordem é dividido entre os talhões; nenhum talhão passa do que ainda falta colher dele. O resultado aparece na tabela e pode ser ajustado talhão a talhão antes de gravar."
+                : "Digite em cada talhão."}
             </p>
           </div>
         )}
@@ -367,8 +460,8 @@ export default function AreaColhidaTab({
                   <th className="px-3 py-1.5 text-center font-medium">Talhão</th>
                   <th className="px-3 py-1.5 text-right font-medium">Área (ha)</th>
                   <th className="px-3 py-1.5 text-right font-medium">Colhida até o dia anterior</th>
-                  <th className="px-3 py-1.5 text-right font-medium">Colhida no dia (ha)</th>
-                  <th className="px-3 py-1.5 text-right font-medium">Acumulada</th>
+                  <th className="px-3 py-1.5 text-right font-medium">{informar === "acumulado" ? "Acumulada até a data (ha)" : "Colhida no dia (ha)"}</th>
+                  <th className="px-3 py-1.5 text-right font-medium">{informar === "acumulado" ? "Colhida no dia" : "Acumulada"}</th>
                   <th className="px-3 py-1.5 text-right font-medium">Saldo</th>
                 </tr>
               </thead>
@@ -382,17 +475,20 @@ export default function AreaColhidaTab({
                     <td className="px-3 py-1 text-right tabular text-muted">{fmtHa(l.anterior)}</td>
                     <td className="px-3 py-1 text-right">
                       <input
-                        value={valores[l.chave] ?? ""}
-                        onChange={(e) => setValores((v) => ({ ...v, [l.chave]: e.target.value }))}
+                        value={textoCampo(l)}
+                        onChange={(e) => digitarTalhao(l, e.target.value)}
                         onFocus={(e) => e.target.select()}
                         disabled={!podeGravar}
                         inputMode="decimal"
                         data-nav
-                        className={`${INPUT} w-[110px] text-right`}
-                        aria-label={`Área colhida no dia — talhão ${l.t.talhao}`}
+                        className={`${INPUT} w-[110px] text-right ${l.dia < 0 ? "border-alert-500 bg-alert-50" : ""}`}
+                        title={l.dia < 0 ? `Menor que o colhido até o dia anterior (${fmtHa(l.anterior)} ha)` : undefined}
+                        aria-label={`${informar === "acumulado" ? "Área acumulada até a data" : "Área colhida no dia"} — talhão ${l.t.talhao}`}
                       />
                     </td>
-                    <td className="px-3 py-1 text-right tabular font-semibold text-ink">{fmtHa(l.acumulado)}</td>
+                    <td className={`px-3 py-1 text-right tabular font-semibold ${l.dia < 0 ? "text-alert-600" : "text-ink"}`}>
+                      {fmtHa(informar === "acumulado" ? l.dia : l.acumulado)}
+                    </td>
                     <td className={`px-3 py-1 text-right tabular ${l.saldo < -0.01 ? "font-semibold text-alert-600" : "text-muted"}`}>{fmtHa(l.saldo)}</td>
                   </tr>
                 ))}
@@ -402,8 +498,8 @@ export default function AreaColhidaTab({
                   </td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtHa(arred(ordem.talhoes.reduce((s, t) => s + t.areaHa, 0)))}</td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtHa(arred(linhas.reduce((s, l) => s + l.anterior, 0)))}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(totalDia)}</td>
-                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(arred(linhas.reduce((s, l) => s + l.acumulado, 0)))}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(informar === "acumulado" ? arred(linhas.reduce((s, l) => s + l.acumulado, 0)) : totalDia)}</td>
+                  <td className="px-3 py-1.5 text-right tabular">{fmtHa(informar === "acumulado" ? totalDia : arred(linhas.reduce((s, l) => s + l.acumulado, 0)))}</td>
                   <td className="px-3 py-1.5 text-right tabular">{fmtHa(arred(linhas.reduce((s, l) => s + l.saldo, 0)))}</td>
                 </tr>
               </tbody>
@@ -415,8 +511,10 @@ export default function AreaColhidaTab({
         {aviso && <p className="mt-3 rounded-md border border-good-500/40 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">{aviso}</p>}
 
         <p className="mt-2 text-[11.5px] text-muted">
-          Informe os hectares colhidos naquele dia (vazio ou 0 apaga o lançamento do dia). A área colhida até o dia anterior inclui o saldo lançado antes do
-          apontamento diário. Enter passa para o próximo talhão.
+          {informar === "acumulado"
+            ? "Acumulado igual ao colhido até o dia anterior (ou vazio) apaga o lançamento do dia."
+            : "Vazio ou 0 apaga o lançamento do dia."}{" "}
+          A área colhida até o dia anterior inclui o saldo lançado antes do apontamento diário. Enter passa para o próximo talhão.
         </p>
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <button
@@ -471,7 +569,8 @@ export default function AreaColhidaTab({
                 <th className="px-3 py-2 font-semibold">Fazenda</th>
                 <th className="px-3 py-2 font-semibold">Descrição Fazenda</th>
                 <th className="px-3 py-2 text-center font-semibold">Talhão</th>
-                <th className="px-3 py-2 text-right font-semibold">Área colhida (ha)</th>
+                <th className="px-3 py-2 text-right font-semibold">Área colhida no dia (ha)</th>
+                <th className="px-3 py-2 text-right font-semibold">Acumulado até a data (ha)</th>
                 <th className="px-3 py-2 font-semibold">Lançado por</th>
                 <th className="px-3 py-2 font-semibold">Lançado em</th>
                 <th className="px-3 py-2 font-semibold">Alterado por</th>
@@ -490,7 +589,29 @@ export default function AreaColhidaTab({
                     <td className="px-3 py-1 tabular text-ink">{l.faz}</td>
                     <td className="px-3 py-1 text-ink">{l.fazNm}</td>
                     <td className="px-3 py-1 text-center text-ink">{l.tlh}</td>
-                    <td className="px-3 py-1 text-right tabular text-ink">{fmtHa(l.area)}</td>
+                    <td className="px-3 py-1 text-right tabular text-ink">
+                      {editHist?.chave === `${l.ord}|${l.faz}|${l.tlh}|${l.dt}` ? (
+                        <input
+                          autoFocus
+                          value={editHist.valor}
+                          onChange={(e) => setEditHist({ chave: editHist.chave, valor: e.target.value })}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter") salvarEdicaoHistorico(l, editHist.valor);
+                            if (e.key === "Escape") setEditHist(null);
+                          }}
+                          inputMode="decimal"
+                          className={`${INPUT} w-[90px] py-0.5 text-right`}
+                          aria-label="Nova área colhida no dia"
+                        />
+                      ) : (
+                        fmtHa(l.area)
+                      )}
+                    </td>
+                    <td className="px-3 py-1 text-right tabular text-muted">{(() => {
+                      const a = acumuladoAte(l.ord, l.faz, l.tlh, l.dt);
+                      return a === null ? "—" : fmtHa(a);
+                    })()}</td>
                     <td className="whitespace-nowrap px-3 py-1 text-ink">{l.usuario || "—"}</td>
                     <td className="whitespace-nowrap px-3 py-1 text-muted">{fmtDataHora(l.criadoEm)}</td>
                     <td className="whitespace-nowrap px-3 py-1 text-ink">{alterado ? l.alteradoPor || "—" : ""}</td>
@@ -498,9 +619,39 @@ export default function AreaColhidaTab({
                     <td className="whitespace-nowrap px-3 py-1 text-right">
                       {podeGravar && (
                         <>
-                          <button type="button" onClick={() => editarLancamento(l)} className="mr-1 rounded px-1.5 py-0.5 text-[12px] font-semibold text-brand-700 hover:bg-brand-50">
-                            Editar
-                          </button>
+                          {editHist?.chave === `${l.ord}|${l.faz}|${l.tlh}|${l.dt}` ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => salvarEdicaoHistorico(l, editHist.valor)}
+                                className="mr-1 rounded px-1.5 py-0.5 text-[12px] font-semibold text-good-700 hover:bg-good-50"
+                              >
+                                Salvar
+                              </button>
+                              <button type="button" onClick={() => setEditHist(null)} className="mr-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface">
+                                Cancelar
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setEditHist({ chave: `${l.ord}|${l.faz}|${l.tlh}|${l.dt}`, valor: String(l.area).replace(".", ",") })}
+                                className="mr-1 rounded px-1.5 py-0.5 text-[12px] font-semibold text-brand-700 hover:bg-brand-50"
+                                title="Editar a área deste dia aqui mesmo"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => editarLancamento(l)}
+                                className="mr-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface"
+                                title="Abrir a ordem e a data no formulário de cima"
+                              >
+                                Abrir
+                              </button>
+                            </>
+                          )}
                           <button
                             type="button"
                             onClick={() => excluirLancamento(l)}
@@ -517,7 +668,7 @@ export default function AreaColhidaTab({
               })}
               {!carregando && historico.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-8 text-center text-muted">
+                  <td colSpan={13} className="px-4 py-8 text-center text-muted">
                     Nenhum lançamento de área colhida ainda.
                   </td>
                 </tr>
