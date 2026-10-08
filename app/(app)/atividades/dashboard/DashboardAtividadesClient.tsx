@@ -149,11 +149,14 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }: { per
               mesRotulo={mesRotulo}
               safraRotulo={dados.safraMoagem?.rotulo ?? "Safra"}
             >
-              <Linha rotulo="Total moagem" v={dados.moagem.total} dados={dados} estilo="destaque" />
               {dados.moagem.frentes.map((f, i) => (
-                <Linha key={f.frente} rotulo={f.frente} v={f} dados={dados} estilo={i % 2 ? "par" : "impar"} recuo />
+                <Linha key={f.frente} rotulo={f.frente} v={f} dados={dados} estilo={i % 2 ? "par" : "impar"} />
               ))}
-              {dados.moagem.frentes.length === 0 && <Vazio texto="Sem entrada de cana no período." />}
+              {dados.moagem.frentes.length === 0 ? (
+                <Vazio texto="Sem entrada de cana no período." />
+              ) : (
+                <Linha rotulo="Total moagem" v={dados.moagem.total} dados={dados} estilo="total" />
+              )}
             </Tabela>
 
             <Tabela

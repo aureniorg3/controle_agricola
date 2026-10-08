@@ -173,13 +173,15 @@ export async function gerarRelatorioDashboardAtividadesPdf(d: DashboardAtividade
     return (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
   }
 
-  // moagem: total primeiro e as frentes embaixo
-  const corpoMoagem: string[][] = [["Total moagem", ...valores(d.moagem.total)]];
-  const tiposMoagem: Tipo[] = ["destaque"];
+  // moagem: uma linha por frente e o total na última
+  const corpoMoagem: string[][] = [];
+  const tiposMoagem: Tipo[] = [];
   d.moagem.frentes.forEach((f, i) => {
-    corpoMoagem.push([`   ${f.frente}`, ...valores(f)]);
+    corpoMoagem.push([f.frente, ...valores(f)]);
     tiposMoagem.push(i % 2 ? "par" : "dado");
   });
+  corpoMoagem.push(["Total moagem", ...valores(d.moagem.total)]);
+  tiposMoagem.push("total");
   let y = tabela(
     yk + hk + 4,
     "Moagem · entrada de cana (t)",
