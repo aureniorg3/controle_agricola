@@ -84,6 +84,7 @@ export const SECOES_MENU: SecaoMenu[] = [
         icon: IconInsumo,
         children: [
           { label: "Saldo Insumos", href: "/acompanhamentos/insumos/saldo" },
+          { label: "Estoque Insumos", href: "/acompanhamentos/insumos/estoque" },
           { label: "Empréstimos", href: "/acompanhamentos/insumos/emprestimos" },
           { label: "Dosagens", href: "/acompanhamentos/insumos/dosagens" },
         ],
