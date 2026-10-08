@@ -114,28 +114,6 @@ export async function carregarImagemInfo(url: string): Promise<{ dataUrl: string
   }
 }
 
-/** Colunas da mini-tabela de talhões dentro de cada card de ordem. */
-function colunasCard(xStart: number, largura: number) {
-  const wTalhao = largura * 0.24;
-  const wResto = (largura - wTalhao) / 4;
-  return [
-    { x: xStart + wTalhao / 2 - 1, align: "center" as const },
-    { x: xStart + wTalhao + wResto, align: "right" as const },
-    { x: xStart + wTalhao + wResto * 2, align: "right" as const },
-    { x: xStart + wTalhao + wResto * 3, align: "right" as const },
-    { x: xStart + wTalhao + wResto * 4, align: "right" as const },
-  ];
-}
-
-function desenharLinhaCard(
-  doc: import("jspdf").jsPDF,
-  cols: { x: number; align: "left" | "right" | "center" }[],
-  valores: (string | number)[],
-  y: number
-) {
-  valores.forEach((v, i) => doc.text(String(v), cols[i].x, y, { align: cols[i].align }));
-}
-
 /** Clima da Zeus por fazenda (mesmo formato da rota /api/clima/chuva). */
 export type ClimaRelatorio = ClimaResp;
 
@@ -176,11 +154,27 @@ function desenharIcone(doc: import("jspdf").jsPDF, tipo: TipoIcone, cx: number, 
 }
 
 /**
- * Monta (mede, mas não desenha) um card de ordem no formato novo da tela:
- * faixa lateral de status, talhões à esquerda (com o bloco de TCH embaixo) e,
- * à direita, áreas, progresso da colheita, produção do período, TCH geral com
- * selo e tipo de cana. Devolve a altura exata que vai ocupar e uma função
- * `desenhar(x, y)` pra posicionar no grid de 3 colunas.
+ * Tamanhos de fonte (pt) dos cards no PDF, pensados para a leitura impressa:
+ * nada abaixo de 6 pt, números da tabela em 7 pt e valores dos quadros em 9–10,5 pt.
+ */
+const FONTE_CARD = {
+  titulo: 10,
+  fazenda: 7,
+  rotulo: 6.5,
+  tabela: 7,
+  valor: 9,
+  producao: 10.5,
+  selo: 6.5,
+  climaValor: 7,
+  climaRotulo: 6,
+};
+
+/**
+ * Monta (mede, mas não desenha) um card de ordem no formato da tela, empilhado
+ * para caber 4 por linha: cabeçalho, talhões, bloco de TCH, áreas, progresso,
+ * produção e TCH médio com selo, tipo de cana e o clima no rodapé. Devolve a
+ * altura exata que vai ocupar e `desenhar(x, y)` — as duas usam o mesmo
+ * roteiro (`percorrer`), então a altura medida é sempre a desenhada.
  */
 function montarCardOrdem(
   doc: import("jspdf").jsPDF,
@@ -196,33 +190,29 @@ function montarCardOrdem(
   },
   clima?: ClimaRelatorio | null
 ): { altura: number; desenhar: (x: number, y: number) => void } {
-  const pad = 2.6;
+  const F = FONTE_CARD;
+  const pad = 2.4;
   const faixa = 1.3;
-  const gapColunas = 3;
-  const larguraInterna = largura - faixa - pad * 2;
-  const larguraEsq = Math.round(larguraInterna * 0.62 * 10) / 10;
-  const larguraDir = larguraInterna - larguraEsq - gapColunas;
+  const W = largura - faixa - pad * 2;
+  /** altura de linha da tabela de talhões e do bloco de TCH (fonte 7) */
+  const LT = 3.5;
+  const baseLinha = LT - 1;
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(6.4);
-  const fazendas = [...new Set(ordem.talhoes.map((t) => `${t.fazendaCodigo} · ${t.fazendaNome}`))].join("   ");
-  const linhasFazenda = doc.splitTextToSize(fazendas || "Sem talhão cadastrado", larguraInterna - 20) as string[];
+  doc.setFontSize(F.fazenda);
+  const fazendas = [...new Set(ordem.talhoes.map((t) => `${t.fazendaCodigo} · ${t.fazendaNome}`))].join(" / ");
+  const linhasFazenda = doc.splitTextToSize(fazendas || "Sem talhão cadastrado", W) as string[];
 
   const m = calcOrdemMetrics(ordem, period, referencia);
   const areaColhidaHa = calcAreaColhidaHa(ordem);
-  // TCH médio realizado: tonelada entregue ÷ área colhida apontada
   // quadro: produção que entrou pela área colhida apontada ÷ essa área; linha do bloco de TCH: entrada total ÷ área da ordem
   const tchMedio = calcProducaoAreaColhida(ordem, referencia).tch;
   const progresso = m.areaTotalHa > 0 ? Math.min(100, Math.round((areaColhidaHa / m.areaTotalHa) * 100)) : 0;
   const diaAnteriorIso = addDays(referencia, -1);
-  const totalDiaAnteriorT = round2(
-    ordem.entradas.filter((e) => e.data === diaAnteriorIso).reduce((s, e) => s + e.toneladas, 0)
-  );
-  const totalDiaAtual6hT = round2(
-    ordem.entradas.filter((e) => e.data === referencia).reduce((s, e) => s + e.toneladasAte6h, 0)
-  );
+  const totalDiaAnteriorT = round2(ordem.entradas.filter((e) => e.data === diaAnteriorIso).reduce((s, e) => s + e.toneladas, 0));
+  const totalDiaAtual6hT = round2(ordem.entradas.filter((e) => e.data === referencia).reduce((s, e) => s + e.toneladasAte6h, 0));
 
-  // bloco de TCH (rodapé da coluna dos talhões); campos sem dado ficam em branco
+  // bloco de TCH (abaixo dos talhões); campos sem dado ficam em branco
   const realDe = (safra: number) => tch.historico?.find((h) => h.safra === safra)?.tchReal ?? null;
   const estimado = tch.historico?.find((h) => h.safra === tch.safraAtual)?.tchEst ?? null;
   const mostrarTch = tch.safrasAnteriores.length > 0 || !!tch.historico;
@@ -247,10 +237,7 @@ function montarCardOrdem(
         { texto: "TCH Médio Realizado", valor: fmtTch(m.tchGeralRealizado), fundo: [255, 243, 224] },
       ]
     : [];
-  const alturaLinhaTch = 3.3;
 
-  const nTalhoes = ordem.talhoes.length;
-  const alturaLinhaTalhao = 3.3;
   // ordem com mais de uma fazenda: talhões agrupados por fazenda, cada grupo com a sua faixa
   // (o número do talhão se repete entre fazendas e sem a faixa não dá para saber de qual é)
   const gruposFazenda: { fazendaCodigo: string; fazendaNome: string; talhoes: TalhaoOrdem[] }[] = [];
@@ -267,7 +254,8 @@ function montarCardOrdem(
     ...(variasFazendas ? [{ faixa: `${g.fazendaCodigo} · ${g.fazendaNome}` }] : []),
     ...g.talhoes.map((t) => ({ talhao: t })),
   ]);
-  // rodapé de clima (Zeus): um bloco por estação (fazendas da mesma estação juntas), 2 linhas x 3 itens quando há leitura
+
+  // rodapé de clima (Zeus): um bloco por estação (fazendas da mesma estação juntas), itens em 3 colunas
   const climaFazendas = clima
     ? agruparClimaPorEstacao(
         gruposFazenda.map((g) => ({ codigo: g.fazendaCodigo, nome: g.fazendaNome })),
@@ -275,30 +263,37 @@ function montarCardOrdem(
       )
     : [];
   const temClima = climaFazendas.some((x) => x.c);
-  const alturaLinhaClima = 6.6;
-  // título de cada bloco (as fazendas da estação), quebrado em quantas linhas precisar
+  const alturaLinhaClima = 7.4;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(5);
+  doc.setFontSize(F.climaRotulo);
   const rotulosClima = climaFazendas.map((g) =>
-    variasFazendas ? (doc.splitTextToSize(g.fazendas.map((f) => `${f.codigo} · ${f.nome}`).join(" / "), larguraInterna) as string[]) : []
+    variasFazendas ? (doc.splitTextToSize(g.fazendas.map((f) => `${f.codigo} · ${f.nome}`).join(" / "), W) as string[]) : []
   );
-  const alturaBlocoClima = (i: number) =>
-    (rotulosClima[i].length ? rotulosClima[i].length * 2.4 + 0.6 : 0) + (climaFazendas[i].c?.dia ? alturaLinhaClima * 2 : 3.4) + 3;
-  const alturaClima = temClima ? 4.2 + climaFazendas.reduce((s, _x, i) => s + alturaBlocoClima(i), 0) + 0.5 : 0;
+  const ultimaLeitura = climaFazendas
+    .map((f) => f.c?.ultimaLeitura)
+    .filter((v): v is string => !!v)
+    .sort()
+    .pop();
 
-  // as alturas abaixo seguem exatamente o que `desenhar` ocupa (o clima fica ancorado no rodapé e não pode cobrir o corpo)
-  const alturaCabecalho = 3.4 + 3.6 + linhasFazenda.length * 3;
-  const alturaEsq =
-    2.4 + 3 + (nTalhoes > 0 ? 4 + linhasTalhoes.length * alturaLinhaTalhao + 3.8 + 2 : 4) + (linhasTch.length > 0 ? 0.4 + linhasTch.length * alturaLinhaTch : 0);
-  const alturaDir = 1 + 9.5 + 2 + 5.5 + 2 + 11.5 + 2 + 10.5 + 2 + (ordem.tipoCana ? 3.6 : 0);
-  const respiroClima = temClima ? 2.5 : 0;
-  const altura = pad + alturaCabecalho + Math.max(alturaEsq, alturaDir) + respiroClima + alturaClima + pad;
+  const cw = W / 3;
+  const colsTalhao = (() => {
+    const wTalhao = W * 0.16;
+    const wResto = (W - wTalhao) / 4;
+    return [
+      { x: wTalhao / 2, align: "center" as const },
+      { x: wTalhao + wResto, align: "right" as const },
+      { x: wTalhao + wResto * 2, align: "right" as const },
+      { x: wTalhao + wResto * 3, align: "right" as const },
+      { x: wTalhao + wResto * 4 - 0.6, align: "right" as const },
+    ];
+  })();
 
   function caixa(bx: number, by: number, bw: number, bh: number, fundo: [number, number, number]) {
     doc.setFillColor(...fundo);
     doc.roundedRect(bx, by, bw, bh, 1.2, 1.2, "F");
   }
 
+  /** Selo arredondado com o texto na linha de base `sy`; devolve a largura. */
   function selo(
     texto: string,
     sx: number,
@@ -306,306 +301,306 @@ function montarCardOrdem(
     fundo: [number, number, number],
     corTexto: [number, number, number],
     alinharDireita = false,
-    larguraMax?: number
+    larguraMax?: number,
+    pintar = true
   ) {
     doc.setFont("helvetica", "bold");
-    let fonte = 5.4;
+    let fonte = F.selo;
     doc.setFontSize(fonte);
-    // texto longo (ex.: tipo de cana) encolhe até caber na largura disponível
-    while (larguraMax && doc.getTextWidth(texto) + 4 > larguraMax && fonte > 4) {
-      fonte -= 0.2;
+    // texto longo (ex.: tipo de cana) encolhe até caber, mas não abaixo de 6 pt
+    while (larguraMax && doc.getTextWidth(texto) + 3.6 > larguraMax && fonte > 6) {
+      fonte -= 0.1;
       doc.setFontSize(fonte);
     }
-    const w = doc.getTextWidth(texto) + 4;
-    const px = alinharDireita ? sx - w : sx;
-    doc.setFillColor(...fundo);
-    doc.roundedRect(px, sy - 2.6, w, 3.8, 1.9, 1.9, "F");
-    doc.setTextColor(...corTexto);
-    doc.text(texto, px + 2, sy);
-    doc.setTextColor(...INK);
+    const w = doc.getTextWidth(texto) + 3.6;
+    if (pintar) {
+      const px = alinharDireita ? sx - w : sx;
+      doc.setFillColor(...fundo);
+      doc.roundedRect(px, sy - 2.9, w, 4.1, 2, 2, "F");
+      doc.setTextColor(...corTexto);
+      doc.text(texto, px + 1.8, sy);
+      doc.setTextColor(...INK);
+    }
     return w;
   }
 
-  function desenhar(x: number, y: number) {
-    const aberta = ordem.status === "Aberta";
-    doc.setDrawColor(...LINE);
-    doc.setLineWidth(0.2);
-    doc.rect(x, y, largura, altura);
-    doc.setFillColor(...(aberta ? STATUS_ABERTA : STATUS_ENCERRADA));
-    doc.rect(x, y, faixa, altura, "F");
-
+  /** Percorre o card de cima para baixo; com `pintar` desenha, sem ele só mede. Devolve o y final. */
+  function percorrer(x: number, y: number, pintar: boolean, altura = 0): number {
     const xi = x + faixa + pad;
-    let cy = y + pad + 3.4;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(...NAVY);
-    doc.text(`Ordem ${ordem.numero}`, xi, cy);
-    selo(
-      ordem.status,
-      xi + larguraInterna,
-      cy - 0.4,
-      aberta ? [232, 245, 233] : [255, 243, 224],
-      aberta ? STATUS_ABERTA : STATUS_ENCERRADA,
-      true
-    );
+    let cy = y + pad;
 
-    cy += 3.6;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.4);
-    doc.setTextColor(...MUTED);
-    linhasFazenda.forEach((l, i) => doc.text(l, xi, cy + i * 3));
-    cy += linhasFazenda.length * 3 - 1.5 + 1.5;
-
-    const topoCorpo = cy;
-    // ------------------------------ coluna esquerda: talhões
-    let ey = topoCorpo + 2.4;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(5.4);
-    doc.setTextColor(...MUTED);
-    doc.text("TALHÕES", xi, ey);
-    ey += 3;
-
-    if (nTalhoes > 0) {
-      const colsX = colunasCard(xi, larguraEsq);
-      doc.setFillColor(...ALT_ROW);
-      doc.rect(xi, ey - 2.6, larguraEsq, 4, "F");
+    // ------------------------------ cabeçalho
+    cy += 3.8;
+    if (pintar) {
+      const aberta = ordem.status === "Aberta";
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(5.4);
-      doc.setTextColor(...MUTED);
-      desenharLinhaCard(doc, colsX, ["Talhão", "Área", "D.Ant", "D.Atu", "Acum"], ey);
-      ey += 4;
-
+      doc.setFontSize(F.titulo);
+      doc.setTextColor(...NAVY);
+      doc.text(`Ordem ${ordem.numero}`, xi, cy);
+      selo(ordem.status, xi + W, cy - 0.2, aberta ? [232, 245, 233] : [255, 243, 224], aberta ? STATUS_ABERTA : STATUS_ENCERRADA, true);
+    }
+    cy += 3.4;
+    if (pintar) {
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(6);
-      doc.setTextColor(...INK);
+      doc.setFontSize(F.fazenda);
+      doc.setTextColor(...MUTED);
+      linhasFazenda.forEach((l, i) => doc.text(l, xi, cy + i * 3));
+    }
+    cy += (linhasFazenda.length - 1) * 3 + 1.6;
+
+    // ------------------------------ talhões
+    cy += 2.8;
+    if (pintar) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(F.rotulo);
+      doc.setTextColor(...MUTED);
+      doc.text("TALHÕES", xi, cy);
+    }
+    cy += 1.2;
+    const linhaTabela = (valores: string[]) => colsTalhao.forEach((c, i) => doc.text(valores[i], xi + c.x, cy + baseLinha, { align: c.align }));
+    if (linhasTalhoes.length > 0) {
+      if (pintar) {
+        doc.setFillColor(...ALT_ROW);
+        doc.rect(xi, cy, W, LT, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(F.rotulo);
+        doc.setTextColor(...MUTED);
+        linhaTabela(["Talhão", "Área", "D.Ant.", "D.Atual", "Acum."]);
+      }
+      cy += LT;
       let seq = 0;
-      linhasTalhoes.forEach((l) => {
-        if ("faixa" in l) {
-          doc.setFillColor(226, 232, 242);
-          doc.rect(xi, ey - 2.5, larguraEsq, alturaLinhaTalhao, "F");
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(5.4);
-          doc.setTextColor(...NAVY);
-          doc.text((doc.splitTextToSize(l.faixa, larguraEsq - 2) as string[])[0], xi + 1, ey);
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(6);
-          doc.setTextColor(...INK);
-          seq = 0;
-          ey += alturaLinhaTalhao;
-          return;
+      for (const l of linhasTalhoes) {
+        if (pintar) {
+          if ("faixa" in l) {
+            doc.setFillColor(226, 232, 242);
+            doc.rect(xi, cy, W, LT, "F");
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(F.rotulo);
+            doc.setTextColor(...NAVY);
+            doc.text((doc.splitTextToSize(l.faixa, W - 2) as string[])[0], xi + 1, cy + baseLinha);
+          } else {
+            if (seq % 2 === 1) {
+              doc.setFillColor(...ALT_ROW);
+              doc.rect(xi, cy, W, LT, "F");
+            }
+            const t = l.talhao;
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(F.tabela);
+            doc.setTextColor(...INK);
+            linhaTabela([
+              t.talhao,
+              fmtHa(t.areaHa),
+              fmtT(calcTalhaoDiaAnterior(ordem, t, referencia)),
+              fmtT(calcTalhaoDiaAtualAte6h(ordem, t, referencia)),
+              fmtT(calcTalhaoEntradaPeriodo(ordem, t, "safra", referencia)),
+            ]);
+          }
         }
-        const t = l.talhao;
-        if (seq % 2 === 1) {
-          doc.setFillColor(...ALT_ROW);
-          doc.rect(xi, ey - 2.5, larguraEsq, alturaLinhaTalhao, "F");
-        }
-        seq++;
-        desenharLinhaCard(
-          doc,
-          colsX,
-          [
-            t.talhao,
-            fmtHa(t.areaHa),
-            fmtT(calcTalhaoDiaAnterior(ordem, t, referencia)),
-            fmtT(calcTalhaoDiaAtualAte6h(ordem, t, referencia)),
-            fmtT(calcTalhaoEntradaPeriodo(ordem, t, "safra", referencia)),
-          ],
-          ey
-        );
-        ey += alturaLinhaTalhao;
-      });
-
-      doc.setFillColor(...NAVY);
-      doc.rect(xi, ey - 2.6, larguraEsq, 3.8, "F");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(6);
-      doc.setTextColor(255, 255, 255);
-      desenharLinhaCard(
-        doc,
-        colsX,
-        ["Total", fmtHa(m.areaTotalHa), fmtT(totalDiaAnteriorT), fmtT(totalDiaAtual6hT), fmtT(m.acumSafraT)],
-        ey
-      );
-      doc.setTextColor(...INK);
-      ey += 3.8 + 2;
-    } else {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(6.4);
-      doc.setTextColor(...MUTED);
-      doc.text("Sem talhão cadastrado.", xi, ey);
-      doc.setTextColor(...INK);
-      ey += 4;
-    }
-
-    if (linhasTch.length > 0) {
-      const topoTch = ey + 0.4;
-      let ty = topoTch + 2.4;
-      doc.setFontSize(6);
-      linhasTch.forEach((l) => {
-        doc.setFillColor(...l.fundo);
-        doc.rect(xi, ty - 2.4, larguraEsq, alturaLinhaTch, "F");
-        doc.setFont("helvetica", "normal");
+        seq = "faixa" in l ? 0 : seq + 1;
+        cy += LT;
+      }
+      if (pintar) {
+        doc.setFillColor(...NAVY);
+        doc.rect(xi, cy, W, LT, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(F.tabela);
+        doc.setTextColor(255, 255, 255);
+        linhaTabela(["Total", fmtHa(m.areaTotalHa), fmtT(totalDiaAnteriorT), fmtT(totalDiaAtual6hT), fmtT(m.acumSafraT)]);
         doc.setTextColor(...INK);
-        doc.text(l.texto, xi + 1, ty, { maxWidth: larguraEsq - 14 });
-        doc.text(l.valor, xi + larguraEsq - 1, ty, { align: "right" });
-        ty += alturaLinhaTch;
-      });
-      doc.setDrawColor(...LINE);
-      doc.rect(xi, topoTch, larguraEsq, linhasTch.length * alturaLinhaTch);
+      }
+      cy += LT;
+    } else {
+      if (pintar) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(F.tabela);
+        doc.setTextColor(...MUTED);
+        doc.text("Sem talhão cadastrado.", xi, cy + baseLinha);
+        doc.setTextColor(...INK);
+      }
+      cy += LT;
     }
 
-    // ------------------------------ coluna direita: resumo
-    const xr = xi + larguraEsq + gapColunas;
-    let ry = topoCorpo + 1;
-    const larguraMini = (larguraDir - 1.6) / 2;
+    // ------------------------------ bloco de TCH
+    if (linhasTch.length > 0) {
+      cy += 1.6;
+      const topoTch = cy;
+      for (const l of linhasTch) {
+        if (pintar) {
+          doc.setFillColor(...l.fundo);
+          doc.rect(xi, cy, W, LT, "F");
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(F.tabela);
+          doc.setTextColor(...INK);
+          doc.text(l.texto, xi + 1, cy + baseLinha);
+          doc.setFont("helvetica", "bold");
+          doc.text(l.valor, xi + W - 1, cy + baseLinha, { align: "right" });
+        }
+        cy += LT;
+      }
+      if (pintar) {
+        doc.setDrawColor(...LINE);
+        doc.setLineWidth(0.2);
+        doc.rect(xi, topoTch, W, cy - topoTch);
+      }
+    }
+
+    // ------------------------------ quadros: áreas, progresso, produção e TCH médio
     const FUNDO: [number, number, number] = [245, 247, 250];
-    [
-      ["Área da ordem", `${fmtHa(m.areaTotalHa)} ha`],
-      ["Área colhida", `${fmtHa(areaColhidaHa)} ha`],
-    ].forEach(([rotulo, valor], i) => {
-      const bx = xr + i * (larguraMini + 1.6);
-      caixa(bx, ry, larguraMini, 9.5, FUNDO);
+    const meia = (W - 1.6) / 2;
+    const quadro = (bx: number, by: number, bh: number, fundo: [number, number, number], rotulo: string, valor: string, fonteValor: number, yValor: number) => {
+      caixa(bx, by, meia, bh, fundo);
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(5.2);
+      doc.setFontSize(F.rotulo);
       doc.setTextColor(...MUTED);
-      doc.text(rotulo, bx + larguraMini - 1.8, ry + 3, { align: "right" });
+      doc.text(rotulo, bx + meia - 1.6, by + 3.4, { align: "right" });
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.6);
+      doc.setFontSize(fonteValor);
       doc.setTextColor(...INK);
-      doc.text(valor, bx + larguraMini - 1.8, ry + 7.6, { align: "right" });
-    });
-    ry += 9.5 + 2;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(5.4);
-    doc.setTextColor(...MUTED);
-    doc.text("Progresso da colheita", xr, ry + 1.6);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...INK);
-    doc.text(`${progresso}%`, xr + larguraDir, ry + 1.6, { align: "right" });
-    doc.setFillColor(237, 240, 244);
-    doc.roundedRect(xr, ry + 2.6, larguraDir, 1.8, 0.9, 0.9, "F");
-    if (progresso > 0) {
-      doc.setFillColor(31, 122, 61);
-      doc.roundedRect(xr, ry + 2.6, Math.max((larguraDir * progresso) / 100, 1.8), 1.8, 0.9, 0.9, "F");
+      doc.text(valor, bx + meia - 1.6, by + yValor, { align: "right" });
+    };
+    cy += 2.4;
+    if (pintar) {
+      quadro(xi, cy, 9, FUNDO, "Área da ordem", `${fmtHa(m.areaTotalHa)} ha`, F.valor, 7.4);
+      quadro(xi + meia + 1.6, cy, 9, FUNDO, "Área colhida", `${fmtHa(areaColhidaHa)} ha`, F.valor, 7.4);
     }
-    ry += 5.5 + 2;
+    cy += 9 + 1.6;
 
-    caixa(xr, ry, larguraDir, 11.5, [255, 255, 209]);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(5.4);
-    doc.setTextColor(...MUTED);
-    doc.text("Produção no período", xr + larguraDir - 1.8, ry + 3.4, { align: "right" });
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(...INK);
-    doc.text(`${fmtT(m.entradaPeriodoT)} t`, xr + larguraDir - 1.8, ry + 9, { align: "right" });
-    ry += 11.5 + 2;
+    if (pintar) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(F.rotulo);
+      doc.setTextColor(...MUTED);
+      doc.text("Progresso da colheita", xi, cy + 2.4);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...INK);
+      doc.text(`${progresso}%`, xi + W, cy + 2.4, { align: "right" });
+      doc.setFillColor(237, 240, 244);
+      doc.roundedRect(xi, cy + 3.4, W, 1.8, 0.9, 0.9, "F");
+      if (progresso > 0) {
+        doc.setFillColor(31, 122, 61);
+        doc.roundedRect(xi, cy + 3.4, Math.max((W * progresso) / 100, 1.8), 1.8, 0.9, 0.9, "F");
+      }
+    }
+    cy += 5.2 + 1.6;
 
-    caixa(xr, ry, larguraDir, 10.5, FUNDO);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(5.2);
-    doc.setTextColor(...MUTED);
-    doc.text("TCH médio realizado", xr + larguraDir - 1.8, ry + 3.2, { align: "right" });
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.6);
-    doc.setTextColor(...INK);
-    doc.text(fmtTch(tchMedio), xr + larguraDir - 1.8, ry + 8.2, { align: "right" });
-    const t = tchMedio;
-    const nivel: [string, [number, number, number], [number, number, number]] =
-      t > 80
-        ? ["Excelente", [232, 245, 233], [22, 100, 48]]
-        : t >= 60
-          ? ["Bom", [238, 244, 253], [23, 58, 120]]
-          : t >= 40
-            ? ["Médio", [255, 243, 224], [167, 110, 19]]
-            : ["Baixo", [255, 235, 238], [178, 60, 43]];
-    selo(nivel[0], xr + 1.8, ry + 7.6, nivel[1], nivel[2], false);
-    ry += 10.5 + 2;
+    const alturaQuadro = 10.4;
+    if (pintar) {
+      quadro(xi, cy, alturaQuadro, [255, 255, 209], "Produção no período", `${fmtT(m.entradaPeriodoT)} t`, F.producao, 8.4);
+      quadro(xi + meia + 1.6, cy, alturaQuadro, FUNDO, "TCH médio realizado", fmtTch(tchMedio), F.valor, 8.2);
+      const t = tchMedio;
+      const nivel: [string, [number, number, number], [number, number, number]] =
+        t > 80
+          ? ["Excelente", [232, 245, 233], [22, 100, 48]]
+          : t >= 60
+            ? ["Bom", [238, 244, 253], [23, 58, 120]]
+            : t >= 40
+              ? ["Médio", [255, 243, 224], [167, 110, 19]]
+              : ["Baixo", [255, 235, 238], [178, 60, 43]];
+      // selo à esquerda do valor, na mesma linha
+      selo(nivel[0], xi + meia + 1.6 + 1.2, cy + 8.1, nivel[1], nivel[2]);
+    }
+    cy += alturaQuadro;
 
     if (ordem.tipoCana) {
-      const queimada = ordem.tipoCana.toLowerCase().includes("queimada");
-      selo(
-        ordem.tipoCana.toUpperCase(),
-        xr,
-        ry + 2.4,
-        queimada ? [255, 243, 224] : [238, 244, 253],
-        queimada ? [167, 110, 19] : [23, 58, 120],
-        false,
-        larguraDir
-      );
+      cy += 1.8;
+      if (pintar) {
+        const queimada = ordem.tipoCana.toLowerCase().includes("queimada");
+        selo(ordem.tipoCana.toUpperCase(), xi, cy + 2.9, queimada ? [255, 243, 224] : [238, 244, 253], queimada ? [167, 110, 19] : [23, 58, 120], false, W);
+      }
+      cy += 4.1;
     }
 
     // ------------------------------ rodapé: clima (Zeus)
     if (temClima && clima) {
-      let fy = y + altura - pad - alturaClima;
-      doc.setDrawColor(...LINE);
-      doc.setLineWidth(0.2);
-      doc.line(x + faixa, fy, x + largura, fy);
-      doc.setFillColor(...ALT_ROW);
-      doc.rect(x + faixa + 0.1, fy + 0.1, largura - faixa - 0.2, alturaClima + pad - 0.2, "F");
-      const ultima = climaFazendas
-        .map((f) => f.c?.ultimaLeitura)
-        .filter((v): v is string => !!v)
-        .sort()
-        .pop();
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(5.2);
-      doc.setTextColor(...MUTED);
-      doc.text("CLIMA · ZEUS", xi, fy + 3);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(5);
-      doc.text(rotuloClima(clima, referencia, ultima), xi + larguraInterna, fy + 3, { align: "right" });
-      fy += 4.2;
-
-      const cw = larguraInterna / 3;
+      cy += 2.4;
+      const topoClima = cy;
+      if (pintar) {
+        doc.setDrawColor(...LINE);
+        doc.setLineWidth(0.2);
+        doc.line(x + faixa, topoClima, x + largura, topoClima);
+        doc.setFillColor(...ALT_ROW);
+        doc.rect(x + faixa + 0.1, topoClima + 0.1, largura - faixa - 0.2, y + altura - topoClima - 0.2, "F");
+      }
+      cy += 3.4;
+      if (pintar) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(F.climaRotulo);
+        doc.setTextColor(...MUTED);
+        doc.text("CLIMA · ZEUS", xi, cy);
+        const larguraTitulo = doc.getTextWidth("CLIMA · ZEUS") + 2;
+        doc.setFont("helvetica", "normal");
+        const rot = (doc.splitTextToSize(rotuloClima(clima, referencia, ultimaLeitura), W - larguraTitulo) as string[])[0];
+        doc.text(rot, xi + W, cy, { align: "right" });
+      }
+      cy += 1.2;
       for (const [gi, { c }] of climaFazendas.entries()) {
         if (rotulosClima[gi].length) {
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(5);
-          doc.setTextColor(...NAVY);
-          rotulosClima[gi].forEach((l, li) => doc.text(l, xi, fy + 2 + li * 2.4));
-          fy += rotulosClima[gi].length * 2.4 + 0.6;
+          if (pintar) {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(F.climaRotulo);
+            doc.setTextColor(...NAVY);
+            rotulosClima[gi].forEach((l, li) => doc.text(l, xi, cy + 2.6 + li * 2.6));
+          }
+          cy += rotulosClima[gi].length * 2.6 + 0.6;
         }
         const d = c?.dia;
         if (!c || !d) {
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(5.4);
-          doc.setTextColor(...MUTED);
-          doc.text(c ? "Sem leituras no período." : "Fazenda sem estação na Zeus.", xi, fy + 2.4);
-          fy += 3.4 + 3;
+          if (pintar) {
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(F.climaRotulo);
+            doc.setTextColor(...MUTED);
+            doc.text(c ? "Sem leituras no período." : "Fazenda sem estação na Zeus.", xi, cy + 2.8);
+          }
+          cy += 4;
           continue;
         }
-        // umidade, vento, temperatura, dia anterior e chuva do dia (sem radiação)
+        // umidade, vento, temperatura, dia anterior e chuva do dia
         const itens: { icone: TipoIcone; rotulo: string; valor: string; unidade: string; destaque?: boolean }[] = itensClima(c, clima.periodo, fmtClima);
-        itens.forEach((it, i) => {
-          const ix = xi + (i % 3) * cw;
-          const iy = fy + Math.floor(i / 3) * alturaLinhaClima;
-          desenharIcone(doc, it.icone, ix + 1.8, iy + 2.6, it.destaque ? NAVY : MUTED);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(6.4);
-          doc.setTextColor(...INK);
-          doc.text(it.valor, ix + 4.2, iy + 2.6);
-          if (it.valor !== "—") {
-            const wv = doc.getTextWidth(it.valor);
+        if (pintar) {
+          itens.forEach((it, i) => {
+            const ix = xi + (i % 3) * cw;
+            const iy = cy + Math.floor(i / 3) * alturaLinhaClima;
+            desenharIcone(doc, it.icone, ix + 1.7, iy + 2.7, it.destaque ? NAVY : MUTED);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(F.climaValor);
+            doc.setTextColor(...INK);
+            doc.text(it.valor, ix + 4, iy + 3.1);
+            if (it.valor !== "—" && it.unidade) {
+              const wv = doc.getTextWidth(it.valor);
+              doc.setFont("helvetica", "normal");
+              doc.setFontSize(F.climaRotulo);
+              doc.setTextColor(...MUTED);
+              doc.text(it.unidade, ix + 4 + wv + 0.5, iy + 3.1);
+            }
             doc.setFont("helvetica", "normal");
-            doc.setFontSize(4.4);
+            doc.setFontSize(F.climaRotulo);
             doc.setTextColor(...MUTED);
-            doc.text(it.unidade, ix + 4.2 + wv + 0.5, iy + 2.6);
-          }
+            // só caracteres da fonte padrão do PDF (sem o ≥)
+            doc.text((doc.splitTextToSize(it.rotulo.replace("≥", ">="), cw - 4.4) as string[])[0], ix + 4, iy + 5.8);
+          });
+        }
+        cy += Math.ceil(itens.length / 3) * alturaLinhaClima;
+        if (pintar) {
           doc.setFont("helvetica", "normal");
-          doc.setFontSize(4.4);
+          doc.setFontSize(F.climaRotulo);
           doc.setTextColor(...MUTED);
-          doc.text(it.rotulo, ix + 4.2, iy + 5);
-        });
-        fy += alturaLinhaClima * 2;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(4.4);
-        doc.setTextColor(...MUTED);
-        doc.text(`Estação ${c.pic}`, xi, fy + 1.6);
-        fy += 3;
+          doc.text(`Estação ${c.pic}`, xi, cy + 1.6);
+        }
+        cy += 2.8;
       }
+      if (pintar) doc.setTextColor(...INK);
     }
+    return cy + pad;
+  }
+
+  const altura = percorrer(0, 0, false);
+
+  function desenhar(x: number, y: number) {
+    doc.setDrawColor(...LINE);
+    doc.setLineWidth(0.2);
+    doc.rect(x, y, largura, altura);
+    doc.setFillColor(...(ordem.status === "Aberta" ? STATUS_ABERTA : STATUS_ENCERRADA));
+    doc.rect(x, y, faixa, altura, "F");
+    percorrer(x, y, true, altura);
     doc.setTextColor(...INK);
   }
 
@@ -690,7 +685,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   ];
 
   // 8 cards do topo da tela, numa faixa só
-  const ALTURA_KPI = 13.5;
+  const ALTURA_KPI = 16;
   {
     const gapKpi = 2.5;
     const larguraKpi = (pageWidth - MARGEM * 2 - gapKpi * 7) / 8;
@@ -700,17 +695,17 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       doc.setFillColor(...tom.fundo);
       doc.roundedRect(kx, 22, larguraKpi, ALTURA_KPI, 1.5, 1.5, "F");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(5.8);
+      doc.setFontSize(6.5);
       doc.setTextColor(...MUTED);
-      doc.text((doc.splitTextToSize(k.label, larguraKpi - 3) as string[])[0], kx + 1.8, 25.6);
-      doc.setFontSize(10);
+      (doc.splitTextToSize(k.label, larguraKpi - 3) as string[]).slice(0, 2).forEach((l, li) => doc.text(l, kx + 1.8, 25.4 + li * 2.5));
+      doc.setFontSize(10.5);
       doc.setTextColor(...tom.texto);
-      doc.text(k.value, kx + 1.8, 31);
+      doc.text(k.value, kx + 1.8, 33.2);
       if (k.sub) {
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(5);
+        doc.setFontSize(6);
         doc.setTextColor(...MUTED);
-        doc.text((doc.splitTextToSize(k.sub, larguraKpi - 3) as string[])[0], kx + 1.8, 34);
+        doc.text((doc.splitTextToSize(k.sub, larguraKpi - 3) as string[])[0], kx + 1.8, 36.4);
       }
       doc.setTextColor(...INK);
     });
@@ -720,7 +715,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   let inicioTabela = 22 + ALTURA_KPI + 3;
   if (temMetas) {
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.4);
+    doc.setFontSize(6.5);
     doc.setTextColor(...MUTED);
     doc.text(
       `Abaixo de cada produção: meta da frente no período (t) e % atingido. Dia Atual compara com ${
@@ -794,7 +789,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       if (data.section === "body") {
         // espaço embaixo da produção para a linha de meta desenhada em didDrawCell
         if (data.column.index >= 4 && metasLinhas[data.row.index]?.[data.column.index - 4]) {
-          data.cell.styles.cellPadding = { top: 1.8, bottom: 4.6, left: 1.8, right: 1.8 };
+          data.cell.styles.cellPadding = { top: 1.6, bottom: 4.8, left: 1.8, right: 1.8 };
         }
         if (data.row.index === dados.resumoFrentes.length) {
           data.cell.styles.fontStyle = "bold";
@@ -822,7 +817,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       const yBase = data.cell.y + data.cell.height - 1.5;
       const txtPct = `${pct.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`;
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(5.8);
+      doc.setFontSize(6.3);
       doc.setTextColor(...(naTotal ? ([255, 255, 255] as [number, number, number]) : pct >= 100 ? BOM : pct >= 80 ? ATENCAO : ALERTA));
       doc.text(txtPct, xDir, yBase, { align: "right" });
       const larguraPct = doc.getTextWidth(txtPct);
@@ -835,8 +830,8 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   });
 
   // -------------------------------------------------------------------
-  // Cards de ordem em grade de 3 colunas, agrupados por frente — mesmo
-  // conteúdo e mesmo layout dos cards da tela.
+  // Cards de ordem em grade de 4 colunas, agrupados por frente — mesmo
+  // conteúdo e mesma ordem dos cards da tela.
   // -------------------------------------------------------------------
   // Seguem logo abaixo do resumo por frente, na mesma página, se couber.
   let cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
@@ -849,8 +844,9 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     }
   }
 
-  const GAP = 3;
-  const colWidth = (pageWidth - MARGEM * 2 - GAP * 2) / 3;
+  const GAP = 2.5;
+  const POR_LINHA = 4;
+  const colWidth = (pageWidth - MARGEM * 2 - GAP * (POR_LINHA - 1)) / POR_LINHA;
 
   const montarCards = (grupo: OrdemCorte[]) =>
     grupo.map((ordem) =>
@@ -862,32 +858,40 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       }, dados.clima)
     );
 
-  for (const [frente, ordensFrente] of dados.porFrente) {
-    // o título da frente nunca fica sozinho no fim da página: reserva também a 1ª linha de cards
-    const cardsLinha = montarCards(ordensFrente.slice(0, 3));
-    const alturaPrimeiraLinha = cardsLinha.length > 0 ? Math.max(...cardsLinha.map((c) => c.altura)) : 0;
-    garantirEspaco(9.5 + alturaPrimeiraLinha + GAP);
+  /** Faixa azul com o nome da frente (em toda página em que a frente continua). */
+  function faixaFrente(texto: string) {
     doc.setFillColor(...NAVY);
-    doc.rect(MARGEM, cursorY, pageWidth - MARGEM * 2, 6.5, "F");
+    doc.rect(MARGEM, cursorY, pageWidth - MARGEM * 2, 6.2, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(9.5);
     doc.setFont("helvetica", "bold");
-    doc.text(`${frente} — ${ordensFrente.length} ordem(ns)`, MARGEM + 2, cursorY + 4.6);
+    doc.text(texto, MARGEM + 2, cursorY + 4.4);
     doc.setTextColor(...INK);
-    cursorY += 9.5;
+    cursorY += 8.5;
+  }
 
-    for (let i = 0; i < ordensFrente.length; i += 3) {
-      const grupo = ordensFrente.slice(i, i + 3);
-      const cards = i === 0 ? cardsLinha : montarCards(grupo);
-      const alturaLinha = Math.max(...cards.map((c) => c.altura));
-      garantirEspaco(alturaLinha + GAP);
-      grupo.forEach((_, idx) => {
-        const x = MARGEM + idx * (colWidth + GAP);
-        cards[idx].desenhar(x, cursorY);
-      });
-      cursorY += alturaLinha + GAP;
+  for (const [frente, ordensFrente] of dados.porFrente) {
+    const cards = montarCards(ordensFrente);
+    // o título da frente nunca fica sozinho no fim da página: reserva também o 1º card
+    garantirEspaco(8.5 + (cards[0]?.altura ?? 0) + GAP);
+    faixaFrente(`${frente} — ${ordensFrente.length} ordem(ns)`);
+    // cada card entra na coluna mais curta (os 4 primeiros na ordem, da esquerda para a direita):
+    // um card alto não deixa buraco embaixo dos vizinhos e a página fica bem aproveitada
+    let colunas: number[] = Array(POR_LINHA).fill(cursorY);
+    for (const card of cards) {
+      let idx = colunas.indexOf(Math.min(...colunas));
+      if (colunas[idx] + card.altura > limiteY && colunas[idx] > cursorY) {
+        doc.addPage();
+        cabecalhoPagina(`Ordens · ${dados.periodLabel}`);
+        cursorY = 22;
+        faixaFrente(`${frente} (continuação)`);
+        colunas = Array(POR_LINHA).fill(cursorY);
+        idx = 0;
+      }
+      card.desenhar(MARGEM + idx * (colWidth + GAP), colunas[idx]);
+      colunas[idx] += card.altura + GAP;
     }
-    cursorY += 2;
+    cursorY = Math.max(...colunas) + 2;
   }
 
   // -------------------------------------------------------------------
@@ -964,9 +968,13 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       corpo.push(["Total Geral", "", "", "", ...fmtDetalhe(dados.resumoDetalhadoTotalGeral)]);
     }
     const indiceTotalGeral = comTotalGeral ? corpo.length - 1 : -1;
-    const fonte = Math.max(5.2, 6.8 * escala);
-    const pad = Math.max(0.45, 1.1 * escala);
-    const numericas: Record<number, { halign: "right" }> = {};
+    const fonte = Math.max(6.3, 7.2 * escala);
+    const pad = Math.max(0.6, 1.1 * escala);
+    const numericas: Record<number, { halign?: "right"; minCellWidth?: number }> = {
+      // frente e descrição da fazenda numa linha só (os números é que quebram o título)
+      0: { minCellWidth: 26 },
+      3: { minCellWidth: 44 },
+    };
     for (let c = 4; c <= 13; c++) numericas[c] = { halign: "right" };
     autoTable(d, {
       startY: topo,
@@ -1011,7 +1019,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     if (comTotalGeral) {
       const fim = (d as unknown as LastAuto).lastAutoTable.finalY;
       d.setFont("helvetica", "normal");
-      d.setFontSize(Math.max(5.2, 6.2 * escala));
+      d.setFontSize(6.3);
       d.setTextColor(100, 110, 125);
       // só caracteres da fonte padrão do PDF
       d.text(
@@ -1083,7 +1091,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
   const barraCor = (p: number): [number, number, number] => (p >= 100 ? [93, 158, 72] : p >= 80 ? [215, 123, 56] : [190, 49, 50]);
 
   function desenharMensal(d: DocPdf, escala: number, topo: number) {
-    const fonte = Math.max(4.6, 6.5 * escala);
+    const fonte = Math.max(6, 7 * escala);
     const topoCel = 0.7 * escala;
     const baseCel = Math.max(1.3, 1.9 * escala);
     autoTable(d, {
