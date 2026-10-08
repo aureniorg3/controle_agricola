@@ -21,7 +21,7 @@ function condCodigo(coluna: string, p: number, valor: string): string {
 export interface CodigoCadastro {
   /** o cadastro tem pelo menos um item */
   cadastroComItens: boolean;
-  item: { cod: string; nm: string } | null;
+  item: { cod: string; nm: string; dds?: Record<string, unknown> } | null;
 }
 
 /** Recupera o item de um cadastro pelo código. Fazendas também aceitam o código sem a sequência ("9001" acha "9001-1"). */
@@ -32,8 +32,8 @@ export async function buscarCodigo(cad: string, cod: string): Promise<CodigoCada
   const { rows: cont } = await pool.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM cad_itm WHERE cad = $1", [cad]);
   if (!valor) return { cadastroComItens: cont[0].n > 0, item: null };
   const extra = cad === "fazendas" ? " OR cod LIKE $2 || '-%'" : "";
-  const { rows } = await pool.query<{ cod: string; nm: string }>(
-    `SELECT cod, nm FROM cad_itm WHERE cad = $1 AND (${condCodigo("cod", 2, valor)}${extra})
+  const { rows } = await pool.query<{ cod: string; nm: string; dds: Record<string, unknown> }>(
+    `SELECT cod, nm, dds FROM cad_itm WHERE cad = $1 AND (${condCodigo("cod", 2, valor)}${extra})
       ORDER BY cod LIMIT 1`,
     [cad, valor]
   );

@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import type { Pool } from "pg";
+import { nomeOperacao, operacoesDoCadastro } from "./db-operacoes";
 import { auditar } from "./auditar";
 import { specPorSlug } from "./cadastros-spec";
 import { getPool, prepararBanco, sincronizarDescricaoFazendas } from "./db";
@@ -359,8 +360,10 @@ async function operacoesFiltradas(pool: Pool, f: FiltroOS): Promise<OSOperacao[]
       GROUP BY emp, os, op_cod`,
     params
   );
+  // nome da operação pelo cadastro Operações
+  const cadOps = await operacoesDoCadastro(pool);
   return rows.map((r) => ({
-    emp: r.emp, os: r.os, opCod: r.op_cod, opDs: r.op_ds, etapaCod: r.etapa_cod, etapaDs: r.etapa_ds, respCod: r.resp_cod, respNm: r.resp_nm,
+    emp: r.emp, os: r.os, opCod: r.op_cod, opDs: nomeOperacao(cadOps, r.op_cod, r.op_ds), etapaCod: r.etapa_cod, etapaDs: r.etapa_ds, respCod: r.resp_cod, respNm: r.resp_nm,
     posicao: r.posicao, dtOs: r.dt_os, dtEnc: r.dt_enc, prevFim: r.prev_fim, usrOs: r.usr_os, safra: r.safra, nTlh: r.n_tlh,
     areaRec: round2(r.area_rec ?? 0), areaPlant: round2(r.area_plant ?? 0), fazendas: r.fazendas ?? [],
   }));
@@ -389,11 +392,12 @@ export async function opcoesOS(): Promise<OpcoesOS> {
     ),
     faixasDias(pool),
   ]);
+  const cadOps = await operacoesDoCadastro(pool);
   return {
     safras: s.rows.map((x) => x.v),
     responsaveis: r.rows,
     etapas: e.rows,
-    operacoes: o.rows,
+    operacoes: o.rows.map((x) => ({ cod: x.cod, nome: nomeOperacao(cadOps, x.cod, x.nome) })).sort((a, b) => a.nome.localeCompare(b.nome)),
     faixas,
     ultimaImportacao: u.rows[0].ult,
     ordens: u.rows[0].n,

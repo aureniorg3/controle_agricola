@@ -20,6 +20,7 @@ export async function PUT(req: NextRequest) {
   const cod = typeof b?.cod === "string" ? b.cod.trim() : "";
   const grupo = typeof b?.grupo === "string" ? b.grupo.trim().slice(0, 60) : "";
   if (!cod) return NextResponse.json({ error: "Informe a operação." }, { status: 400 });
-  await salvarGrupoOperacao(cod, grupo, usuario.nome);
+  const erro = await salvarGrupoOperacao(cod, grupo, usuario.nome);
+  if (erro) return NextResponse.json({ error: erro.erro }, { status: 400 });
   return NextResponse.json(await listarGruposOperacoes());
 }

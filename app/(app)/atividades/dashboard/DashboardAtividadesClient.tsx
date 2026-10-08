@@ -45,7 +45,9 @@ export default function DashboardAtividadesClient({ perfil }: { perfil: PerfilUs
   }, [dt, versao]);
 
   const ref = dados?.dt ?? dt;
-  const mudarDia = (delta: number) => ref && setDt(addDays(ref, delta));
+  // só dias fechados: a data vai no máximo até ontem
+  const maxima = dados?.ultimoLancamento ?? "";
+  const mudarDia = (delta: number) => ref && (delta < 0 || ref < maxima) && setDt(addDays(ref, delta));
   const mesRotulo = ref ? `${MESES[Number(ref.slice(5, 7)) - 1]}/${ref.slice(2, 4)}` : "";
 
   return (
@@ -55,7 +57,7 @@ export default function DashboardAtividadesClient({ perfil }: { perfil: PerfilUs
           <span className="text-[11px] uppercase tracking-wide">Atividades</span>
           <div className="truncate text-[15px] font-bold text-ink">Dashboard</div>
         </nav>
-        <BotaoLog titulo="Log dos grupos do Dashboard" filtro={{ modulo: "Atividades", entidade: "Grupos do Dashboard" }} />
+        <BotaoLog titulo="Log dos Grupos de Operações" filtro={{ modulo: "Cadastros", entidade: "Cadastro de Grupos de Operações" }} />
         {podeEditar(perfil) && (
           <button
             type="button"
@@ -76,8 +78,14 @@ export default function DashboardAtividadesClient({ perfil }: { perfil: PerfilUs
               <button type="button" onClick={() => mudarDia(-1)} className="rounded-md border border-line p-1.5 text-navy-800 hover:bg-surface" title="Dia anterior">
                 <IconSetaEsquerda size={13} />
               </button>
-              <input type="date" value={ref} onChange={(e) => e.target.value && setDt(e.target.value)} className={FILTRO} />
-              <button type="button" onClick={() => mudarDia(1)} className="rounded-md border border-line p-1.5 text-navy-800 hover:bg-surface" title="Dia seguinte">
+              <input type="date" value={ref} max={maxima || undefined} onChange={(e) => e.target.value && setDt(e.target.value)} className={FILTRO} />
+              <button
+                type="button"
+                onClick={() => mudarDia(1)}
+                disabled={!!maxima && ref >= maxima}
+                className="rounded-md border border-line p-1.5 text-navy-800 hover:bg-surface disabled:opacity-40"
+                title="Dia seguinte"
+              >
                 <IconSetaDireita size={13} />
               </button>
             </div>
@@ -114,7 +122,7 @@ export default function DashboardAtividadesClient({ perfil }: { perfil: PerfilUs
 
             <Tabela
               titulo="Moagem · entrada de cana (t)"
-              descricao="Toneladas entregues por frente (viagens das ordens de corte), dia civil inteiro."
+              descricao="Toneladas entregues por frente, de todas as viagens da pesagem (com ou sem ordem de corte, como a CMAA), em dias inteiros até ontem — sem o dia atual até as 06:00."
               rotulo="Frente"
               dados={dados}
               mesRotulo={mesRotulo}
@@ -129,7 +137,7 @@ export default function DashboardAtividadesClient({ perfil }: { perfil: PerfilUs
 
             <Tabela
               titulo="Operações · área realizada (ha)"
-              descricao="Área dos apontamentos diários lançados, por grupo de operação."
+              descricao="Área dos apontamentos diários lançados, por grupo (cadastro Grupos de Operações); nome da operação pelo cadastro Operações."
               rotulo="Operação"
               dados={dados}
               mesRotulo={mesRotulo}
@@ -166,8 +174,8 @@ export default function DashboardAtividadesClient({ perfil }: { perfil: PerfilUs
               )}
             </Tabela>
             <p className="-mt-2 mb-4 text-[11px] text-muted">
-              Os dias depois da data de referência ficam em branco; Semana, Mês e Safra acumulam até a data de referência. Operação sem grupo
-              aparece em &quot;{GRUPO_OUTRAS}&quot;.
+              O dashboard vai até ontem (dias fechados); os dias depois da data de referência ficam em branco e Semana, Mês e Safra acumulam até
+              ela. Operação sem grupo no cadastro Grupos de Operações aparece em &quot;{GRUPO_OUTRAS}&quot;.
             </p>
           </div>
         )}
@@ -352,7 +360,7 @@ function GruposModal({ onFechar, onAlterado }: { onFechar: () => void; onAlterad
 
   const termo = busca.trim().toLowerCase();
   const ops = useMemo(
-    () => (lista?.operacoes ?? []).filter((o) => !termo || `${o.cod} ${o.ds} ${o.grupo}`.toLowerCase().includes(termo)),
+    () => (lista?.operacoes ?? []).filter((o) => !termo || `${o.cod} ${o.ds} ${o.classificacao} ${o.grupo}`.toLowerCase().includes(termo)),
     [lista, termo]
   );
 
@@ -362,7 +370,13 @@ function GruposModal({ onFechar, onAlterado }: { onFechar: () => void; onAlterad
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <div>
             <h2 className="text-[16px] font-bold text-ink">Grupos das operações</h2>
-            <p className="text-[12px] text-muted">Em que grupo cada operação aparece no dashboard. A alteração vale na hora e fica no log.</p>
+            <p className="text-[12px] text-muted">
+              Grava no cadastro{" "}
+              <a href="/configuracoes/cadastros/grupos-operacoes" className="font-medium text-brand-700 underline-offset-2 hover:underline">
+                Grupos de Operações
+              </a>
+              ; vale na hora e fica no log. Só operações do cadastro Operações podem ter grupo.
+            </p>
           </div>
           <button type="button" onClick={onFechar} className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface" aria-label="Fechar">
             ×
@@ -381,6 +395,7 @@ function GruposModal({ onFechar, onAlterado }: { onFechar: () => void; onAlterad
                 <tr className="border-b border-line text-left text-[11px] text-muted">
                   <th className="py-1.5 pr-2 font-semibold">Cód.</th>
                   <th className="py-1.5 pr-2 font-semibold">Operação</th>
+                  <th className="py-1.5 pr-2 font-semibold">Classificação</th>
                   <th className="py-1.5 font-semibold">Grupo</th>
                 </tr>
               </thead>
@@ -392,8 +407,11 @@ function GruposModal({ onFechar, onAlterado }: { onFechar: () => void; onAlterad
                       {o.ds}
                       {!o.lancada && <span className="ml-1.5 text-[11px] text-muted">sem lançamento</span>}
                     </td>
+                    <td className="py-1 pr-2 text-[12px] text-muted">{o.classificacao}</td>
                     <td className="py-1">
-                      {novo?.cod === o.cod ? (
+                      {!o.noCadastro ? (
+                        <span className="text-[11.5px] text-alert-600">Fora do cadastro Operações</span>
+                      ) : novo?.cod === o.cod ? (
                         <form
                           className="flex items-center gap-1.5"
                           onSubmit={(e) => {
@@ -436,7 +454,7 @@ function GruposModal({ onFechar, onAlterado }: { onFechar: () => void; onAlterad
                 ))}
                 {ops.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="py-6 text-center text-muted">
+                    <td colSpan={4} className="py-6 text-center text-muted">
                       Nenhuma operação encontrada.
                     </td>
                   </tr>

@@ -14,7 +14,9 @@ import {
   type LinhaBaseOS,
   type OperacaoOS,
 } from "./atividades";
+import { codigoOperacao } from "./dashboard-atividades";
 import { getPool, prepararBanco, sincronizarDescricaoFazendas } from "./db";
+import { nomeOperacao, operacoesDoCadastro } from "./db-operacoes";
 import { prepararOSAgr } from "./db-os-agr";
 import { buscarCodigo, talhoesDaFazenda } from "./db-rodadas";
 import { nomePosicao } from "./os-agr";
@@ -187,11 +189,12 @@ export async function consultarOS(os: string, excluirId?: number): Promise<Consu
   }
   if (rows.length === 0) return null;
   const p = rows[0];
+  const cadOps = await operacoesDoCadastro(pool);
   const ops = new Map<string, OperacaoOS>();
   for (const r of rows) {
     let o = ops.get(r.op_cod);
     if (!o) {
-      o = { cod: r.op_cod, ds: r.op_ds, etapaCod: r.etapa_cod, etapaDs: r.etapa_ds, tipoCod: r.tipo_cod, tipoDs: r.tipo_ds, talhoes: [] };
+      o = { cod: r.op_cod, ds: nomeOperacao(cadOps, r.op_cod, r.op_ds), etapaCod: r.etapa_cod, etapaDs: r.etapa_ds, tipoCod: r.tipo_cod, tipoDs: r.tipo_ds, talhoes: [] };
       ops.set(r.op_cod, o);
     }
     if (!o.talhoes.some((t) => t.propCod === r.prop_cod && t.tlh === r.tlh)) {
@@ -253,6 +256,7 @@ async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params
       ORDER BY a.dt DESC, a.id DESC`,
     params
   );
+  const cadOps = await operacoesDoCadastro(getPool());
   return rows.map((r) => {
     const talhoes = r.talhoes ?? [];
     return {
@@ -263,7 +267,7 @@ async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params
       modoArea: r.area_modo === "rateio" ? "rateio" : "talhao",
       volume: r.area_vol,
       opCod: r.op_cod,
-      opDs: r.op_ds,
+      opDs: nomeOperacao(cadOps, r.op_cod, r.op_ds),
       solicitante: r.solic,
       etapaCod: r.etapa_cod,
       etapaDs: r.etapa_ds,
@@ -522,6 +526,8 @@ async function existe(pool: Pick<Pool, "query">, tabela: string): Promise<boolea
 }
 
 async function descricaoOperacao(pool: Pool, cod: string): Promise<string> {
+  const doCadastro = nomeOperacao(await operacoesDoCadastro(pool), cod, "");
+  if (doCadastro) return doCadastro;
   const fontes = ["SELECT op_ds AS d FROM ap_dia WHERE op_cod = $1 AND op_ds <> '' LIMIT 1", "SELECT op_ds AS d FROM os_tlh WHERE op_cod = $1 AND op_ds <> '' LIMIT 1"];
   if (await existe(pool, "os_agr")) fontes.unshift("SELECT op_ds AS d FROM os_agr WHERE op_cod = $1 AND op_ds <> '' LIMIT 1");
   for (const sql of fontes) {
@@ -566,8 +572,15 @@ export async function opcoesApontamento(): Promise<OpcoesApontamento> {
     `SELECT DISTINCT s FROM (SELECT NULLIF(nm, '') AS s FROM cad_itm WHERE cad = 'responsaveis-os' UNION SELECT NULLIF(solic, '') FROM ap_dia) x
       WHERE s IS NOT NULL ORDER BY 1`
   );
+  // as operações vêm do cadastro Operações; as das O.S./apontamentos que ainda não estão nele continuam disponíveis
+  const cadOps = await operacoesDoCadastro(pool);
+  const daOrigem = new Map(ops.rows.map((r) => [codigoOperacao(r.cod), r]));
+  const operacoes = [
+    ...[...cadOps.values()].map((o) => ({ cod: o.cod, ds: o.nm, etapaCod: daOrigem.get(codigoOperacao(o.cod))?.etapa ?? "" })),
+    ...ops.rows.filter((r) => !cadOps.has(codigoOperacao(r.cod))).map((r) => ({ cod: r.cod, ds: r.ds, etapaCod: r.etapa })),
+  ].sort((a, b) => a.ds.localeCompare(b.ds) || a.cod.localeCompare(b.cod, undefined, { numeric: true }));
   return {
-    operacoes: ops.rows.map((r) => ({ cod: r.cod, ds: r.ds, etapaCod: r.etapa })),
+    operacoes,
     etapas: etapas.rows,
     tipos: tipos.rows.map((r) => r.t),
     solicitantes: solic.rows.map((r) => r.s),

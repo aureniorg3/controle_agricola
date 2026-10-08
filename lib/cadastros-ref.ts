@@ -14,6 +14,7 @@ export async function resolverReferencias(spec: CadastroSpec, dados: DadosCadast
     const valor = String(dados[col.chave] ?? "").trim();
     if (!valor) {
       delete dados[`${col.chave}_nm`];
+      for (const k of Object.keys(col.traz ?? {})) delete dados[k];
       continue;
     }
     const r = await buscarCodigo(col.ref, valor);
@@ -24,6 +25,7 @@ export async function resolverReferencias(spec: CadastroSpec, dados: DadosCadast
     }
     dados[col.chave] = r.item.cod;
     dados[`${col.chave}_nm`] = r.item.nm;
+    for (const [k, campo] of Object.entries(col.traz ?? {})) dados[k] = String(r.item.dds?.[campo] ?? "");
   }
   return null;
 }

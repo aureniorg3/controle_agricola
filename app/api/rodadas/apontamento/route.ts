@@ -57,7 +57,8 @@ export async function GET(req: NextRequest) {
   if (cad) {
     if (!CADASTROS_CONSULTA.has(cad)) return NextResponse.json({ error: "Cadastro desconhecido." }, { status: 404 });
     const r = await buscarCodigo(cad, req.nextUrl.searchParams.get("cod") ?? "");
-    return NextResponse.json(r);
+    // só código e nome (os demais campos do cadastro não saem por aqui)
+    return NextResponse.json({ cadastroComItens: r.cadastroComItens, item: r.item ? { cod: r.item.cod, nm: r.item.nm } : null });
   }
   return NextResponse.json({ boletim: await proximoBoletim() });
 }

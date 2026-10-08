@@ -14,6 +14,8 @@ export interface ColunaCadastro {
   ref?: string;
   /** preenchida pelo sistema (ex.: descrição de uma referência): aparece na lista, não no formulário */
   derivada?: boolean;
+  /** com `ref`: outros campos do item referenciado que vêm junto ({ coluna deste cadastro: campo de lá }) */
+  traz?: Record<string, string>;
 }
 
 export interface CadastroSpec {
@@ -373,6 +375,22 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
       { chave: "valor_unitario", rotulo: "Valor Unitário", alinhar: "direita" },
       { chave: "vinculo_c_operacao_agricola_realizada_por_terceiros", rotulo: "Vínculo c/ Operação de Terceiros", alinhar: "direita", largura: 200 },
       { chave: "descricao_do_vinculo", rotulo: "Descrição do Vínculo", largura: 180 },
+    ],
+  },
+  {
+    slug: "grupos-operacoes",
+    titulo: "Grupos de Operações",
+    arquivos: ["grupos de operacoes", "grupo de operacoes", "grupos das operacoes"],
+    obrigatorias: ["operacao", "grupo"],
+    codigo: (d) => texto(d.operacao),
+    nome: (d) => texto(d.grupo),
+    chaves: ["operacao"],
+    colunas: [
+      { chave: "operacao", rotulo: "Operação (código)", alinhar: "direita", largura: 140, ref: "operacoes", traz: { classificacao: "codigo_2_nm" } },
+      { chave: "operacao_nm", rotulo: "Operação", largura: 300, derivada: true },
+      { chave: "classificacao", rotulo: "Classificação da Operação", largura: 190, derivada: true },
+      { chave: "grupo", rotulo: "Grupo (Dashboard de Atividades)", largura: 240 },
+      { chave: "ordem", rotulo: "Ordem do grupo", alinhar: "direita", largura: 120 },
     ],
   },
   {
