@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BotaoLog from "@/components/BotaoLog";
+import ImportarWhatsappModal from "./ImportarWhatsappModal";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import {
   camposFaltando,
@@ -122,6 +123,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const formRef = useRef<HTMLElement>(null);
   const gravarRef = useRef<HTMLButtonElement>(null);
   const [verificar, setVerificar] = useState(false);
+  const [whatsapp, setWhatsapp] = useState(false);
 
   // lista
   const [de, setDe] = useState(addDays(todayISO(), -6));
@@ -601,6 +603,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
         {podeGravar && (
           <button type="button" onClick={() => setImportar(true)} className={BOTAO}>
             Atualizar base de O.S.
+          </button>
+        )}
+        {podeGravar && (
+          <button type="button" onClick={() => setWhatsapp(true)} className={BOTAO} title="Lê a conversa exportada do grupo C.A.P.F.O e importa os apontamentos">
+            Importar WhatsApp
           </button>
         )}
         {podeGravar && (
@@ -1176,6 +1183,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
           }}
         />
       )}
+      {whatsapp && <ImportarWhatsappModal onFechar={() => setWhatsapp(false)} onConcluido={() => carregarLista()} />}
       {importar && (
         <ImportarBaseOS
           onFechar={() => setImportar(false)}

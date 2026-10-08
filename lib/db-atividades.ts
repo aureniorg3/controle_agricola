@@ -70,6 +70,11 @@ export async function prepararAtividades(pool: Pool): Promise<void> {
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vazao_uti numeric");
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vazao_auto boolean NOT NULL DEFAULT false");
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vol_calda numeric");
+      // apontamento importado (ex.: conversa do WhatsApp): origem, a mensagem (não importa duas vezes) e o texto dela
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS orig text NOT NULL DEFAULT ''");
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS orig_chave text");
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS orig_msg text");
+      await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_ap_dia_orig ON ap_dia (orig_chave) WHERE orig_chave IS NOT NULL");
       // insumos aplicados no apontamento
       await pool.query(
         `CREATE TABLE IF NOT EXISTS ap_dia_ins (

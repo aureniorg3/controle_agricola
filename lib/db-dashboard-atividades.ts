@@ -15,6 +15,7 @@ import {
 import { getPool, listSafrasCadastro, prepararBanco } from "./db";
 import { prepararAtividades } from "./db-atividades";
 import { carregarCadastrosExportados } from "./db-cadastros-carga";
+import { carregarApontamentosWhatsappIniciais } from "./db-import-whatsapp";
 import { nomeOperacao, operacoesDoCadastro } from "./db-operacoes";
 import { addDays, startOfMonth, startOfWeekMonday } from "./period";
 import { escolherSafraVigente } from "./safra-cadastro";
@@ -122,6 +123,7 @@ export async function dashboardAtividades(dtPedida?: string): Promise<DashboardA
   const pool = getPool();
   await prepararAtividades(pool);
   await prepararGrupos(pool);
+  await carregarApontamentosWhatsappIniciais();
   const ontem = addDays(hojeSP(), -1);
   const dt = dtPedida && dtPedida < ontem ? dtPedida : ontem;
   const seg = startOfWeekMonday(dt);
