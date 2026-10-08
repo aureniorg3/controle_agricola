@@ -85,6 +85,14 @@ export interface ApontamentoDiario {
   numEquipamentos: number;
   numPessoas: number;
   obs: string;
+  /** código do equipamento */
+  eqp: string;
+  /** vazão (L/ha) recomendada e utilizada; a utilizada pode ter sido calculada (calda ÷ área) */
+  vazaoRec: number | null;
+  vazaoUti: number | null;
+  vazaoAuto: boolean;
+  /** volume de calda (L) */
+  volCalda: number | null;
   talhoes: TalhaoApontado[];
   areaTotal: number;
   usr: string;
@@ -110,6 +118,11 @@ export interface EntradaApontamento {
   numEquipamentos: number;
   numPessoas: number;
   obs: string;
+  eqp: string;
+  vazaoRec: number | null;
+  /** vazio = calculada pelo volume de calda ÷ área do dia */
+  vazaoUti: number | null;
+  volCalda: number | null;
   talhoes: { propCod: string; tlh: string; area: number }[];
 }
 
@@ -128,6 +141,9 @@ export function validarApontamento(e: EntradaApontamento): string | null {
   if (!e.solicitante.trim()) return "Informe o solicitante.";
   if (!Number.isInteger(e.numEquipamentos) || e.numEquipamentos < 0) return "Número de equipamentos inválido.";
   if (!Number.isInteger(e.numPessoas) || e.numPessoas < 0) return "Número de pessoas inválido.";
+  for (const [v, nome] of [[e.vazaoRec, "Vazão recomendada"], [e.vazaoUti, "Vazão utilizada"], [e.volCalda, "Volume de calda"]] as const) {
+    if (v !== null && (!Number.isFinite(v) || v < 0)) return `${nome} inválido(a).`;
+  }
   if (e.talhoes.some((t) => !t.tlh.trim())) return "Há talhão sem número.";
   if (e.modoArea === "rateio") {
     if (!(e.volume !== null && Number.isFinite(e.volume) && e.volume > 0)) return "Informe o volume (ha) a ratear.";

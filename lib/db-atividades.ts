@@ -53,6 +53,12 @@ export async function prepararAtividades(pool: Pool): Promise<void> {
       // área informada por talhão ou volume rateado (e o volume, para editar depois)
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS area_modo text NOT NULL DEFAULT 'talhao'");
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS area_vol numeric");
+      // equipamento, vazões (L/ha) e volume de calda (L)
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS eqp text NOT NULL DEFAULT ''");
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vazao_rec numeric");
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vazao_uti numeric");
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vazao_auto boolean NOT NULL DEFAULT false");
+      await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vol_calda numeric");
       await pool.query(
         `CREATE TABLE IF NOT EXISTS ap_dia_tlh (
            ap_id integer NOT NULL REFERENCES ap_dia(id) ON DELETE CASCADE,
@@ -213,10 +219,11 @@ const FMT = `'DD/MM/YYYY HH24:MI'`;
 async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params: unknown[]): Promise<ApontamentoDiario[]> {
   const { rows } = await exec.query<{
     id: number; bol: number | null; dt: string; os: string; area_modo: string; area_vol: number | null; op_cod: string; op_ds: string; solic: string; etapa_cod: string; etapa_ds: string; tipo_apl: string;
-    n_eqp: number; n_pes: number; obs: string; usr: string; cri_em: string; atu_usr: string | null; atu_em: string | null;
+    n_eqp: number; n_pes: number; obs: string; eqp: string; vazao_rec: number | null; vazao_uti: number | null; vazao_auto: boolean; vol_calda: number | null; usr: string; cri_em: string; atu_usr: string | null; atu_em: string | null;
     talhoes: { propCod: string; propNm: string; tlh: string; areaTlh: number | null; area: number }[] | null;
   }>(
-    `SELECT a.id, a.bol, a.dt::text AS dt, a.os, a.area_modo, a.area_vol::float AS area_vol, a.op_cod, a.op_ds, a.solic, a.etapa_cod, a.etapa_ds, a.tipo_apl, a.n_eqp, a.n_pes, a.obs, a.usr,
+    `SELECT a.id, a.bol, a.dt::text AS dt, a.os, a.area_modo, a.area_vol::float AS area_vol, a.op_cod, a.op_ds, a.solic, a.etapa_cod, a.etapa_ds, a.tipo_apl, a.n_eqp, a.n_pes, a.obs,
+            a.eqp, a.vazao_rec::float AS vazao_rec, a.vazao_uti::float AS vazao_uti, a.vazao_auto, a.vol_calda::float AS vol_calda, a.usr,
             to_char(a.cri_em AT TIME ZONE 'America/Sao_Paulo', ${FMT}) AS cri_em, a.atu_usr,
             to_char(a.atu_em AT TIME ZONE 'America/Sao_Paulo', ${FMT}) AS atu_em,
             (SELECT json_agg(json_build_object('propCod', t.prop_cod, 'propNm', t.prop_nm, 'tlh', t.tlh, 'areaTlh', t.area_tlh::float, 'area', t.area::float)
@@ -243,6 +250,11 @@ async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params
       tipoAplicacao: r.tipo_apl,
       numEquipamentos: r.n_eqp,
       numPessoas: r.n_pes,
+      eqp: r.eqp,
+      vazaoRec: r.vazao_rec,
+      vazaoUti: r.vazao_uti,
+      vazaoAuto: r.vazao_auto,
+      volCalda: r.vol_calda,
       obs: r.obs,
       talhoes,
       areaTotal: round2(talhoes.reduce((a, t) => a + (t.area ?? 0), 0)),
@@ -286,8 +298,12 @@ const resumoLog = (a: ApontamentoDiario) => ({
   solicitante: a.solicitante,
   etapa: `${a.etapaCod} ${a.etapaDs}`.trim(),
   tipoAplicacao: a.tipoAplicacao,
+  equipamento: a.eqp || undefined,
   equipamentos: a.numEquipamentos,
   pessoas: a.numPessoas,
+  vazaoRecomendada: a.vazaoRec ?? undefined,
+  vazaoUtilizada: a.vazaoUti === null ? undefined : `${a.vazaoUti}${a.vazaoAuto ? " (calculada)" : ""}`,
+  volumeCalda: a.volCalda ?? undefined,
   areaRealizada: a.areaTotal,
   talhoes: a.talhoes.map((t) => `${t.propCod}-${t.tlh}: ${t.area}`).join("; "),
 });
@@ -379,15 +395,21 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
     await client.query("BEGIN");
     let novoId = id;
     let antes: ApontamentoDiario | null = null;
+    // vazão utilizada em branco: calculada pelo volume de calda ÷ área do dia
+    const areaDia = round2(talhoes.reduce((a, t) => a + t.area, 0));
+    const vazaoAuto = e.vazaoUti === null && !!e.volCalda && areaDia > 0;
+    const vazaoUti = vazaoAuto ? round2(e.volCalda! / areaDia) : e.vazaoUti;
     const valores = [
       e.boletim, e.dt, osNum, op.cod, op.ds, e.solicitante.trim(), etapa.cod, etapa.ds, e.tipoAplicacao.trim(), e.numEquipamentos, e.numPessoas,
       e.obs.trim().slice(0, 300), e.modoArea, e.modoArea === "rateio" ? round2(e.volume!) : null,
+      e.eqp.trim().slice(0, 40), e.vazaoRec, vazaoUti, vazaoAuto, e.volCalda,
     ];
     if (id === undefined) {
       novoId = (
         await client.query<{ id: number }>(
-          `INSERT INTO ap_dia (bol, dt, os, op_cod, op_ds, solic, etapa_cod, etapa_ds, tipo_apl, n_eqp, n_pes, obs, area_modo, area_vol, usr)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+          `INSERT INTO ap_dia (bol, dt, os, op_cod, op_ds, solic, etapa_cod, etapa_ds, tipo_apl, n_eqp, n_pes, obs, area_modo, area_vol,
+                               eqp, vazao_rec, vazao_uti, vazao_auto, vol_calda, usr)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
           [...valores, usuario]
         )
       ).rows[0].id;
@@ -399,7 +421,8 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
       }
       await client.query(
         `UPDATE ap_dia SET bol=$1, dt=$2, os=$3, op_cod=$4, op_ds=$5, solic=$6, etapa_cod=$7, etapa_ds=$8, tipo_apl=$9, n_eqp=$10, n_pes=$11, obs=$12,
-                area_modo=$13, area_vol=$14, atu_usr=$15, atu_em=now() WHERE id=$16`,
+                area_modo=$13, area_vol=$14, eqp=$15, vazao_rec=$16, vazao_uti=$17, vazao_auto=$18, vol_calda=$19,
+                atu_usr=$20, atu_em=now() WHERE id=$21`,
         [...valores, usuario, id]
       );
       await client.query("DELETE FROM ap_dia_tlh WHERE ap_id = $1", [id]);
@@ -496,4 +519,101 @@ export async function opcoesApontamento(): Promise<OpcoesApontamento> {
     tipos: tipos.rows.map((r) => r.t),
     solicitantes: solic.rows.map((r) => r.s),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Verificação: apontamentos sem O.S. x O.S. abertas da mesma operação e talhões
+// ---------------------------------------------------------------------------
+
+export interface CandidatoOS {
+  os: string;
+  /** talhões do apontamento que estão na O.S. */
+  talhoes: number;
+  dtOs: string | null;
+  situacao: string;
+}
+
+export interface VerificacaoSemOS {
+  id: number;
+  boletim: number | null;
+  dt: string;
+  opCod: string;
+  opDs: string;
+  fazendas: string[];
+  nTalhoes: number;
+  area: number;
+  candidatos: CandidatoOS[];
+}
+
+/**
+ * Para cada apontamento sem O.S. do período, procura O.S. abertas (não encerradas) com a mesma operação e algum dos
+ * talhões apontados, nas duas bases de O.S.; as que cobrem mais talhões vêm primeiro.
+ */
+export async function verificarSemOS(de: string, ate: string): Promise<VerificacaoSemOS[]> {
+  const pool = getPool();
+  await prepararAtividades(pool);
+  await prepararOSAgr(pool);
+  const semOS = await lerApontamentos(pool, "a.os = '' AND a.dt BETWEEN $1::date AND $2::date", [de, ate]);
+  if (semOS.length === 0) return [];
+  const { rows } = await pool.query<{ id: number; os: string; n: number; dt_os: string | null; sit: string }>(
+    `WITH alvo AS (
+       SELECT a.id, a.op_cod, t.prop_cod, t.tlh FROM ap_dia a JOIN ap_dia_tlh t ON t.ap_id = a.id
+        WHERE a.id = ANY($1::int[])
+     ), cand AS (
+       SELECT x.id, o.os, x.prop_cod || '|' || x.tlh AS k, o.dt_os::text AS dt_os,
+              CASE o.posicao WHEN 'A' THEN 'Aberta' WHEN 'L' THEN 'Liberada' ELSE o.posicao END AS sit
+         FROM alvo x JOIN os_agr o ON o.op_cod = x.op_cod AND o.prop_cod = x.prop_cod AND (o.tlh || o.letra) = x.tlh AND o.posicao <> 'E'
+       UNION ALL
+       SELECT x.id, o.os, x.prop_cod || '|' || x.tlh, o.dt_lanc::text, o.sts
+         FROM alvo x JOIN os_tlh o ON o.op_cod = x.op_cod AND o.prop_cod = x.prop_cod AND o.tlh = x.tlh AND o.sts !~* 'encerr'
+     )
+     SELECT id, os, COUNT(DISTINCT k)::int AS n, MAX(dt_os) AS dt_os, MAX(sit) AS sit
+       FROM cand GROUP BY id, os ORDER BY id, n DESC, MAX(dt_os) DESC NULLS LAST`,
+    [semOS.map((a) => a.id)]
+  );
+  return semOS.map((a) => ({
+    id: a.id,
+    boletim: a.boletim,
+    dt: a.dt,
+    opCod: a.opCod,
+    opDs: a.opDs,
+    fazendas: Array.from(new Set(a.talhoes.map((t) => `${t.propCod} · ${t.propNm}`))),
+    nTalhoes: a.talhoes.length,
+    area: a.areaTotal,
+    candidatos: rows
+      .filter((r) => r.id === a.id)
+      .slice(0, 5)
+      .map((r) => ({ os: r.os, talhoes: r.n, dtOs: r.dt_os, situacao: r.sit })),
+  }));
+}
+
+/** Corrige um apontamento lançado sem O.S., ligando-o à O.S. informada (a operação tem de existir nela). */
+export async function vincularOS(id: number, os: string, usuario: string): Promise<{ ok: true; foraDaOS: string[] } | { erro: string }> {
+  const pool = getPool();
+  await prepararAtividades(pool);
+  const antes = await obterApontamento(id);
+  if (!antes) return { erro: "Apontamento não encontrado." };
+  if (antes.os) return { erro: `O apontamento já está na O.S. ${antes.os}.` };
+  const info = await consultarOS(os.trim());
+  if (!info) return { erro: `A O.S. ${os.trim()} não está na base de O.S.` };
+  const op = info.operacoes.find((o) => o.cod === antes.opCod);
+  if (!op) return { erro: `A operação ${antes.opCod} não faz parte da O.S. ${info.os}.` };
+  const foraDaOS = antes.talhoes.filter((t) => !op.talhoes.some((x) => x.propCod === t.propCod && x.tlh === t.tlh)).map((t) => `${t.propCod}-${t.tlh}`);
+  await pool.query(
+    `UPDATE ap_dia SET os = $1, op_ds = CASE WHEN op_ds = '' THEN $2 ELSE op_ds END,
+            etapa_cod = CASE WHEN etapa_cod = '' THEN $3 ELSE etapa_cod END, etapa_ds = CASE WHEN etapa_cod = '' THEN $4 ELSE etapa_ds END,
+            atu_usr = $5, atu_em = now() WHERE id = $6`,
+    [info.os, op.ds, op.etapaCod, op.etapaDs, usuario, id]
+  );
+  const depois = (await obterApontamento(id))!;
+  await auditar(pool, {
+    usuario,
+    modulo: "Atividades",
+    entidade: "Apontamento diário",
+    chave: chaveLog(depois),
+    acao: "alteracao",
+    antes: { os: "sem O.S." },
+    depois: { os: info.os, verificacao: "O.S. encontrada na verificação de apontamentos sem O.S.", talhoesForaDaOS: foraDaOS.join(", ") || undefined },
+  });
+  return { ok: true, foraDaOS };
 }

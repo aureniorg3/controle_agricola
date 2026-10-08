@@ -6,6 +6,7 @@ import { chaveTalhao, ratearArea, round2, type ApontamentoDiario, type ConsultaO
 import type { OpcoesApontamento } from "@/lib/db-atividades";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { addDays } from "@/lib/period";
+import type { VerificacaoSemOS } from "@/lib/db-atividades";
 import { podeEditar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
 
@@ -51,6 +52,11 @@ interface Form {
   numEquipamentos: string;
   numPessoas: string;
   obs: string;
+  eqp: string;
+  vazaoRec: string;
+  /** em branco = calculada (volume de calda ÷ área do dia) */
+  vazaoUti: string;
+  volCalda: string;
   modoArea: ModoArea;
   volume: string;
   /** com O.S.: área digitada por talhão (chave fazenda|talhão) e talhões marcados para o rateio */
@@ -60,9 +66,14 @@ interface Form {
   livres: LinhaLivre[];
 }
 
+/** a tabela começa com 8 linhas; Enter na área da última abre outra */
+const LINHAS_INICIAIS = 8;
+const linhasIniciais = () => Array.from({ length: LINHAS_INICIAIS }, () => linhaVazia());
+
 const formVazio = (): Form => ({
   boletim: "", dt: todayISO(), os: "", opCod: "", opDs: "", solicitante: "", etapaCod: "", tipoAplicacao: "",
-  numEquipamentos: "", numPessoas: "", obs: "", modoArea: "talhao", volume: "", areas: {}, marcados: {}, livres: [linhaVazia()],
+  numEquipamentos: "", numPessoas: "", obs: "", eqp: "", vazaoRec: "", vazaoUti: "", volCalda: "",
+  modoArea: "talhao", volume: "", areas: {}, marcados: {}, livres: linhasIniciais(),
 });
 
 /** Linha calculada para a tabela (com ou sem O.S.). */
@@ -96,6 +107,9 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const [importar, setImportar] = useState(false);
   const [base, setBase] = useState<{ ordens: number; ultimaImportacao: string | null } | null>(null);
   const osRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLElement>(null);
+  const gravarRef = useRef<HTMLButtonElement>(null);
+  const [verificar, setVerificar] = useState(false);
 
   // lista
   const [de, setDe] = useState(addDays(todayISO(), -6));
@@ -230,12 +244,77 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     updLivre(l.key, { tlh, areaTlh: f?.talhoes.find((t) => t.tlh === tlh.trim())?.area ?? null });
   }
 
-  function incluirLinha() {
-    // a linha nova já vem com a fazenda da última linha, que é o mais comum
-    setForm((f) => {
-      const ult = f.livres[f.livres.length - 1];
-      return { ...f, livres: [...f.livres, linhaVazia(ult?.faz ?? "", ult?.fazNm ?? "")] };
-    });
+  /** Fim do formulário: foca o botão de gravar (Enter grava); se ainda falta algo, tenta gravar para mostrar o que falta. */
+  function irParaGravar() {
+    if (gravarRef.current && !gravarRef.current.disabled) gravarRef.current.focus();
+    else salvar();
+  }
+
+  /** Próximo campo de lançamento (ordem da tela); no fim, o botão de gravar. */
+  function focarProximo(atual: HTMLElement) {
+    const campos = Array.from(formRef.current?.querySelectorAll<HTMLElement>("[data-nav]") ?? []).filter(
+      (el) => !(el as HTMLInputElement).disabled && el.offsetParent !== null
+    );
+    const i = campos.indexOf(atual);
+    const prox = i >= 0 ? campos[i + 1] : undefined;
+    if (prox) {
+      prox.focus();
+      if (prox instanceof HTMLInputElement) prox.select();
+    } else irParaGravar();
+  }
+
+  /** Enter muda de caixa (os campos da tabela têm regra própria). */
+  function aoTeclarNoForm(e: React.KeyboardEvent<HTMLElement>) {
+    const alvo = e.target as HTMLElement;
+    if (e.key !== "Enter" || !alvo.hasAttribute("data-nav") || e.defaultPrevented) return;
+    e.preventDefault();
+    focarProximo(alvo);
+  }
+
+  /** Foca já se o campo existe (para não perder o que for digitado em seguida); linha recém-criada, depois de desenhar. */
+  function focarCampo(seletor: string) {
+    const focar = () => {
+      const el = formRef.current?.querySelector<HTMLInputElement>(seletor);
+      el?.focus();
+      el?.select();
+      return !!el;
+    };
+    if (!focar()) setTimeout(focar, 0);
+  }
+
+  /** Sem O.S.: Enter na área vai para a linha de baixo, já com a fazenda de cima (abre linha nova no fim). */
+  function enterNaAreaLivre(e: React.KeyboardEvent<HTMLInputElement>, key: string) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const i = form.livres.findIndex((l) => l.key === key);
+    const atual = form.livres[i];
+    const prox = form.livres[i + 1];
+    if (prox) {
+      if (!prox.faz.trim() && atual.faz.trim()) updLivre(prox.key, { faz: atual.faz, fazNm: atual.fazNm, areaTlh: null });
+      focarCampo(prox.faz.trim() || atual.faz.trim() ? `[data-tlh="${prox.key}"]` : `[data-faz="${prox.key}"]`);
+    } else {
+      const nova = linhaVazia(atual.faz, atual.fazNm);
+      setForm((f) => ({ ...f, livres: [...f.livres, nova] }));
+      focarCampo(atual.faz.trim() ? `[data-tlh="${nova.key}"]` : `[data-faz="${nova.key}"]`);
+    }
+  }
+
+  /** Talhão em branco + Enter = terminou a tabela: vai para o botão de gravar. */
+  function enterNoTalhao(e: React.KeyboardEvent<HTMLInputElement>, l: LinhaLivre) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (!l.tlh.trim()) irParaGravar();
+    else focarCampo(`[data-area="${l.key}"]`);
+  }
+
+  /** Com O.S.: Enter na área vai para a área do talhão de baixo; no último, para o botão de gravar. */
+  function enterNaAreaOS(e: React.KeyboardEvent<HTMLInputElement>, k: string) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const i = linhas.findIndex((l) => l.k === k);
+    const prox = linhas[i + 1];
+    if (prox) focarCampo(`[data-area="${CSS.escape(prox.k)}"]`);
+    else irParaGravar();
   }
 
   /** Inclui de uma vez todos os talhões da fazenda que ainda não estão na tabela. */
@@ -249,7 +328,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
       const ja = new Set(x.livres.filter((l) => l.faz.trim() === c).map((l) => l.tlh.trim()));
       const vazias = x.livres.filter((l) => l.faz.trim() || l.tlh.trim() || l.valor.trim());
       const novas = f.talhoes.filter((t) => !ja.has(t.tlh)).map((t) => ({ ...linhaVazia(c, f.nm), tlh: t.tlh, areaTlh: t.area }));
-      return { ...x, livres: [...vazias, ...novas] };
+      const todas = [...vazias, ...novas];
+      // sempre sobra linha em branco para continuar lançando
+      const sobra = Math.max(1, LINHAS_INICIAIS - todas.length);
+      return { ...x, livres: [...todas, ...Array.from({ length: sobra }, () => linhaVazia())] };
     });
     setIncluirFaz("");
   }
@@ -326,10 +408,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   }
 
   async function salvar() {
+    if (!podeGravar || salvando) return;
     setMsg(null);
     if (form.os.trim() && !osInfo) return setMsg({ texto: "Tecle Enter na O.S. para trazer os talhões, ou apague o número para lançar sem O.S.", erro: true });
     if (!form.opCod.trim()) return setMsg({ texto: "Informe a operação.", erro: true });
-    let enviados = rateio ? linhas.filter((l) => l.marcado) : linhas.filter((l) => l.area > 0);
+    let enviados = rateio ? linhas.filter((l) => l.marcado && (comOS || (l.propCod && l.tlh))) : linhas.filter((l) => l.area > 0);
     if (!comOS) {
       enviados = enviados.filter((l) => l.propCod || l.tlh);
       const incompleta = enviados.find((l) => !l.propCod || !l.tlh);
@@ -359,6 +442,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
           numEquipamentos: Number(form.numEquipamentos || 0),
           numPessoas: Number(form.numPessoas || 0),
           obs: form.obs,
+          eqp: form.eqp,
+          vazaoRec: form.vazaoRec,
+          vazaoUti: form.vazaoUti,
+          volCalda: form.volCalda,
           modoArea: form.modoArea,
           volume: rateio ? numero(form.volume) : null,
           talhoes: enviados.map((l) => ({ propCod: l.propCod, tlh: l.tlh, area: l.area })),
@@ -400,13 +487,20 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
       numEquipamentos: String(a.numEquipamentos),
       numPessoas: String(a.numPessoas),
       obs: a.obs,
+      eqp: a.eqp,
+      vazaoRec: texto(a.vazaoRec),
+      vazaoUti: a.vazaoAuto ? "" : texto(a.vazaoUti),
+      volCalda: texto(a.volCalda),
       modoArea: a.modoArea,
       volume: a.modoArea === "rateio" ? texto(a.volume ?? a.areaTotal) : "",
       areas,
       marcados,
       livres: semOS
-        ? a.talhoes.map((t) => ({ key: novaChave(), faz: t.propCod, fazNm: t.propNm, tlh: t.tlh, areaTlh: t.areaTlh, valor: texto(t.area), marcado: true }))
-        : [linhaVazia()],
+        ? [
+            ...a.talhoes.map((t) => ({ key: novaChave(), faz: t.propCod, fazNm: t.propNm, tlh: t.tlh, areaTlh: t.areaTlh, valor: texto(t.area), marcado: true })),
+            linhaVazia(a.talhoes[a.talhoes.length - 1]?.propCod ?? "", a.talhoes[a.talhoes.length - 1]?.propNm ?? ""),
+          ]
+        : linhasIniciais(),
     };
     setForm(novo);
     setOsInfo(null);
@@ -426,6 +520,22 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     setMsg({ texto: `Boletim nº ${a.boletim ?? a.id} excluído.`, erro: false });
     carregarLista();
   }
+
+  const salvarRef = useRef(salvar);
+  salvarRef.current = salvar;
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === "F2") {
+        e.preventDefault();
+        salvarRef.current();
+      }
+    };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, []);
+
+  // vazão utilizada calculada: volume de calda ÷ área do dia (vale quando o campo fica em branco)
+  const vazaoCalculada = numero(form.volCalda) > 0 && totalDia > 0 ? round2(numero(form.volCalda) / totalDia) : null;
 
   const totalLista = round2(lista.reduce((a, x) => a + x.areaTotal, 0));
   const marcadosQtd = linhas.filter((l) => l.marcado && (comOS || (l.propCod && l.tlh))).length;
@@ -449,6 +559,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
             Atualizar base de O.S.
           </button>
         )}
+        {podeGravar && (
+          <button type="button" onClick={() => setVerificar(true)} className={BOTAO} title="Procura O.S. aberta para os apontamentos lançados sem O.S. no período da lista">
+            Verificar O.S.
+          </button>
+        )}
         <BotaoLog titulo="Log dos Apontamentos Diários" filtro={{ modulo: "Atividades" }} />
       </header>
 
@@ -456,7 +571,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
         {msg && <p className={`rounded-md border px-3 py-2 text-[13px] ${msg.erro ? "border-alert-500/40 bg-alert-50 text-alert-700" : "border-good-500/40 bg-good-50 text-good-700"}`}>{msg.texto}</p>}
 
         {podeGravar && (
-          <section className="caixa-form">
+          <section className="caixa-form" ref={formRef} onKeyDown={aoTeclarNoForm}>
             <div className="caixa-form-topo">
               <div>
                 <div className="caixa-form-titulo">{form.id ? "Editando o apontamento" : "Novo apontamento"}</div>
@@ -472,7 +587,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
             <div className="grid grid-cols-2 gap-3 md:grid-cols-[150px_170px_minmax(0,1fr)]">
               <div>
                 <label className={ROTULO}>Data</label>
-                <input type="date" value={form.dt} onChange={(e) => upd({ dt: e.target.value })} className={INPUT} />
+                <input data-nav type="date" value={form.dt} onChange={(e) => upd({ dt: e.target.value })} className={INPUT} />
               </div>
               <div>
                 <label className={ROTULO}>Ordem de Serviço (opcional)</label>
@@ -488,9 +603,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      buscarOS(form.os);
+                      if (form.os && !osInfo) buscarOS(form.os);
+                      focarProximo(e.currentTarget);
                     }
                   }}
+                  data-nav
                   inputMode="numeric"
                   placeholder="Nº da O.S."
                   className={`${INPUT} tabular`}
@@ -523,7 +640,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               <div className="col-span-2">
                 <label className={ROTULO}>Operação</label>
                 {comOS ? (
-                  <select value={form.opCod} onChange={(e) => trocarOperacao(e.target.value)} className={INPUT}>
+                  <select data-nav value={form.opCod} onChange={(e) => trocarOperacao(e.target.value)} className={INPUT}>
                     {osInfo?.operacoes.map((o) => (
                       <option key={o.cod} value={o.cod}>
                         {o.cod} · {o.ds || "sem descrição"}
@@ -533,6 +650,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 ) : (
                   <>
                     <input
+                      data-nav
                       list="operacoes-ap"
                       value={form.opCod ? `${form.opCod}${form.opDs ? ` · ${form.opDs}` : ""}` : ""}
                       onChange={(e) => escolherOperacao(e.target.value)}
@@ -550,7 +668,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               </div>
               <div className="col-span-2">
                 <label className={ROTULO}>Solicitante</label>
-                <input list="solicitantes-ap" value={form.solicitante} onChange={(e) => upd({ solicitante: e.target.value })} className={INPUT} maxLength={80} />
+                <input data-nav list="solicitantes-ap" value={form.solicitante} onChange={(e) => upd({ solicitante: e.target.value })} className={INPUT} maxLength={80} />
                 <datalist id="solicitantes-ap">
                   {(opcoes?.solicitantes ?? []).map((s) => (
                     <option key={s} value={s} />
@@ -559,7 +677,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               </div>
               <div className="col-span-2">
                 <label className={ROTULO}>Etapa (opcional)</label>
-                <select value={form.etapaCod} onChange={(e) => upd({ etapaCod: e.target.value })} className={INPUT}>
+                <select data-nav value={form.etapaCod} onChange={(e) => upd({ etapaCod: e.target.value })} className={INPUT}>
                   <option value="">—</option>
                   {op?.etapaCod && !opcoes?.etapas.some((x) => x.cod === op.etapaCod) && (
                     <option value={op.etapaCod}>
@@ -575,7 +693,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               </div>
               <div className="col-span-2">
                 <label className={ROTULO}>Tipo de aplicação (opcional)</label>
-                <input list="tipos-apl" value={form.tipoAplicacao} onChange={(e) => upd({ tipoAplicacao: e.target.value })} className={INPUT} maxLength={60} />
+                <input data-nav list="tipos-apl" value={form.tipoAplicacao} onChange={(e) => upd({ tipoAplicacao: e.target.value })} className={INPUT} maxLength={60} />
                 <datalist id="tipos-apl">
                   {Array.from(new Set([...(osInfo?.tiposConhecidos ?? []), ...(opcoes?.tipos ?? [])])).map((t) => (
                     <option key={t} value={t} />
@@ -586,18 +704,43 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
 
             {/* Recursos */}
             <div className="caixa-form-sub">Recursos e área</div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-[150px_150px_180px_minmax(0,1fr)]">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-[150px_120px_120px_140px_140px_150px_160px]">
+              <div>
+                <label className={ROTULO}>Equipamento</label>
+                <input data-nav value={form.eqp} onChange={(e) => upd({ eqp: e.target.value.toUpperCase().slice(0, 40) })} placeholder="Código" className={`${INPUT} tabular`} aria-label="Código do equipamento" />
+              </div>
               <div>
                 <label className={ROTULO}>Nº de equipamentos</label>
-                <input value={form.numEquipamentos} onChange={(e) => upd({ numEquipamentos: e.target.value.replace(/\D/g, "") })} inputMode="numeric" className={`${INPUT} text-right tabular`} />
+                <input data-nav value={form.numEquipamentos} onChange={(e) => upd({ numEquipamentos: e.target.value.replace(/\D/g, "") })} inputMode="numeric" className={`${INPUT} text-right tabular`} />
               </div>
               <div>
                 <label className={ROTULO}>Nº de pessoas</label>
-                <input value={form.numPessoas} onChange={(e) => upd({ numPessoas: e.target.value.replace(/\D/g, "") })} inputMode="numeric" className={`${INPUT} text-right tabular`} />
+                <input data-nav value={form.numPessoas} onChange={(e) => upd({ numPessoas: e.target.value.replace(/\D/g, "") })} inputMode="numeric" className={`${INPUT} text-right tabular`} />
+              </div>
+              <div>
+                <label className={ROTULO}>Vazão recomendada (L/ha)</label>
+                <input data-nav value={form.vazaoRec} onChange={(e) => upd({ vazaoRec: e.target.value })} inputMode="decimal" className={`${INPUT} text-right tabular`} />
+              </div>
+              <div>
+                <label className={ROTULO}>Volume de calda (L)</label>
+                <input data-nav value={form.volCalda} onChange={(e) => upd({ volCalda: e.target.value })} inputMode="decimal" className={`${INPUT} text-right tabular`} />
+              </div>
+              <div>
+                <label className={ROTULO}>Vazão utilizada (L/ha)</label>
+                <input
+                  data-nav
+                  value={form.vazaoUti}
+                  onChange={(e) => upd({ vazaoUti: e.target.value })}
+                  inputMode="decimal"
+                  placeholder={vazaoCalculada !== null ? `${nf(vazaoCalculada)} (auto)` : "calda ÷ área"}
+                  className={`${INPUT} text-right tabular`}
+                  title="Em branco, é calculada: volume de calda ÷ área realizada no dia"
+                />
               </div>
               <div>
                 <label className={ROTULO}>Área realizada no dia (ha)</label>
                 <input
+                  data-nav
                   value={rateio ? form.volume : totalDia ? texto(totalDia) : ""}
                   onChange={(e) => digitarAreaDia(e.target.value)}
                   inputMode="decimal"
@@ -607,9 +750,9 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                   title="Digite a área do dia para ratear entre os talhões marcados, ou preencha talhão a talhão na tabela"
                 />
               </div>
-              <div className="col-span-2 md:col-span-1">
+              <div className="col-span-2 md:col-span-4 xl:col-span-7">
                 <label className={ROTULO}>Observação</label>
-                <input value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} maxLength={300} />
+                <input data-nav value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} maxLength={300} />
               </div>
             </div>
 
@@ -714,6 +857,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                             <>
                               <td className="px-2 py-0.5">
                                 <input
+                                  data-nav
+                                  data-faz={livre.key}
                                   value={livre.faz}
                                   onChange={(e) => updLivre(livre.key, { faz: e.target.value.replace(/[^\d-]/g, ""), fazNm: "", areaTlh: null })}
                                   onBlur={() => sairDaFazenda(livre)}
@@ -726,18 +871,16 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                               <td className="px-3 py-1 text-muted">{cadFaz === null ? <span className="text-amber-700">Não está no Cadastro de Fazenda</span> : livre.fazNm}</td>
                               <td className="px-2 py-0.5">
                                 <input
-                                  list={`tlh-${livre.key}`}
+                                  data-nav
+                                  data-tlh={livre.key}
+                                  title={cadFaz?.talhoes.length ? `Talhões da fazenda: ${cadFaz.talhoes.map((t) => t.tlh).join(", ")}` : undefined}
                                   value={livre.tlh}
+                                  onKeyDown={(e) => enterNoTalhao(e, livre)}
                                   onChange={(e) => trocarTalhao(livre, e.target.value.toUpperCase().slice(0, 12))}
                                   placeholder="Nº"
                                   className={`${CELULA} tabular`}
                                   aria-label="Talhão"
                                 />
-                                <datalist id={`tlh-${livre.key}`}>
-                                  {(cadFaz?.talhoes ?? []).map((t) => (
-                                    <option key={t.tlh} value={t.tlh} />
-                                  ))}
-                                </datalist>
                               </td>
                             </>
                           ) : (
@@ -757,7 +900,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                           )}
                           <td className="px-2 py-0.5">
                             <input
+                              data-nav
+                              data-area={l.k}
                               value={rateio ? (l.marcado && l.area ? texto(l.area) : "") : l.valor}
+                              onKeyDown={(e) => (comOS ? enterNaAreaOS(e, l.k) : enterNaAreaLivre(e, l.k))}
                               onChange={(e) => digitarAreaTalhao(l.k, e.target.value)}
                               inputMode="decimal"
                               className={`w-full rounded border px-2 py-1 text-right tabular ${passaTalhao ? "border-alert-500 bg-alert-50" : passaSaldo ? "border-amber-500 bg-amber-50" : rateio ? "border-line bg-surface" : "border-line bg-card"}`}
@@ -769,7 +915,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                             <td className="px-1 py-0.5 text-center">
                               <button
                                 type="button"
-                                onClick={() => upd({ livres: form.livres.length > 1 ? form.livres.filter((x) => x.key !== l.k) : [linhaVazia()] })}
+                                onClick={() => upd({ livres: form.livres.length > 1 ? form.livres.filter((x) => x.key !== l.k) : linhasIniciais() })}
+                                tabIndex={-1}
                                 className="rounded px-1.5 text-[15px] leading-none text-muted hover:bg-alert-50 hover:text-alert-700"
                                 aria-label="Remover linha"
                                 title="Remover linha"
@@ -802,10 +949,6 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
             )}
             {!comOS && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <button type="button" className={BOTAO} onClick={incluirLinha}>
-                  + Linha
-                </button>
-                <span className="mx-1 h-5 w-px bg-line" aria-hidden />
                 <input
                   value={incluirFaz}
                   onChange={(e) => setIncluirFaz(e.target.value.replace(/[^\d-]/g, ""))}
@@ -828,7 +971,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
             <p className="mt-2 text-[11.5px] text-muted">
               {comOS
                 ? "Saldo = área recomendada na O.S. (ou a do talhão) menos o que já foi apontado. Área acima do saldo fica destacada, mas pode ser gravada; acima da área do talhão, não."
-                : "Uma linha por talhão; pode haver mais de uma fazenda no mesmo apontamento. A fazenda tem de estar no Cadastro de Fazenda; os talhões sugeridos vêm do histórico de safras (ou das ordens de corte)."}
+                : "Uma linha por talhão; pode haver mais de uma fazenda no mesmo apontamento. Enter na área passa para a linha de baixo já com a fazenda de cima; talhão em branco + Enter termina e vai para Lançar. A fazenda tem de estar no Cadastro de Fazenda; os talhões sugeridos vêm do histórico de safras (ou das ordens de corte)."}
               {" Digitando a área realizada no dia, ela é rateada entre os talhões marcados, proporcional à área de cada um."}
             </p>
 
@@ -838,8 +981,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                   {form.id ? "Cancelar edição" : "Limpar"}
                 </button>
               )}
-              <button type="button" onClick={salvar} disabled={!podeSalvar} className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40">
-                {salvando ? "Salvando…" : form.id ? "Salvar alteração" : "Lançar apontamento"}
+              <button ref={gravarRef} type="button" onClick={salvar} disabled={!podeSalvar} className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40">
+                {salvando ? "Salvando…" : form.id ? "Salvar alteração (F2)" : "Lançar apontamento (F2)"}
               </button>
             </div>
           </section>
@@ -952,7 +1095,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                       {aberto === a.id && (
                         <tr className="bg-surface/60">
                           <td colSpan={14} className="px-4 py-2 text-[12px] text-muted">
-                            {a.modoArea === "rateio" && `Volume de ${nf(a.volume ?? a.areaTotal)} ha rateado · `}
+                            {a.eqp && `Equipamento ${a.eqp} · `}
+                            {a.vazaoRec !== null && `Vazão recomendada ${nf(a.vazaoRec)} L/ha · `}
+                            {a.volCalda !== null && `Calda ${nf(a.volCalda)} L · `}
+                            {a.vazaoUti !== null && `Vazão utilizada ${nf(a.vazaoUti)} L/ha${a.vazaoAuto ? " (calculada)" : ""} · `}
+                            {a.modoArea === "rateio" && `Área de ${nf(a.volume ?? a.areaTotal)} ha rateada · `}
                             {a.talhoes.map((t) => `Fazenda ${t.propCod} talhão ${t.tlh}: ${nf(t.area)} ha`).join(" · ")}
                             {a.obs ? ` · Obs.: ${a.obs}` : ""}
                           </td>
@@ -976,6 +1123,16 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
         </section>
       </div>
 
+      {verificar && (
+        <VerificarOSModal
+          de={de}
+          ate={ate}
+          onFechar={(mudou) => {
+            setVerificar(false);
+            if (mudou) carregarLista();
+          }}
+        />
+      )}
       {importar && (
         <ImportarBaseOS
           onFechar={() => setImportar(false)}
@@ -1034,6 +1191,144 @@ function ImportarBaseOS({ onFechar, onConcluido }: { onFechar: () => void; onCon
               {ocupado ? "Importando…" : "Importar"}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Apontamentos sem O.S. do período: procura a O.S. aberta da mesma operação e talhões, com campo para corrigir. */
+function VerificarOSModal({ de, ate, onFechar }: { de: string; ate: string; onFechar: (mudou: boolean) => void }) {
+  const [itens, setItens] = useState<VerificacaoSemOS[] | null>(null);
+  const [os, setOs] = useState<Record<number, string>>({});
+  const [feitos, setFeitos] = useState<Record<number, string>>({});
+  const [erros, setErros] = useState<Record<number, string>>({});
+  const [ocupado, setOcupado] = useState<number | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/atividades/apontamentos?verificar=1&de=${de}&ate=${ate}`, { cache: "no-store" })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok) return setErro(j.error ?? "Não foi possível verificar.");
+        const lista = j.semOS as VerificacaoSemOS[];
+        setItens(lista);
+        setOs(Object.fromEntries(lista.map((x) => [x.id, x.candidatos[0]?.os ?? ""])));
+      })
+      .catch(() => setErro("Não foi possível verificar."));
+  }, [de, ate]);
+
+  async function vincular(id: number) {
+    const numero = (os[id] ?? "").trim();
+    if (!numero) return;
+    setOcupado(id);
+    setErros((e) => ({ ...e, [id]: "" }));
+    try {
+      const res = await fetch("/api/atividades/apontamentos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, os: numero }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível corrigir.");
+      setFeitos((f) => ({ ...f, [id]: j.foraDaOS?.length ? `Ligado à O.S. ${numero} (talhões fora da O.S.: ${j.foraDaOS.join(", ")})` : `Ligado à O.S. ${numero}` }));
+    } catch (e) {
+      setErros((x) => ({ ...x, [id]: e instanceof Error ? e.message : "Não foi possível corrigir." }));
+    } finally {
+      setOcupado(null);
+    }
+  }
+
+  const mudou = Object.keys(feitos).length > 0;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-xl2 bg-card p-5 shadow-pop">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-[15px] font-semibold text-ink">Verificar O.S. dos apontamentos sem O.S.</h2>
+          <button type="button" onClick={() => onFechar(mudou)} aria-label="Fechar" className="px-1 text-[20px] leading-none text-muted">
+            ×
+          </button>
+        </div>
+        <p className="mb-3 text-[12.5px] text-muted">
+          Período de {fmtDateBR(de)} a {fmtDateBR(ate)} (o da lista de lançados). Para cada apontamento sem O.S., procura uma O.S. aberta com a mesma operação e os
+          mesmos talhões. Confira o número, corrija se precisar e clique em Ligar.
+        </p>
+        {erro && <p className="rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
+        {!itens && !erro && <p className="text-[12.5px] text-muted">Verificando…</p>}
+        {itens && itens.length === 0 && <p className="rounded-md border border-line bg-surface px-3 py-3 text-[12.5px] text-muted">Nenhum apontamento sem O.S. no período.</p>}
+        {itens && itens.length > 0 && (
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-line">
+            <table className="w-full text-[12.5px]">
+              <thead className="sticky top-0 bg-surface">
+                <tr className="border-b border-line text-left text-muted">
+                  <th className="px-3 py-1.5 font-medium">Boletim</th>
+                  <th className="px-3 py-1.5 font-medium">Data</th>
+                  <th className="px-3 py-1.5 font-medium">Fazenda</th>
+                  <th className="px-3 py-1.5 font-medium">Operação</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Área (ha)</th>
+                  <th className="px-3 py-1.5 font-medium">O.S. encontrada</th>
+                  <th className="w-[200px] px-3 py-1.5 font-medium">Correção</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itens.map((x) => {
+                  const melhor = x.candidatos[0];
+                  return (
+                    <tr key={x.id} className="border-t border-line/60 align-top">
+                      <td className="px-3 py-1.5 tabular font-medium text-ink">{x.boletim ?? `#${x.id}`}</td>
+                      <td className="px-3 py-1.5 tabular">{fmtDateBR(x.dt)}</td>
+                      <td className="max-w-[200px] px-3 py-1.5">{x.fazendas.join(" / ")}</td>
+                      <td className="max-w-[220px] px-3 py-1.5">
+                        {x.opCod} · {x.opDs}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular">{nf(x.area)}</td>
+                      <td className="px-3 py-1.5">
+                        {melhor ? (
+                          <div>
+                            <span className="font-medium text-ink">O.S. {melhor.os}</span>{" "}
+                            <span className="text-muted">
+                              · {melhor.talhoes} de {x.nTalhoes} talhão(ões) · {melhor.situacao}
+                            </span>
+                            {x.candidatos.length > 1 && (
+                              <div className="text-[11.5px] text-muted">Outras: {x.candidatos.slice(1).map((c) => `${c.os} (${c.talhoes})`).join(", ")}</div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-amber-700">Realizado sem Ordem de Serviço</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        {feitos[x.id] ? (
+                          <span className="text-good-700">{feitos[x.id]}</span>
+                        ) : (
+                          <div className="flex gap-1.5">
+                            <input
+                              value={os[x.id] ?? ""}
+                              onChange={(e) => setOs((o) => ({ ...o, [x.id]: e.target.value.replace(/\D/g, "") }))}
+                              onKeyDown={(e) => e.key === "Enter" && vincular(x.id)}
+                              placeholder="Nº da O.S."
+                              inputMode="numeric"
+                              className="w-[100px] rounded-md border border-line bg-card px-2 py-1 text-right tabular"
+                              aria-label={`O.S. do boletim ${x.boletim ?? x.id}`}
+                            />
+                            <button type="button" className={BOTAO} disabled={!os[x.id] || ocupado === x.id} onClick={() => vincular(x.id)}>
+                              {ocupado === x.id ? "…" : "Ligar"}
+                            </button>
+                          </div>
+                        )}
+                        {erros[x.id] && <div className="mt-1 text-[11.5px] text-alert-700">{erros[x.id]}</div>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button type="button" className={BOTAO} onClick={() => onFechar(mudou)}>
+            Fechar
+          </button>
         </div>
       </div>
     </div>

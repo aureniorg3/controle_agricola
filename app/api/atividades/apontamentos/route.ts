@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { excluirApontamento, listarApontamentos, opcoesApontamento, proximoBoletimAtividade, salvarApontamento } from "@/lib/db-atividades";
+import {
+  excluirApontamento,
+  listarApontamentos,
+  opcoesApontamento,
+  proximoBoletimAtividade,
+  salvarApontamento,
+  verificarSemOS,
+  vincularOS,
+} from "@/lib/db-atividades";
 import type { EntradaApontamento } from "@/lib/atividades";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -14,6 +22,7 @@ const numero = (v: unknown) => {
   const s = String(v ?? "").trim();
   return s.includes(",") ? Number(s.replace(/\./g, "").replace(",", ".")) : Number(s);
 };
+const opcional = (v: unknown) => (v === null || v === undefined || String(v).trim() === "" ? null : numero(v));
 
 export async function GET(req: NextRequest) {
   const usuario = await usuarioDaRequisicao(req);
@@ -24,6 +33,7 @@ export async function GET(req: NextRequest) {
   const de = p.get("de") ?? "";
   const ate = p.get("ate") ?? "";
   if (!ISO.test(de) || !ISO.test(ate) || de > ate) return NextResponse.json({ error: "Informe um período válido." }, { status: 400 });
+  if (p.get("verificar") !== null) return NextResponse.json({ semOS: await verificarSemOS(de, ate) });
   const boletim = Number(p.get("boletim") ?? "");
   return NextResponse.json({ apontamentos: await listarApontamentos({ de, ate, os: p.get("os") ?? "", boletim: Number.isInteger(boletim) && boletim > 0 ? boletim : undefined }) });
 }
@@ -52,6 +62,10 @@ export async function POST(req: NextRequest) {
     numEquipamentos: inteiro(b.numEquipamentos),
     numPessoas: inteiro(b.numPessoas),
     obs: texto(b.obs),
+    eqp: texto(b.eqp),
+    vazaoRec: opcional(b.vazaoRec),
+    vazaoUti: opcional(b.vazaoUti),
+    volCalda: opcional(b.volCalda),
     talhoes: (Array.isArray(b.talhoes) ? (b.talhoes as Record<string, unknown>[]) : []).map((t) => ({ propCod: texto(t.propCod), tlh: texto(t.tlh), area: numero(t.area) })),
   };
   const id = b.id === undefined || b.id === null ? undefined : Number(b.id);
@@ -71,4 +85,19 @@ export async function DELETE(req: NextRequest) {
   const r = await excluirApontamento(id, usuario.nome);
   if (r !== true) return NextResponse.json({ error: r.erro }, { status: 404 });
   return NextResponse.json({ ok: true });
+}
+
+/** Liga um apontamento lançado sem O.S. à O.S. encontrada na verificação (ou informada na correção). */
+export async function PATCH(req: NextRequest) {
+  const usuario = await usuarioDaRequisicao(req);
+  if (!usuario || !podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para alterar apontamentos." }, { status: 403 });
+  }
+  const b = await req.json().catch(() => null);
+  const id = Number(b?.id);
+  const os = typeof b?.os === "string" ? b.os.replace(/\D/g, "") : "";
+  if (!Number.isInteger(id) || !os) return NextResponse.json({ error: "Informe o apontamento e a O.S." }, { status: 400 });
+  const r = await vincularOS(id, os, usuario.nome);
+  if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 400 });
+  return NextResponse.json(r);
 }
