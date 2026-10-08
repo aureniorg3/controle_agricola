@@ -2,7 +2,18 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BotaoLog from "@/components/BotaoLog";
-import { chaveTalhao, ratearArea, round2, type ApontamentoDiario, type ConsultaOS, type ModoArea, type OperacaoOS } from "@/lib/atividades";
+import {
+  camposFaltando,
+  chaveTalhao,
+  ratearArea,
+  REGRAS_PADRAO,
+  round2,
+  type ApontamentoDiario,
+  type CampoApontamento,
+  type ConsultaOS,
+  type ModoArea,
+  type OperacaoOS,
+} from "@/lib/atividades";
 import type { OpcoesApontamento } from "@/lib/db-atividades";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { addDays } from "@/lib/period";
@@ -39,22 +50,6 @@ interface LinhaLivre {
 }
 const linhaVazia = (faz = "", fazNm = ""): LinhaLivre => ({ key: novaChave(), faz, fazNm, tlh: "", areaTlh: null, valor: "", marcado: true });
 
-/** Linha da tabela de insumos aplicados (código do cadastro Material e Insumos). */
-interface LinhaInsumo {
-  key: string;
-  cod: string;
-  ds: string;
-  um: string;
-  dose: string;
-  qtd: string;
-  dep: string;
-  /** o código não está no cadastro */
-  semCadastro?: boolean;
-}
-const insumoVazio = (): LinhaInsumo => ({ key: novaChave(), cod: "", ds: "", um: "", dose: "", qtd: "", dep: "" });
-const LINHAS_INSUMO = 4;
-const insumosIniciais = () => Array.from({ length: LINHAS_INSUMO }, insumoVazio);
-
 interface Form {
   id?: number;
   boletim: string;
@@ -73,7 +68,6 @@ interface Form {
   /** em branco = calculada (volume de calda ÷ área do dia) */
   vazaoUti: string;
   volCalda: string;
-  insumos: LinhaInsumo[];
   modoArea: ModoArea;
   volume: string;
   /** com O.S.: área digitada por talhão (chave fazenda|talhão) e talhões marcados para o rateio */
@@ -89,7 +83,7 @@ const linhasIniciais = () => Array.from({ length: LINHAS_INICIAIS }, () => linha
 
 const formVazio = (): Form => ({
   boletim: "", dt: todayISO(), os: "", opCod: "", opDs: "", solicitante: "", etapaCod: "", tipoAplicacao: "",
-  numEquipamentos: "", numPessoas: "", obs: "", eqp: "", vazaoRec: "", vazaoUti: "", volCalda: "", insumos: insumosIniciais(),
+  numEquipamentos: "", numPessoas: "", obs: "", eqp: "", vazaoRec: "", vazaoUti: "", volCalda: "",
   modoArea: "talhao", volume: "", areas: {}, marcados: {}, livres: linhasIniciais(),
 });
 
@@ -138,6 +132,9 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const [aberto, setAberto] = useState<number | null>(null);
 
   const upd = (p: Partial<Form>) => setForm((f) => ({ ...f, ...p }));
+  // campos obrigatórios (Parâmetros › Apontamento Diário): marcados com * na tela
+  const regras = opcoes?.regras ?? REGRAS_PADRAO;
+  const rot = (campo: CampoApontamento, texto: string) => (regras[campo] ? `${texto} *` : texto);
   const op: OperacaoOS | null = osInfo?.operacoes.find((o) => o.cod === form.opCod) ?? null;
   const comOS = !!osInfo;
 
@@ -305,6 +302,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     e.preventDefault();
     const i = form.livres.findIndex((l) => l.key === key);
     const atual = form.livres[i];
+    // área em branco: fim da tabela
+    if (!atual.valor.trim() && form.modoArea !== "rateio") return irParaGravar();
     const prox = form.livres[i + 1];
     if (prox) {
       if (!prox.faz.trim() && atual.faz.trim()) updLivre(prox.key, { faz: atual.faz, fazNm: atual.fazNm, areaTlh: null });
@@ -320,7 +319,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   function enterNoTalhao(e: React.KeyboardEvent<HTMLInputElement>, l: LinhaLivre) {
     if (e.key !== "Enter") return;
     e.preventDefault();
-    if (!l.tlh.trim()) irParaGravar();
+    // talhão em branco: termina (talhão obrigatório ou linha vazia) ou segue para a área (fazenda sem talhão)
+    if (!l.tlh.trim() && (regras.talhao || !l.faz.trim())) irParaGravar();
     else focarCampo(`[data-area="${l.key}"]`);
   }
 
@@ -351,46 +351,6 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
       return { ...x, livres: [...todas, ...Array.from({ length: sobra }, () => linhaVazia())] };
     });
     setIncluirFaz("");
-  }
-
-  const updInsumo = (key: string, p: Partial<LinhaInsumo>) => setForm((f) => ({ ...f, insumos: f.insumos.map((i) => (i.key === key ? { ...i, ...p } : i)) }));
-
-  /** Busca o insumo no cadastro Material e Insumos (descrição, unidade) e a dose das Dosagens. */
-  async function consultarInsumo(l: LinhaInsumo) {
-    const cod = l.cod.trim();
-    if (!cod) return updInsumo(l.key, { ds: "", um: "", semCadastro: false });
-    try {
-      const res = await fetch(`/api/insumos/item?cod=${encodeURIComponent(cod)}`, { cache: "no-store" });
-      const j = await res.json();
-      if (!res.ok || !j.item) return updInsumo(l.key, { ds: "", um: "", semCadastro: true });
-      setForm((f) => ({
-        ...f,
-        insumos: f.insumos.map((i) =>
-          i.key === l.key ? { ...i, ds: j.item.ds, um: j.item.un, semCadastro: false, dose: i.dose || (j.dose != null ? String(j.dose).replace(".", ",") : "") } : i
-        ),
-      }));
-    } catch {
-      /* confere ao gravar */
-    }
-  }
-
-  /** Enter na tabela de insumos: código → dose → total real → depósito → próxima linha; código em branco segue para os talhões. */
-  function enterNoInsumo(e: React.KeyboardEvent<HTMLInputElement>, l: LinhaInsumo, campo: "cod" | "dose" | "qtd" | "dep") {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    if (campo === "cod") {
-      if (!l.cod.trim()) return focarCampo("[data-faz], [data-area]");
-      consultarInsumo(l);
-      return focarCampo(`[data-ins-dose="${l.key}"]`);
-    }
-    if (campo === "dose") return focarCampo(`[data-ins-qtd="${l.key}"]`);
-    if (campo === "qtd") return focarCampo(`[data-ins-dep="${l.key}"]`);
-    const i = form.insumos.findIndex((x) => x.key === l.key);
-    const prox = form.insumos[i + 1];
-    if (prox) return focarCampo(`[data-ins-cod="${prox.key}"]`);
-    const nova = insumoVazio();
-    setForm((f) => ({ ...f, insumos: [...f.insumos, nova] }));
-    focarCampo(`[data-ins-cod="${nova.key}"]`);
   }
 
   function trocarOperacao(cod: string) {
@@ -426,12 +386,12 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
       }));
     }
     if (form.modoArea === "rateio") {
-      const marc = base.filter((l) => l.marcado && (comOS || (l.propCod && l.tlh)));
+      const marc = base.filter((l) => l.marcado && (comOS || (l.propCod && (l.tlh || !regras.talhao))));
       const rat = ratearArea(numero(form.volume) || 0, marc.map((l) => l.areaRec ?? l.areaTlh));
       marc.forEach((l, i) => (l.area = rat[i]));
     } else base.forEach((l) => (l.area = numero(l.valor) || 0));
     return base;
-  }, [comOS, op, osInfo, form.areas, form.marcados, form.livres, form.modoArea, form.volume]);
+  }, [comOS, op, osInfo, form.areas, form.marcados, form.livres, form.modoArea, form.volume, regras.talhao]);
   const totalDia = round2(linhas.reduce((a, l) => a + l.area, 0));
   const fazendasOS = Array.from(new Set(linhas.map((l) => `${l.propCod} · ${l.propNm}`)));
   const rateio = form.modoArea === "rateio";
@@ -468,12 +428,31 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     if (!podeGravar || salvando) return;
     setMsg(null);
     if (form.os.trim() && !osInfo) return setMsg({ texto: "Tecle Enter na O.S. para trazer os talhões, ou apague o número para lançar sem O.S.", erro: true });
-    if (!form.opCod.trim()) return setMsg({ texto: "Informe a operação.", erro: true });
-    let enviados = rateio ? linhas.filter((l) => l.marcado && (comOS || (l.propCod && l.tlh))) : linhas.filter((l) => l.area > 0);
+    if (regras.os && !comOS) return setMsg({ texto: "Informe a Ordem de Serviço (obrigatória nos Parâmetros).", erro: true });
+    if (comOS && !form.opCod.trim()) return setMsg({ texto: "Escolha a operação.", erro: true });
+    const falta = camposFaltando(
+      {
+        opCod: form.opCod,
+        solicitante: form.solicitante,
+        etapaCod: form.etapaCod,
+        tipoAplicacao: form.tipoAplicacao,
+        eqp: form.eqp,
+        numEquipamentos: Number(form.numEquipamentos || 0),
+        numPessoas: Number(form.numPessoas || 0),
+        vazaoRec: form.vazaoRec.trim() ? numero(form.vazaoRec) : null,
+        volCalda: form.volCalda.trim() ? numero(form.volCalda) : null,
+        vazaoUti: form.vazaoUti.trim() ? numero(form.vazaoUti) : null,
+        obs: form.obs,
+      },
+      regras,
+      !form.vazaoUti.trim() && vazaoCalculada !== null
+    );
+    if (falta.length) return setMsg({ texto: `Preencha: ${falta.join(", ")}.`, erro: true });
+    let enviados = rateio ? linhas.filter((l) => l.marcado && (comOS || (l.propCod && (l.tlh || !regras.talhao)))) : linhas.filter((l) => l.area > 0);
     if (!comOS) {
       enviados = enviados.filter((l) => l.propCod || l.tlh);
-      const incompleta = enviados.find((l) => !l.propCod || !l.tlh);
-      if (incompleta) return setMsg({ texto: "Há linha com fazenda ou talhão em branco.", erro: true });
+      const incompleta = enviados.find((l) => !l.propCod || (regras.talhao && !l.tlh));
+      if (incompleta) return setMsg({ texto: regras.talhao ? "Há linha com fazenda ou talhão em branco." : "Há linha sem fazenda.", erro: true });
       const semCadastro = enviados.find((l) => fazendas[l.propCod] === null);
       if (semCadastro) return setMsg({ texto: `A fazenda ${semCadastro.propCod} não está no Cadastro de Fazenda.`, erro: true });
     }
@@ -503,9 +482,6 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
           vazaoRec: form.vazaoRec,
           vazaoUti: form.vazaoUti,
           volCalda: form.volCalda,
-          insumos: form.insumos
-            .filter((i) => i.cod.trim())
-            .map((i) => ({ cod: i.cod.trim(), dose: i.dose.trim() ? numero(i.dose) : null, qtd: i.qtd.trim() ? numero(i.qtd) : null, dep: i.dep })),
           modoArea: form.modoArea,
           volume: rateio ? numero(form.volume) : null,
           talhoes: enviados.map((l) => ({ propCod: l.propCod, tlh: l.tlh, area: l.area })),
@@ -551,10 +527,6 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
       vazaoRec: texto(a.vazaoRec),
       vazaoUti: a.vazaoAuto ? "" : texto(a.vazaoUti),
       volCalda: texto(a.volCalda),
-      insumos: [
-        ...a.insumos.map((i) => ({ key: novaChave(), cod: i.cod, ds: i.ds, um: i.um, dose: texto(i.dose), qtd: texto(i.qtd), dep: i.dep })),
-        ...Array.from({ length: Math.max(1, LINHAS_INSUMO - a.insumos.length) }, insumoVazio),
-      ],
       modoArea: a.modoArea,
       volume: a.modoArea === "rateio" ? texto(a.volume ?? a.areaTotal) : "",
       areas,
@@ -604,7 +576,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const totalLista = round2(lista.reduce((a, x) => a + x.areaTotal, 0));
   const marcadosQtd = linhas.filter((l) => l.marcado && (comOS || (l.propCod && l.tlh))).length;
   const somaPeso = round2(linhas.filter((l) => l.marcado).reduce((a, l) => a + ((l.areaRec ?? l.areaTlh) ?? 0), 0));
-  const podeSalvar = !salvando && !!form.boletim && !!form.opCod.trim() && totalDia > 0 && (!comOS || !!op);
+  const podeSalvar = !salvando && !!form.boletim && totalDia > 0 && (!comOS || !!op);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden" translate="no">
@@ -654,7 +626,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 <input data-nav type="date" value={form.dt} onChange={(e) => upd({ dt: e.target.value })} className={INPUT} />
               </div>
               <div>
-                <label className={ROTULO}>Ordem de Serviço (opcional)</label>
+                <label className={ROTULO}>{rot("os", "Ordem de Serviço")}</label>
                 <input
                   ref={osRef}
                   value={form.os}
@@ -701,7 +673,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
             {/* Operação e recursos: cabeçalho compacto */}
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
               <div className="col-span-2">
-                <label className={ROTULO}>Operação</label>
+                <label className={ROTULO}>{rot("operacao", "Operação")}</label>
                 {comOS ? (
                   <select data-nav value={form.opCod} onChange={(e) => trocarOperacao(e.target.value)} className={INPUT}>
                     {osInfo?.operacoes.map((o) => (
@@ -730,7 +702,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 )}
               </div>
               <div className="col-span-2">
-                <label className={ROTULO}>Solicitante</label>
+                <label className={ROTULO}>{rot("solicitante", "Solicitante")}</label>
                 <input data-nav list="solicitantes-ap" value={form.solicitante} onChange={(e) => upd({ solicitante: e.target.value })} className={INPUT} maxLength={80} />
                 <datalist id="solicitantes-ap">
                   {(opcoes?.solicitantes ?? []).map((s) => (
@@ -739,7 +711,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 </datalist>
               </div>
               <div className="col-span-1">
-                <label className={ROTULO}>Etapa (opcional)</label>
+                <label className={ROTULO}>{rot("etapa", "Etapa")}</label>
                 <select data-nav value={form.etapaCod} onChange={(e) => upd({ etapaCod: e.target.value })} className={INPUT}>
                   <option value="">—</option>
                   {op?.etapaCod && !opcoes?.etapas.some((x) => x.cod === op.etapaCod) && (
@@ -755,7 +727,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 </select>
               </div>
               <div className="col-span-1">
-                <label className={ROTULO}>Tipo de aplicação (opcional)</label>
+                <label className={ROTULO}>{rot("tipoAplicacao", "Tipo de aplicação")}</label>
                 <input data-nav list="tipos-apl" value={form.tipoAplicacao} onChange={(e) => upd({ tipoAplicacao: e.target.value })} className={INPUT} maxLength={60} />
                 <datalist id="tipos-apl">
                   {Array.from(new Set([...(osInfo?.tiposConhecidos ?? []), ...(opcoes?.tipos ?? [])])).map((t) => (
@@ -767,27 +739,27 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
 
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-[repeat(7,minmax(0,1fr))_minmax(0,2fr)]">
               <div>
-                <label className={ROTULO}>Equipamento</label>
+                <label className={ROTULO}>{rot("eqp", "Equipamento")}</label>
                 <input data-nav value={form.eqp} onChange={(e) => upd({ eqp: e.target.value.toUpperCase().slice(0, 40) })} placeholder="Código" className={`${INPUT} tabular`} aria-label="Código do equipamento" />
               </div>
               <div>
-                <label className={ROTULO}>Nº de equipamentos</label>
+                <label className={ROTULO}>{rot("numEquipamentos", "Nº de equipamentos")}</label>
                 <input data-nav value={form.numEquipamentos} onChange={(e) => upd({ numEquipamentos: e.target.value.replace(/\D/g, "") })} inputMode="numeric" className={`${INPUT} text-right tabular`} />
               </div>
               <div>
-                <label className={ROTULO}>Nº de pessoas</label>
+                <label className={ROTULO}>{rot("numPessoas", "Nº de pessoas")}</label>
                 <input data-nav value={form.numPessoas} onChange={(e) => upd({ numPessoas: e.target.value.replace(/\D/g, "") })} inputMode="numeric" className={`${INPUT} text-right tabular`} />
               </div>
               <div>
-                <label className={ROTULO}>Vazão Recom. (L/ha)</label>
+                <label className={ROTULO}>{rot("vazaoRec", "Vazão Recom. (L/ha)")}</label>
                 <input data-nav value={form.vazaoRec} onChange={(e) => upd({ vazaoRec: e.target.value })} inputMode="decimal" className={`${INPUT} text-right tabular`} />
               </div>
               <div>
-                <label className={ROTULO}>Volume de calda (L)</label>
+                <label className={ROTULO}>{rot("volCalda", "Volume de calda (L)")}</label>
                 <input data-nav value={form.volCalda} onChange={(e) => upd({ volCalda: e.target.value })} inputMode="decimal" className={`${INPUT} text-right tabular`} />
               </div>
               <div>
-                <label className={ROTULO}>Vazão utilizada (L/ha)</label>
+                <label className={ROTULO}>{rot("vazaoUti", "Vazão utilizada (L/ha)")}</label>
                 <input
                   data-nav
                   value={form.vazaoUti}
@@ -812,81 +784,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 />
               </div>
               <div className="col-span-2 md:col-span-1">
-                <label className={ROTULO}>Observação</label>
+                <label className={ROTULO}>{rot("obs", "Observação")}</label>
                 <input data-nav value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} maxLength={300} />
               </div>
             </div>
-
-            {/* Insumos aplicados */}
-            <div className="caixa-form-sub">Insumos · {form.insumos.filter((i) => i.cod.trim()).length}</div>
-            <div className="overflow-x-auto rounded-lg border border-line bg-card">
-              <table className="w-full min-w-[760px] text-[12.5px]">
-                <thead>
-                  <tr className="border-b border-line bg-surface text-left text-muted">
-                    <th className="w-[110px] px-3 py-1.5 font-medium">Insumo</th>
-                    <th className="px-3 py-1.5 font-medium">Descrição</th>
-                    <th className="w-[60px] px-3 py-1.5 font-medium">Unid.</th>
-                    <th className="w-[120px] px-3 py-1.5 text-right font-medium">Dose prog./ha</th>
-                    <th className="w-[110px] px-3 py-1.5 text-right font-medium">Total prog.</th>
-                    <th className="w-[120px] px-3 py-1.5 text-right font-medium">Total real</th>
-                    <th className="w-[110px] px-3 py-1.5 font-medium">Depósito</th>
-                    <th className="w-9" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {form.insumos.map((i) => {
-                    const prog = numero(i.dose) > 0 && totalDia > 0 ? round2(numero(i.dose) * totalDia) : null;
-                    return (
-                      <tr key={i.key} className="border-t border-line/60">
-                        <td className="px-2 py-0.5">
-                          <input
-                            data-nav
-                            data-ins-cod={i.key}
-                            value={i.cod}
-                            onChange={(e) => updInsumo(i.key, { cod: e.target.value.replace(/\s/g, "").slice(0, 20), ds: "", um: "", semCadastro: false })}
-                            onBlur={() => i.cod.trim() && !i.ds && consultarInsumo(i)}
-                            onKeyDown={(e) => enterNoInsumo(e, i, "cod")}
-                            placeholder="Código"
-                            className={`${CELULA} tabular ${i.semCadastro ? "border-amber-500 bg-amber-50" : ""}`}
-                            aria-label="Código do insumo"
-                          />
-                        </td>
-                        <td className="px-3 py-1 text-muted">{i.semCadastro ? <span className="text-amber-700">Não está no cadastro Material e Insumos</span> : i.ds}</td>
-                        <td className="px-3 py-1 text-muted">{i.um}</td>
-                        <td className="px-2 py-0.5">
-                          <input data-nav data-ins-dose={i.key} value={i.dose} onChange={(e) => updInsumo(i.key, { dose: e.target.value })} onKeyDown={(e) => enterNoInsumo(e, i, "dose")} inputMode="decimal" className={`${CELULA} text-right tabular`} aria-label="Dose programada por hectare" />
-                        </td>
-                        <td className="px-3 py-1 text-right tabular text-muted" title="Dose prog./ha × área realizada no dia">
-                          {prog !== null ? nf(prog) : "—"}
-                        </td>
-                        <td className="px-2 py-0.5">
-                          <input data-nav data-ins-qtd={i.key} value={i.qtd} onChange={(e) => updInsumo(i.key, { qtd: e.target.value })} onKeyDown={(e) => enterNoInsumo(e, i, "qtd")} inputMode="decimal" className={`${CELULA} text-right tabular`} aria-label="Total real aplicado" />
-                        </td>
-                        <td className="px-2 py-0.5">
-                          <input data-nav data-ins-dep={i.key} value={i.dep} onChange={(e) => updInsumo(i.key, { dep: e.target.value.slice(0, 30) })} onKeyDown={(e) => enterNoInsumo(e, i, "dep")} className={`${CELULA} tabular`} aria-label="Depósito" />
-                        </td>
-                        <td className="px-1 py-0.5 text-center">
-                          <button
-                            type="button"
-                            tabIndex={-1}
-                            onClick={() => upd({ insumos: form.insumos.length > 1 ? form.insumos.filter((x) => x.key !== i.key) : insumosIniciais() })}
-                            className="rounded px-1.5 text-[15px] leading-none text-muted hover:bg-alert-50 hover:text-alert-700"
-                            aria-label="Remover insumo"
-                            title="Remover insumo"
-                          >
-                            ×
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-1 text-[11.5px] text-muted">
-              O código traz a descrição e a unidade do cadastro Material e Insumos e sugere a dose das Dosagens. Total prog. = dose × área realizada no dia. Código em
-              branco + Enter segue para os talhões.
-            </p>
 
             {/* Fazendas e talhões */}
             <div className="caixa-form-sub flex flex-wrap items-center gap-3">
@@ -954,7 +855,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                       {rateio && <th className="w-9 px-3 py-1.5" />}
                       <th className="w-[120px] px-3 py-1.5 font-medium">Fazenda</th>
                       <th className="px-3 py-1.5 font-medium">Descrição Fazenda</th>
-                      <th className="w-[110px] px-3 py-1.5 font-medium">Talhão</th>
+                      <th className="w-[110px] px-3 py-1.5 font-medium">{rot("talhao", "Talhão")}</th>
                       <th className="px-3 py-1.5 text-right font-medium">Área talhão</th>
                       {comOS && (
                         <>
@@ -1103,7 +1004,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
             <p className="mt-2 text-[11.5px] text-muted">
               {comOS
                 ? "Saldo = área recomendada na O.S. (ou a do talhão) menos o que já foi apontado. Área acima do saldo fica destacada, mas pode ser gravada; acima da área do talhão, não."
-                : "Uma linha por talhão; pode haver mais de uma fazenda no mesmo apontamento. Enter na área passa para a linha de baixo já com a fazenda de cima; talhão em branco + Enter termina e vai para Lançar. A fazenda tem de estar no Cadastro de Fazenda; os talhões sugeridos vêm do histórico de safras (ou das ordens de corte)."}
+                : `Uma linha por talhão; pode haver mais de uma fazenda no mesmo apontamento${regras.talhao ? "" : " e a área pode ser lançada só com a fazenda, sem talhão"}. Enter na área passa para a linha de baixo já com a fazenda de cima; ${regras.talhao ? "talhão" : "área"} em branco + Enter termina e vai para Lançar. A fazenda tem de estar no Cadastro de Fazenda; os talhões sugeridos vêm do histórico de safras (ou das ordens de corte).`}
               {" Digitando a área realizada no dia, ela é rateada entre os talhões marcados, proporcional à área de cada um."}
             </p>
 

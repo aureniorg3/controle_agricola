@@ -138,7 +138,10 @@ export const SECOES_MENU: SecaoMenu[] = [
         label: "Parâmetros",
         icon: IconAjustes,
         soAdmin: true,
-        children: [{ label: "Usuários", href: "/parametros/usuarios" }],
+        children: [
+          { label: "Usuários", href: "/parametros/usuarios" },
+          { label: "Apontamento Diário", href: "/parametros/apontamento-diario" },
+        ],
       },
     ],
   },

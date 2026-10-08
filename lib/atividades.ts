@@ -145,14 +145,80 @@ export const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
 
+// ---------------------------------------------------------------------------
+// Campos obrigatórios (Parâmetros › Apontamento Diário)
+// ---------------------------------------------------------------------------
+
+export type CampoApontamento =
+  | "os" | "operacao" | "solicitante" | "etapa" | "tipoAplicacao" | "talhao" | "eqp" | "numEquipamentos" | "numPessoas"
+  | "vazaoRec" | "volCalda" | "vazaoUti" | "obs";
+
+export type RegrasApontamento = Record<CampoApontamento, boolean>;
+
+/** Campos que podem ser marcados como obrigatórios, na ordem da tela. */
+export const CAMPOS_APONTAMENTO: { campo: CampoApontamento; rotulo: string; ajuda?: string }[] = [
+  { campo: "os", rotulo: "Ordem de Serviço", ajuda: "Sem a O.S. marcada, o apontamento pode ser lançado só com fazenda e talhões." },
+  { campo: "operacao", rotulo: "Operação", ajuda: "Com O.S. a operação é sempre obrigatória (vem da O.S.)." },
+  { campo: "solicitante", rotulo: "Solicitante" },
+  { campo: "etapa", rotulo: "Etapa" },
+  { campo: "tipoAplicacao", rotulo: "Tipo de aplicação" },
+  { campo: "talhao", rotulo: "Talhão", ajuda: "Desmarcado, dá para lançar a área só com a fazenda." },
+  { campo: "eqp", rotulo: "Equipamento" },
+  { campo: "numEquipamentos", rotulo: "Nº de equipamentos" },
+  { campo: "numPessoas", rotulo: "Nº de pessoas" },
+  { campo: "vazaoRec", rotulo: "Vazão recomendada" },
+  { campo: "volCalda", rotulo: "Volume de calda" },
+  { campo: "vazaoUti", rotulo: "Vazão utilizada", ajuda: "Conta como preenchida quando é calculada pela calda ÷ área." },
+  { campo: "obs", rotulo: "Observação" },
+];
+
+/** Como era antes do parâmetro existir: operação, solicitante e talhão obrigatórios. */
+export const REGRAS_PADRAO: RegrasApontamento = {
+  os: false, operacao: true, solicitante: true, etapa: false, tipoAplicacao: false, talhao: true, eqp: false,
+  numEquipamentos: false, numPessoas: false, vazaoRec: false, volCalda: false, vazaoUti: false, obs: false,
+};
+
+export function normalizarRegras(v: unknown): RegrasApontamento {
+  const r = { ...REGRAS_PADRAO };
+  if (v && typeof v === "object") for (const c of CAMPOS_APONTAMENTO) if (typeof (v as Record<string, unknown>)[c.campo] === "boolean") r[c.campo] = (v as Record<string, boolean>)[c.campo];
+  return r;
+}
+
+/** Rótulos dos campos obrigatórios que ficaram em branco (o talhão é conferido à parte, linha a linha). */
+export function camposFaltando(
+  e: Pick<EntradaApontamento, "opCod" | "solicitante" | "etapaCod" | "tipoAplicacao" | "eqp" | "numEquipamentos" | "numPessoas" | "vazaoRec" | "volCalda" | "vazaoUti" | "obs">,
+  regras: RegrasApontamento,
+  vazaoCalculada = false
+): string[] {
+  const vazio: Record<Exclude<CampoApontamento, "os" | "talhao">, boolean> = {
+    operacao: !e.opCod.trim(),
+    solicitante: !e.solicitante.trim(),
+    etapa: !e.etapaCod.trim(),
+    tipoAplicacao: !e.tipoAplicacao.trim(),
+    eqp: !e.eqp.trim(),
+    numEquipamentos: !(e.numEquipamentos > 0),
+    numPessoas: !(e.numPessoas > 0),
+    vazaoRec: !(e.vazaoRec !== null && e.vazaoRec > 0),
+    volCalda: !(e.volCalda !== null && e.volCalda > 0),
+    vazaoUti: !(e.vazaoUti !== null && e.vazaoUti > 0) && !vazaoCalculada,
+    obs: !e.obs.trim(),
+  };
+  return CAMPOS_APONTAMENTO.filter((c) => c.campo !== "os" && c.campo !== "talhao" && regras[c.campo] && vazio[c.campo as keyof typeof vazio]).map((c) => c.rotulo);
+}
+
 /** Confere o formulário (sem consultar a base) e devolve o erro, ou null. */
-export function validarApontamento(e: EntradaApontamento): string | null {
+export function validarApontamento(e: EntradaApontamento, regras: RegrasApontamento = REGRAS_PADRAO): string | null {
   if (!Number.isInteger(e.boletim) || e.boletim <= 0) return "Informe o número do boletim.";
   if (!DATA.test(e.dt) || Number.isNaN(Date.parse(e.dt))) return "Informe a data do apontamento.";
-  if (!e.semOS && !e.os.trim()) return "Informe a Ordem de Serviço.";
-  if (e.semOS && e.talhoes.some((t) => !t.propCod.trim())) return "Informe a fazenda em todas as linhas de talhão.";
-  if (!e.opCod.trim()) return e.semOS ? "Informe a operação." : "Escolha a operação.";
-  if (!e.solicitante.trim()) return "Informe o solicitante.";
+  if (regras.os && e.semOS) return "Informe a Ordem de Serviço.";
+  if (e.semOS && e.talhoes.some((t) => !t.propCod.trim())) return "Informe a fazenda em todas as linhas.";
+  // com O.S. a operação sempre vem dela; sem O.S., só se o parâmetro pedir
+  if (!e.semOS && !e.opCod.trim()) return "Escolha a operação.";
+  // vazão utilizada em branco é calculada (calda ÷ área); com O.S., a etapa pode vir da operação (conferida ao gravar)
+  const areaInformada = e.modoArea === "rateio" ? (e.volume ?? 0) : e.talhoes.reduce((a, t) => a + (t.area > 0 ? t.area : 0), 0);
+  const vazaoCalculada = e.vazaoUti === null && (e.volCalda ?? 0) > 0 && areaInformada > 0;
+  const falta = camposFaltando(e, { ...regras, etapa: regras.etapa && e.semOS }, vazaoCalculada);
+  if (falta.length) return `Preencha: ${falta.join(", ")}.`;
   if (!Number.isInteger(e.numEquipamentos) || e.numEquipamentos < 0) return "Número de equipamentos inválido.";
   if (!Number.isInteger(e.numPessoas) || e.numPessoas < 0) return "Número de pessoas inválido.";
   for (const [v, nome] of [[e.vazaoRec, "Vazão recomendada"], [e.vazaoUti, "Vazão utilizada"], [e.volCalda, "Volume de calda"]] as const) {
@@ -164,7 +230,7 @@ export function validarApontamento(e: EntradaApontamento): string | null {
       return `Insumo ${i.cod}: dose ou total inválido.`;
     }
   }
-  if (e.talhoes.some((t) => !t.tlh.trim())) return "Há talhão sem número.";
+  if (regras.talhao && e.talhoes.some((t) => !t.tlh.trim())) return "Informe o talhão em todas as linhas.";
   if (e.modoArea === "rateio") {
     if (!(e.volume !== null && Number.isFinite(e.volume) && e.volume > 0)) return "Informe o volume (ha) a ratear.";
     if (e.talhoes.length === 0) return "Marque os talhões que vão receber o rateio.";

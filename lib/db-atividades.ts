@@ -1,8 +1,11 @@
 import type { Pool, PoolClient } from "pg";
 import { auditar, dataBR } from "./auditar";
 import {
+  camposFaltando,
   chaveTalhao,
+  normalizarRegras,
   ratearArea,
+  type RegrasApontamento,
   round2,
   validarApontamento,
   type ApontamentoDiario,
@@ -50,6 +53,12 @@ export async function prepararAtividades(pool: Pool): Promise<void> {
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS bol integer");
       await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_ap_dia_bol ON ap_dia (bol) WHERE bol IS NOT NULL");
       await pool.query("CREATE INDEX IF NOT EXISTS idx_ap_dia_os ON ap_dia (os, op_cod)");
+      // parâmetros do sistema (ex.: campos obrigatórios do apontamento)
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS app_param (
+           chave text PRIMARY KEY, valor jsonb NOT NULL DEFAULT '{}'::jsonb, atu_usr text NOT NULL DEFAULT '', atu_em timestamptz NOT NULL DEFAULT now()
+         )`
+      );
       // área informada por talhão ou volume rateado (e o volume, para editar depois)
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS area_modo text NOT NULL DEFAULT 'talhao'");
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS area_vol numeric");
@@ -338,7 +347,8 @@ interface TalhaoGravar {
 export async function salvarApontamento(e: EntradaApontamento, usuario: string, id?: number): Promise<{ id: number } | { erro: string }> {
   const pool = getPool();
   await prepararAtividades(pool);
-  const erro = validarApontamento(e);
+  const regras = await regrasApontamento();
+  const erro = validarApontamento(e, regras);
   if (erro) return { erro };
 
   let osNum = "";
@@ -379,7 +389,9 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
       }
       const f = fazendas.get(codDigitado)!;
       const tlh = t.tlh.trim();
-      if (vistos.has(`${f.cod}|${tlh}`)) return { erro: `O talhão ${tlh} da fazenda ${f.cod} foi informado duas vezes.` };
+      if (vistos.has(`${f.cod}|${tlh}`)) {
+        return { erro: tlh ? `O talhão ${tlh} da fazenda ${f.cod} foi informado duas vezes.` : `A fazenda ${f.cod} sem talhão foi informada duas vezes; some as áreas numa linha só.` };
+      }
       vistos.add(`${f.cod}|${tlh}`);
       candidatos.push({ propCod: f.cod, propNm: f.nm, tlh, areaTlh: f.talhoes.find((x) => x.tlh === tlh)?.area ?? null, area: t.area });
     }
@@ -425,6 +437,12 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
     // vazão utilizada em branco: calculada pelo volume de calda ÷ área do dia
     const areaDia = round2(talhoes.reduce((a, t) => a + t.area, 0));
     const vazaoAuto = e.vazaoUti === null && !!e.volCalda && areaDia > 0;
+    // com O.S. a etapa pode ter vindo da operação: confere de novo os obrigatórios com o que vai ser gravado
+    const falta = camposFaltando({ ...e, etapaCod: etapa.cod }, regras, vazaoAuto);
+    if (falta.length) {
+      await client.query("ROLLBACK");
+      return { erro: `Preencha: ${falta.join(", ")}.` };
+    }
     const vazaoUti = vazaoAuto ? round2(e.volCalda! / areaDia) : e.vazaoUti;
     const valores = [
       e.boletim, e.dt, osNum, op.cod, op.ds, e.solicitante.trim(), etapa.cod, etapa.ds, e.tipoAplicacao.trim(), e.numEquipamentos, e.numPessoas,
@@ -523,6 +541,8 @@ export interface OpcoesApontamento {
   etapas: { cod: string; ds: string }[];
   tipos: string[];
   solicitantes: string[];
+  /** campos obrigatórios (Parâmetros › Apontamento Diário) */
+  regras: RegrasApontamento;
 }
 
 export async function opcoesApontamento(): Promise<OpcoesApontamento> {
@@ -551,6 +571,7 @@ export async function opcoesApontamento(): Promise<OpcoesApontamento> {
     etapas: etapas.rows,
     tipos: tipos.rows.map((r) => r.t),
     solicitantes: solic.rows.map((r) => r.s),
+    regras: await regrasApontamento(),
   };
 }
 
@@ -649,4 +670,39 @@ export async function vincularOS(id: number, os: string, usuario: string): Promi
     depois: { os: info.os, verificacao: "O.S. encontrada na verificação de apontamentos sem O.S.", talhoesForaDaOS: foraDaOS.join(", ") || undefined },
   });
   return { ok: true, foraDaOS };
+}
+
+// ---------------------------------------------------------------------------
+// Parâmetros › Apontamento Diário: campos obrigatórios
+// ---------------------------------------------------------------------------
+
+const CHAVE_REGRAS = "apontamento.obrigatorios";
+
+export async function regrasApontamento(): Promise<RegrasApontamento> {
+  const pool = getPool();
+  await prepararAtividades(pool);
+  const v = (await pool.query<{ valor: unknown }>("SELECT valor FROM app_param WHERE chave = $1", [CHAVE_REGRAS])).rows[0]?.valor;
+  return normalizarRegras(v);
+}
+
+export async function salvarRegrasApontamento(regras: RegrasApontamento, usuario: string): Promise<RegrasApontamento> {
+  const pool = getPool();
+  await prepararAtividades(pool);
+  const antes = await regrasApontamento();
+  const novas = normalizarRegras(regras);
+  await pool.query(
+    `INSERT INTO app_param (chave, valor, atu_usr) VALUES ($1, $2::jsonb, $3)
+     ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, atu_usr = EXCLUDED.atu_usr, atu_em = now()`,
+    [CHAVE_REGRAS, JSON.stringify(novas), usuario]
+  );
+  await auditar(pool, {
+    usuario,
+    modulo: "Parâmetros",
+    entidade: "Apontamento Diário",
+    chave: "Campos obrigatórios",
+    acao: "alteracao",
+    antes,
+    depois: novas,
+  });
+  return novas;
 }
