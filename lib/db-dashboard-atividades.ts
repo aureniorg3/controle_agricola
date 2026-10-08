@@ -185,7 +185,8 @@ export async function dashboardAtividades(dtPedida?: string): Promise<DashboardA
     `SELECT a.dt::text AS d, a.op_cod AS cod, MAX(a.op_ds) AS ds, SUM(t.area)::float AS ha
        FROM ap_dia a JOIN ap_dia_tlh t ON t.ap_id = a.id
       WHERE a.dt BETWEEN $1::date AND $2::date
-      GROUP BY a.dt, a.op_cod`,
+      -- sem código (ex.: importado do WhatsApp com o nome da atividade), cada descrição é uma operação
+      GROUP BY a.dt, a.op_cod, CASE WHEN a.op_cod = '' THEN a.op_ds ELSE '' END`,
     [desdeOps, dt]
   );
   const cadOps = await operacoesDoCadastro(pool);

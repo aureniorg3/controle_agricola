@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import BotaoLog from "@/components/BotaoLog";
-import { IconAjustes, IconSetaDireita, IconSetaEsquerda } from "@/components/icons";
+import { IconAjustes, IconImprimir, IconSetaDireita, IconSetaEsquerda } from "@/components/icons";
 import { GRUPO_OUTRAS, type DashboardAtividades, type OperacaoGrupo, type ValoresPeriodo } from "@/lib/dashboard-atividades";
 import { fmtDateBR } from "@/lib/format";
 import { addDays } from "@/lib/period";
@@ -18,13 +18,25 @@ const dm = (iso: string) => fmtDateBR(iso).slice(0, 5);
 const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
 /** Atividades › Dashboard: entrada de cana por frente e área das operações lançadas, dia a dia na semana e acumulados. */
-export default function DashboardAtividadesClient({ perfil }: { perfil: PerfilUsuario }) {
+export default function DashboardAtividadesClient({ perfil, nomeUsuario }: { perfil: PerfilUsuario; nomeUsuario: string }) {
   const [dt, setDt] = useState("");
   const [dados, setDados] = useState<DashboardAtividades | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [gruposAberto, setGruposAberto] = useState(false);
   const [versao, setVersao] = useState(0);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+
+  async function gerarPdf() {
+    if (!dados) return;
+    setGerandoPdf(true);
+    try {
+      const { gerarRelatorioDashboardAtividadesPdf } = await import("@/lib/relatorio-dashboard-atividades-pdf");
+      await gerarRelatorioDashboardAtividadesPdf(dados, nomeUsuario);
+    } finally {
+      setGerandoPdf(false);
+    }
+  }
 
   useEffect(() => {
     let ativo = true;
@@ -57,6 +69,15 @@ export default function DashboardAtividadesClient({ perfil }: { perfil: PerfilUs
           <span className="text-[11px] uppercase tracking-wide">Atividades</span>
           <div className="truncate text-[15px] font-bold text-ink">Dashboard</div>
         </nav>
+        <button
+          type="button"
+          onClick={gerarPdf}
+          disabled={!dados || carregando || gerandoPdf}
+          className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-medium text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
+        >
+          <IconImprimir size={14} />
+          {gerandoPdf ? "Gerando…" : "Gerar PDF"}
+        </button>
         <BotaoLog titulo="Log dos Grupos de Operações" filtro={{ modulo: "Cadastros", entidade: "Cadastro de Grupos de Operações" }} />
         {podeEditar(perfil) && (
           <button
