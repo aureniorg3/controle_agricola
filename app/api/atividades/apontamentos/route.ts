@@ -66,6 +66,9 @@ export async function POST(req: NextRequest) {
     vazaoRec: opcional(b.vazaoRec),
     vazaoUti: opcional(b.vazaoUti),
     volCalda: opcional(b.volCalda),
+    insumos: (Array.isArray(b.insumos) ? (b.insumos as Record<string, unknown>[]) : [])
+      .slice(0, 60)
+      .map((i) => ({ cod: texto(i.cod), dose: opcional(i.dose), qtd: opcional(i.qtd), dep: texto(i.dep) })),
     talhoes: (Array.isArray(b.talhoes) ? (b.talhoes as Record<string, unknown>[]) : []).map((t) => ({ propCod: texto(t.propCod), tlh: texto(t.tlh), area: numero(t.area) })),
   };
   const id = b.id === undefined || b.id === null ? undefined : Number(b.id);

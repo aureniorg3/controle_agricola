@@ -11,7 +11,7 @@ import { podeEditar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
 
 const INPUT = "w-full rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink disabled:opacity-60";
-const ROTULO = "mb-1 block text-[11.5px] font-medium text-muted";
+const ROTULO = "mb-1 block truncate text-[11.5px] font-medium text-muted";
 const BOTAO = "rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] font-medium text-navy-800 hover:bg-surface disabled:opacity-50";
 const CELULA = "w-full rounded border border-line bg-card px-2 py-1 text-[12.5px] text-ink";
 
@@ -39,6 +39,22 @@ interface LinhaLivre {
 }
 const linhaVazia = (faz = "", fazNm = ""): LinhaLivre => ({ key: novaChave(), faz, fazNm, tlh: "", areaTlh: null, valor: "", marcado: true });
 
+/** Linha da tabela de insumos aplicados (código do cadastro Material e Insumos). */
+interface LinhaInsumo {
+  key: string;
+  cod: string;
+  ds: string;
+  um: string;
+  dose: string;
+  qtd: string;
+  dep: string;
+  /** o código não está no cadastro */
+  semCadastro?: boolean;
+}
+const insumoVazio = (): LinhaInsumo => ({ key: novaChave(), cod: "", ds: "", um: "", dose: "", qtd: "", dep: "" });
+const LINHAS_INSUMO = 4;
+const insumosIniciais = () => Array.from({ length: LINHAS_INSUMO }, insumoVazio);
+
 interface Form {
   id?: number;
   boletim: string;
@@ -57,6 +73,7 @@ interface Form {
   /** em branco = calculada (volume de calda ÷ área do dia) */
   vazaoUti: string;
   volCalda: string;
+  insumos: LinhaInsumo[];
   modoArea: ModoArea;
   volume: string;
   /** com O.S.: área digitada por talhão (chave fazenda|talhão) e talhões marcados para o rateio */
@@ -72,7 +89,7 @@ const linhasIniciais = () => Array.from({ length: LINHAS_INICIAIS }, () => linha
 
 const formVazio = (): Form => ({
   boletim: "", dt: todayISO(), os: "", opCod: "", opDs: "", solicitante: "", etapaCod: "", tipoAplicacao: "",
-  numEquipamentos: "", numPessoas: "", obs: "", eqp: "", vazaoRec: "", vazaoUti: "", volCalda: "",
+  numEquipamentos: "", numPessoas: "", obs: "", eqp: "", vazaoRec: "", vazaoUti: "", volCalda: "", insumos: insumosIniciais(),
   modoArea: "talhao", volume: "", areas: {}, marcados: {}, livres: linhasIniciais(),
 });
 
@@ -336,6 +353,46 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     setIncluirFaz("");
   }
 
+  const updInsumo = (key: string, p: Partial<LinhaInsumo>) => setForm((f) => ({ ...f, insumos: f.insumos.map((i) => (i.key === key ? { ...i, ...p } : i)) }));
+
+  /** Busca o insumo no cadastro Material e Insumos (descrição, unidade) e a dose das Dosagens. */
+  async function consultarInsumo(l: LinhaInsumo) {
+    const cod = l.cod.trim();
+    if (!cod) return updInsumo(l.key, { ds: "", um: "", semCadastro: false });
+    try {
+      const res = await fetch(`/api/insumos/item?cod=${encodeURIComponent(cod)}`, { cache: "no-store" });
+      const j = await res.json();
+      if (!res.ok || !j.item) return updInsumo(l.key, { ds: "", um: "", semCadastro: true });
+      setForm((f) => ({
+        ...f,
+        insumos: f.insumos.map((i) =>
+          i.key === l.key ? { ...i, ds: j.item.ds, um: j.item.un, semCadastro: false, dose: i.dose || (j.dose != null ? String(j.dose).replace(".", ",") : "") } : i
+        ),
+      }));
+    } catch {
+      /* confere ao gravar */
+    }
+  }
+
+  /** Enter na tabela de insumos: código → dose → total real → depósito → próxima linha; código em branco segue para os talhões. */
+  function enterNoInsumo(e: React.KeyboardEvent<HTMLInputElement>, l: LinhaInsumo, campo: "cod" | "dose" | "qtd" | "dep") {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (campo === "cod") {
+      if (!l.cod.trim()) return focarCampo("[data-faz], [data-area]");
+      consultarInsumo(l);
+      return focarCampo(`[data-ins-dose="${l.key}"]`);
+    }
+    if (campo === "dose") return focarCampo(`[data-ins-qtd="${l.key}"]`);
+    if (campo === "qtd") return focarCampo(`[data-ins-dep="${l.key}"]`);
+    const i = form.insumos.findIndex((x) => x.key === l.key);
+    const prox = form.insumos[i + 1];
+    if (prox) return focarCampo(`[data-ins-cod="${prox.key}"]`);
+    const nova = insumoVazio();
+    setForm((f) => ({ ...f, insumos: [...f.insumos, nova] }));
+    focarCampo(`[data-ins-cod="${nova.key}"]`);
+  }
+
   function trocarOperacao(cod: string) {
     const o = osInfo?.operacoes.find((x) => x.cod === cod);
     upd({ opCod: cod, opDs: o?.ds ?? "", etapaCod: o?.etapaCod ?? "", tipoAplicacao: o?.tipoDs || o?.tipoCod || form.tipoAplicacao, areas: {}, marcados: {} });
@@ -446,6 +503,9 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
           vazaoRec: form.vazaoRec,
           vazaoUti: form.vazaoUti,
           volCalda: form.volCalda,
+          insumos: form.insumos
+            .filter((i) => i.cod.trim())
+            .map((i) => ({ cod: i.cod.trim(), dose: i.dose.trim() ? numero(i.dose) : null, qtd: i.qtd.trim() ? numero(i.qtd) : null, dep: i.dep })),
           modoArea: form.modoArea,
           volume: rateio ? numero(form.volume) : null,
           talhoes: enviados.map((l) => ({ propCod: l.propCod, tlh: l.tlh, area: l.area })),
@@ -491,6 +551,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
       vazaoRec: texto(a.vazaoRec),
       vazaoUti: a.vazaoAuto ? "" : texto(a.vazaoUti),
       volCalda: texto(a.volCalda),
+      insumos: [
+        ...a.insumos.map((i) => ({ key: novaChave(), cod: i.cod, ds: i.ds, um: i.um, dose: texto(i.dose), qtd: texto(i.qtd), dep: i.dep })),
+        ...Array.from({ length: Math.max(1, LINHAS_INSUMO - a.insumos.length) }, insumoVazio),
+      ],
       modoArea: a.modoArea,
       volume: a.modoArea === "rateio" ? texto(a.volume ?? a.areaTotal) : "",
       areas,
@@ -634,9 +698,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               </div>
             </div>
 
-            {/* Operação */}
-            <div className="caixa-form-sub">Operação</div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {/* Operação e recursos: cabeçalho compacto */}
+            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
               <div className="col-span-2">
                 <label className={ROTULO}>Operação</label>
                 {comOS ? (
@@ -675,7 +738,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                   ))}
                 </datalist>
               </div>
-              <div className="col-span-2">
+              <div className="col-span-1">
                 <label className={ROTULO}>Etapa (opcional)</label>
                 <select data-nav value={form.etapaCod} onChange={(e) => upd({ etapaCod: e.target.value })} className={INPUT}>
                   <option value="">—</option>
@@ -691,7 +754,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                   ))}
                 </select>
               </div>
-              <div className="col-span-2">
+              <div className="col-span-1">
                 <label className={ROTULO}>Tipo de aplicação (opcional)</label>
                 <input data-nav list="tipos-apl" value={form.tipoAplicacao} onChange={(e) => upd({ tipoAplicacao: e.target.value })} className={INPUT} maxLength={60} />
                 <datalist id="tipos-apl">
@@ -702,9 +765,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               </div>
             </div>
 
-            {/* Recursos */}
-            <div className="caixa-form-sub">Recursos e área</div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-[150px_120px_120px_140px_140px_150px_160px]">
+            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-[repeat(7,minmax(0,1fr))_minmax(0,2fr)]">
               <div>
                 <label className={ROTULO}>Equipamento</label>
                 <input data-nav value={form.eqp} onChange={(e) => upd({ eqp: e.target.value.toUpperCase().slice(0, 40) })} placeholder="Código" className={`${INPUT} tabular`} aria-label="Código do equipamento" />
@@ -738,7 +799,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 />
               </div>
               <div>
-                <label className={ROTULO}>Área realizada no dia (ha)</label>
+                <label className={ROTULO} title="Área realizada no dia">Área realizada (ha)</label>
                 <input
                   data-nav
                   value={rateio ? form.volume : totalDia ? texto(totalDia) : ""}
@@ -750,11 +811,82 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                   title="Digite a área do dia para ratear entre os talhões marcados, ou preencha talhão a talhão na tabela"
                 />
               </div>
-              <div className="col-span-2 md:col-span-4 xl:col-span-7">
+              <div className="col-span-2 md:col-span-1">
                 <label className={ROTULO}>Observação</label>
                 <input data-nav value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} maxLength={300} />
               </div>
             </div>
+
+            {/* Insumos aplicados */}
+            <div className="caixa-form-sub">Insumos · {form.insumos.filter((i) => i.cod.trim()).length}</div>
+            <div className="overflow-x-auto rounded-lg border border-line bg-card">
+              <table className="w-full min-w-[760px] text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-line bg-surface text-left text-muted">
+                    <th className="w-[110px] px-3 py-1.5 font-medium">Insumo</th>
+                    <th className="px-3 py-1.5 font-medium">Descrição</th>
+                    <th className="w-[60px] px-3 py-1.5 font-medium">Unid.</th>
+                    <th className="w-[120px] px-3 py-1.5 text-right font-medium">Dose prog./ha</th>
+                    <th className="w-[110px] px-3 py-1.5 text-right font-medium">Total prog.</th>
+                    <th className="w-[120px] px-3 py-1.5 text-right font-medium">Total real</th>
+                    <th className="w-[110px] px-3 py-1.5 font-medium">Depósito</th>
+                    <th className="w-9" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {form.insumos.map((i) => {
+                    const prog = numero(i.dose) > 0 && totalDia > 0 ? round2(numero(i.dose) * totalDia) : null;
+                    return (
+                      <tr key={i.key} className="border-t border-line/60">
+                        <td className="px-2 py-0.5">
+                          <input
+                            data-nav
+                            data-ins-cod={i.key}
+                            value={i.cod}
+                            onChange={(e) => updInsumo(i.key, { cod: e.target.value.replace(/\s/g, "").slice(0, 20), ds: "", um: "", semCadastro: false })}
+                            onBlur={() => i.cod.trim() && !i.ds && consultarInsumo(i)}
+                            onKeyDown={(e) => enterNoInsumo(e, i, "cod")}
+                            placeholder="Código"
+                            className={`${CELULA} tabular ${i.semCadastro ? "border-amber-500 bg-amber-50" : ""}`}
+                            aria-label="Código do insumo"
+                          />
+                        </td>
+                        <td className="px-3 py-1 text-muted">{i.semCadastro ? <span className="text-amber-700">Não está no cadastro Material e Insumos</span> : i.ds}</td>
+                        <td className="px-3 py-1 text-muted">{i.um}</td>
+                        <td className="px-2 py-0.5">
+                          <input data-nav data-ins-dose={i.key} value={i.dose} onChange={(e) => updInsumo(i.key, { dose: e.target.value })} onKeyDown={(e) => enterNoInsumo(e, i, "dose")} inputMode="decimal" className={`${CELULA} text-right tabular`} aria-label="Dose programada por hectare" />
+                        </td>
+                        <td className="px-3 py-1 text-right tabular text-muted" title="Dose prog./ha × área realizada no dia">
+                          {prog !== null ? nf(prog) : "—"}
+                        </td>
+                        <td className="px-2 py-0.5">
+                          <input data-nav data-ins-qtd={i.key} value={i.qtd} onChange={(e) => updInsumo(i.key, { qtd: e.target.value })} onKeyDown={(e) => enterNoInsumo(e, i, "qtd")} inputMode="decimal" className={`${CELULA} text-right tabular`} aria-label="Total real aplicado" />
+                        </td>
+                        <td className="px-2 py-0.5">
+                          <input data-nav data-ins-dep={i.key} value={i.dep} onChange={(e) => updInsumo(i.key, { dep: e.target.value.slice(0, 30) })} onKeyDown={(e) => enterNoInsumo(e, i, "dep")} className={`${CELULA} tabular`} aria-label="Depósito" />
+                        </td>
+                        <td className="px-1 py-0.5 text-center">
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={() => upd({ insumos: form.insumos.length > 1 ? form.insumos.filter((x) => x.key !== i.key) : insumosIniciais() })}
+                            className="rounded px-1.5 text-[15px] leading-none text-muted hover:bg-alert-50 hover:text-alert-700"
+                            aria-label="Remover insumo"
+                            title="Remover insumo"
+                          >
+                            ×
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-1 text-[11.5px] text-muted">
+              O código traz a descrição e a unidade do cadastro Material e Insumos e sugere a dose das Dosagens. Total prog. = dose × área realizada no dia. Código em
+              branco + Enter segue para os talhões.
+            </p>
 
             {/* Fazendas e talhões */}
             <div className="caixa-form-sub flex flex-wrap items-center gap-3">
@@ -1100,6 +1232,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                             {a.volCalda !== null && `Calda ${nf(a.volCalda)} L · `}
                             {a.vazaoUti !== null && `Vazão utilizada ${nf(a.vazaoUti)} L/ha${a.vazaoAuto ? " (calculada)" : ""} · `}
                             {a.modoArea === "rateio" && `Área de ${nf(a.volume ?? a.areaTotal)} ha rateada · `}
+                            {a.insumos.length > 0 && `Insumos: ${a.insumos.map((i) => `${i.cod} ${i.ds}${i.qtd !== null ? ` ${nf(i.qtd)} ${i.um}` : ""}`).join(", ")} · `}
                             {a.talhoes.map((t) => `Fazenda ${t.propCod} talhão ${t.tlh}: ${nf(t.area)} ha`).join(" · ")}
                             {a.obs ? ` · Obs.: ${a.obs}` : ""}
                           </td>

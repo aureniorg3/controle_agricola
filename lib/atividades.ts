@@ -66,6 +66,18 @@ export interface TalhaoApontado {
 /** Como a área do dia foi informada: talhão a talhão, ou um volume total rateado entre os talhões marcados. */
 export type ModoArea = "talhao" | "rateio";
 
+/** Insumo aplicado no apontamento (código do cadastro Material e Insumos). */
+export interface InsumoApontado {
+  cod: string;
+  ds: string;
+  um: string;
+  /** dose programada por hectare */
+  dose: number | null;
+  /** quantidade real aplicada */
+  qtd: number | null;
+  dep: string;
+}
+
 export interface ApontamentoDiario {
   id: number;
   /** nº do boletim de campo (único) */
@@ -93,6 +105,7 @@ export interface ApontamentoDiario {
   vazaoAuto: boolean;
   /** volume de calda (L) */
   volCalda: number | null;
+  insumos: InsumoApontado[];
   talhoes: TalhaoApontado[];
   areaTotal: number;
   usr: string;
@@ -123,6 +136,7 @@ export interface EntradaApontamento {
   /** vazio = calculada pelo volume de calda ÷ área do dia */
   vazaoUti: number | null;
   volCalda: number | null;
+  insumos: { cod: string; dose: number | null; qtd: number | null; dep: string }[];
   talhoes: { propCod: string; tlh: string; area: number }[];
 }
 
@@ -143,6 +157,12 @@ export function validarApontamento(e: EntradaApontamento): string | null {
   if (!Number.isInteger(e.numPessoas) || e.numPessoas < 0) return "Número de pessoas inválido.";
   for (const [v, nome] of [[e.vazaoRec, "Vazão recomendada"], [e.vazaoUti, "Vazão utilizada"], [e.volCalda, "Volume de calda"]] as const) {
     if (v !== null && (!Number.isFinite(v) || v < 0)) return `${nome} inválido(a).`;
+  }
+  for (const i of e.insumos) {
+    if (!i.cod.trim()) return "Há insumo sem código.";
+    if ((i.dose !== null && (!Number.isFinite(i.dose) || i.dose < 0)) || (i.qtd !== null && (!Number.isFinite(i.qtd) || i.qtd < 0))) {
+      return `Insumo ${i.cod}: dose ou total inválido.`;
+    }
   }
   if (e.talhoes.some((t) => !t.tlh.trim())) return "Há talhão sem número.";
   if (e.modoArea === "rateio") {

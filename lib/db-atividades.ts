@@ -59,6 +59,14 @@ export async function prepararAtividades(pool: Pool): Promise<void> {
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vazao_uti numeric");
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vazao_auto boolean NOT NULL DEFAULT false");
       await pool.query("ALTER TABLE ap_dia ADD COLUMN IF NOT EXISTS vol_calda numeric");
+      // insumos aplicados no apontamento
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS ap_dia_ins (
+           ap_id integer NOT NULL REFERENCES ap_dia(id) ON DELETE CASCADE, seq integer NOT NULL,
+           cod text NOT NULL, ds text NOT NULL DEFAULT '', um text NOT NULL DEFAULT '', dose numeric, qtd numeric, dep text NOT NULL DEFAULT '',
+           PRIMARY KEY (ap_id, seq)
+         )`
+      );
       await pool.query(
         `CREATE TABLE IF NOT EXISTS ap_dia_tlh (
            ap_id integer NOT NULL REFERENCES ap_dia(id) ON DELETE CASCADE,
@@ -221,6 +229,7 @@ async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params
     id: number; bol: number | null; dt: string; os: string; area_modo: string; area_vol: number | null; op_cod: string; op_ds: string; solic: string; etapa_cod: string; etapa_ds: string; tipo_apl: string;
     n_eqp: number; n_pes: number; obs: string; eqp: string; vazao_rec: number | null; vazao_uti: number | null; vazao_auto: boolean; vol_calda: number | null; usr: string; cri_em: string; atu_usr: string | null; atu_em: string | null;
     talhoes: { propCod: string; propNm: string; tlh: string; areaTlh: number | null; area: number }[] | null;
+    insumos: { cod: string; ds: string; um: string; dose: number | null; qtd: number | null; dep: string }[] | null;
   }>(
     `SELECT a.id, a.bol, a.dt::text AS dt, a.os, a.area_modo, a.area_vol::float AS area_vol, a.op_cod, a.op_ds, a.solic, a.etapa_cod, a.etapa_ds, a.tipo_apl, a.n_eqp, a.n_pes, a.obs,
             a.eqp, a.vazao_rec::float AS vazao_rec, a.vazao_uti::float AS vazao_uti, a.vazao_auto, a.vol_calda::float AS vol_calda, a.usr,
@@ -228,7 +237,9 @@ async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params
             to_char(a.atu_em AT TIME ZONE 'America/Sao_Paulo', ${FMT}) AS atu_em,
             (SELECT json_agg(json_build_object('propCod', t.prop_cod, 'propNm', t.prop_nm, 'tlh', t.tlh, 'areaTlh', t.area_tlh::float, 'area', t.area::float)
                               ORDER BY t.prop_cod, CASE WHEN t.tlh ~ '^[0-9]+$' THEN lpad(t.tlh, 8, '0') ELSE t.tlh END)
-               FROM ap_dia_tlh t WHERE t.ap_id = a.id) AS talhoes
+               FROM ap_dia_tlh t WHERE t.ap_id = a.id) AS talhoes,
+            (SELECT json_agg(json_build_object('cod', i.cod, 'ds', i.ds, 'um', i.um, 'dose', i.dose::float, 'qtd', i.qtd::float, 'dep', i.dep) ORDER BY i.seq)
+               FROM ap_dia_ins i WHERE i.ap_id = a.id) AS insumos
        FROM ap_dia a WHERE ${filtro}
       ORDER BY a.dt DESC, a.id DESC`,
     params
@@ -255,6 +266,7 @@ async function lerApontamentos(exec: Pick<Pool, "query">, filtro: string, params
       vazaoUti: r.vazao_uti,
       vazaoAuto: r.vazao_auto,
       volCalda: r.vol_calda,
+      insumos: r.insumos ?? [],
       obs: r.obs,
       talhoes,
       areaTotal: round2(talhoes.reduce((a, t) => a + (t.area ?? 0), 0)),
@@ -304,6 +316,7 @@ const resumoLog = (a: ApontamentoDiario) => ({
   vazaoRecomendada: a.vazaoRec ?? undefined,
   vazaoUtilizada: a.vazaoUti === null ? undefined : `${a.vazaoUti}${a.vazaoAuto ? " (calculada)" : ""}`,
   volumeCalda: a.volCalda ?? undefined,
+  insumos: a.insumos.map((i) => `${i.cod}${i.qtd !== null ? `: ${i.qtd} ${i.um}` : ""}`).join("; ") || undefined,
   areaRealizada: a.areaTotal,
   talhoes: a.talhoes.map((t) => `${t.propCod}-${t.tlh}: ${t.area}`).join("; "),
 });
@@ -374,6 +387,20 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
     const opDs = e.opDs.trim() || (await descricaoOperacao(pool, e.opCod.trim()));
     op = { cod: e.opCod.trim(), ds: opDs, etapaCod: "", etapaDs: "" };
   }
+  // insumos: o código tem de estar no cadastro Material e Insumos (descrição e unidade vêm de lá)
+  const temCadastro = (await pool.query<{ tem: boolean }>("SELECT EXISTS (SELECT 1 FROM cad_itm WHERE cad = 'materiais-insumos') AS tem")).rows[0].tem;
+  const insumos: { cod: string; ds: string; um: string; dose: number | null; qtd: number | null; dep: string }[] = [];
+  for (const i of e.insumos) {
+    const cod = i.cod.trim();
+    const c = (
+      await pool.query<{ nm: string; un: string | null }>(
+        "SELECT nm, dds->>'unidade_medida_consumo' AS un FROM cad_itm WHERE cad = 'materiais-insumos' AND cod = $1",
+        [cod]
+      )
+    ).rows[0];
+    if (!c && temCadastro) return { erro: `O insumo ${cod} não está no cadastro Material e Insumos.` };
+    insumos.push({ cod, ds: c?.nm ?? "", um: (c?.un ?? "").trim(), dose: i.dose, qtd: i.qtd, dep: i.dep.trim().slice(0, 30) });
+  }
   const talhoes = candidatos.filter((t) => t.area > 0);
   if (talhoes.length === 0) return { erro: "Informe a área realizada em pelo menos um talhão." };
   for (const t of talhoes) {
@@ -430,6 +457,12 @@ export async function salvarApontamento(e: EntradaApontamento, usuario: string, 
     for (const t of talhoes) {
       await client.query("INSERT INTO ap_dia_tlh (ap_id, prop_cod, prop_nm, tlh, area_tlh, area) VALUES ($1,$2,$3,$4,$5,$6)", [
         novoId, t.propCod, t.propNm, t.tlh, t.areaTlh, round2(t.area),
+      ]);
+    }
+    await client.query("DELETE FROM ap_dia_ins WHERE ap_id = $1", [novoId]);
+    for (const [seq, i] of insumos.entries()) {
+      await client.query("INSERT INTO ap_dia_ins (ap_id, seq, cod, ds, um, dose, qtd, dep) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [
+        novoId, seq + 1, i.cod, i.ds, i.um, i.dose, i.qtd, i.dep,
       ]);
     }
     const depois = (await obterApontamento(novoId!, client))!;
