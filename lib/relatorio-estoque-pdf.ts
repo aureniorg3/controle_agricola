@@ -75,6 +75,19 @@ export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promis
     l.vlrUnit === null ? "–" : `R$ ${nf(l.vlrUnit)}`,
     l.ha === null ? "–" : nf(l.ha),
   ]);
+  // total no fim, somando cada coluna como na planilha (inclusive dosagem e valor unitário)
+  const soma = (f: (l: LinhaEstoque) => number | null) => d.linhas.reduce((s, l) => s + (f(l) ?? 0), 0);
+  const nTotal = corpo.length;
+  corpo.push([
+    "Total",
+    "",
+    nf(soma((l) => l.est)),
+    nf(soma((l) => l.disp)),
+    nf(soma((l) => l.dif)),
+    nf(soma((l) => l.dose)),
+    `R$ ${nf(soma((l) => l.vlrUnit))}`,
+    nf(soma((l) => l.ha)),
+  ]);
 
   cabecalho();
   autoTable(doc, {
@@ -96,6 +109,12 @@ export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promis
     didParseCell: (c) => {
       if (c.section === "head") {
         if (c.column.index === 0) c.cell.styles.halign = "left";
+        return;
+      }
+      if (c.row.index === nTotal) {
+        c.cell.styles.fillColor = NAVY;
+        c.cell.styles.textColor = [255, 255, 255];
+        c.cell.styles.fontStyle = "bold";
         return;
       }
       if (c.row.index % 2 === 1 && c.column.index < 5) c.cell.styles.fillColor = ALT;
