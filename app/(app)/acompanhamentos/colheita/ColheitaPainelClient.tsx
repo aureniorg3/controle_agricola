@@ -81,8 +81,8 @@ export default function ColheitaPainelClient({
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
         <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos</span>
-          <div className="truncate text-[15px] font-bold text-ink">Colheita</div>
+          <span className="text-[11px] uppercase tracking-wide">Moagem</span>
+          <div className="truncate text-[15px] font-bold text-ink">Dashboard</div>
         </nav>
         <Link
           href="/acompanhamentos/colheita/historico-safras"

@@ -23,7 +23,7 @@ function hrefAtivo(pathname: string | null, href?: string, exato = false): boole
 }
 
 function contemAtivo(item: Item, pathname: string | null): boolean {
-  return hrefAtivo(pathname, item.href, !!item.children) || !!item.children?.some((c) => contemAtivo(c, pathname));
+  return hrefAtivo(pathname, item.href, !!item.children || !!item.exato) || !!item.children?.some((c) => contemAtivo(c, pathname));
 }
 
 function primeiroHref(item: Item): string | undefined {
@@ -100,7 +100,7 @@ export default function Sidebar({
     const temFilhos = !!item.children?.length;
     const buscando = busca.trim() !== "";
     const aberto = temFilhos && (buscando || (abertos[chave] ?? contemAtivo(item, pathname)));
-    const ativo = hrefAtivo(pathname, item.href, temFilhos);
+    const ativo = hrefAtivo(pathname, item.href, temFilhos || !!item.exato);
 
     if (collapsed) {
       if (depth > 0) return null;

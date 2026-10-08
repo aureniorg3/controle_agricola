@@ -35,6 +35,8 @@ export interface ItemMenu {
   children?: ItemMenu[];
   /** só o administrador vê (e não entra na liberação por usuário) */
   soAdmin?: boolean;
+  /** fica marcado só no endereço exato (o endereço é começo do de outras telas) */
+  exato?: boolean;
 }
 
 export interface SecaoMenu {
@@ -53,10 +55,11 @@ export const SECOES_MENU: SecaoMenu[] = [
         icon: IconAcompanhamentos,
         children: [
           {
-            label: "Colheita",
-            href: "/acompanhamentos/colheita",
+            // o grupo só abre o menu; os dados de moagem ficam no Dashboard
+            label: "Moagem",
             icon: IconCana,
             children: [
+              { label: "Dashboard", href: "/acompanhamentos/colheita", icon: IconPainel, exato: true },
               { label: "Ordens de Corte", href: "/acompanhamentos/ordens-de-corte", icon: IconOrdemCorte },
               { label: "Metas", href: "/acompanhamentos/colheita/metas", icon: IconMeta },
               { label: "Histórico de Safras", href: "/acompanhamentos/colheita/historico-safras", icon: IconHistorico },
