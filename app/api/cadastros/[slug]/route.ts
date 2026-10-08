@@ -10,7 +10,7 @@ import {
   usuarioDaRequisicao,
 } from "@/lib/db";
 import { specPorSlug, type DadosCadastro } from "@/lib/cadastros-spec";
-import { resolverReferencias } from "@/lib/cadastros-ref";
+import { atualizarReferenciasDaLista, resolverReferencias } from "@/lib/cadastros-ref";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 const TAMANHO_PAGINA = 50;
@@ -36,6 +36,8 @@ export async function GET(req: NextRequest, ctx: Contexto) {
   const q = req.nextUrl.searchParams.get("q") ?? "";
   const pagina = Math.max(1, Number(req.nextUrl.searchParams.get("pg")) || 1);
   const { total, itens } = await listarCadastro(slug, q, pagina, TAMANHO_PAGINA);
+  // descrições das referências lidas na hora do cadastro de origem (ex.: Operação e Classificação em Grupos de Operações)
+  await atualizarReferenciasDaLista(specPorSlug(slug)!, itens);
   return NextResponse.json({ total, pagina, tamanho: TAMANHO_PAGINA, itens });
 }
 

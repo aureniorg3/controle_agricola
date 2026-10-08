@@ -177,6 +177,24 @@ tbody tr:hover {
   }
 }
 
+/* Ordenação das tabelas (components/OrdenarTabelas): título clicável e seta da coluna ordenada */
+table:not([data-sem-ordenar]) > thead > tr:last-child > th {
+  cursor: pointer;
+  user-select: none;
+}
+table:not([data-sem-ordenar]) > thead > tr:last-child > th:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+th[data-ordem="asc"]::after {
+  content: " ▲";
+  font-size: 0.75em;
+}
+th[data-ordem="desc"]::after {
+  content: " ▼";
+  font-size: 0.75em;
+}
+
 /* Grade dos cards de ordem: até 4 por linha, cada card com pelo menos 270px (menos colunas em tela estreita) */
 .grade-ordens {
   display: grid;

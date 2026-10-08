@@ -1,5 +1,36 @@
 import { buscarCodigo } from "./db-rodadas";
+import { getPool } from "./db";
 import type { CadastroSpec, DadosCadastro } from "./cadastros-spec";
+
+type Traz = Record<string, string | { campo: string; ref: string }>;
+type ItemRef = { cod: string; nm: string; dds?: Record<string, unknown> };
+
+const semZeros = (v: string) => (/^\d+$/.test(v) ? v.replace(/^0+(?=\d)/, "") : v);
+
+/** Itens de um cadastro pelos códigos (1 = 01), de uma vez. */
+async function itensPorCodigo(cad: string, codigos: string[]): Promise<Map<string, ItemRef>> {
+  const lista = [...new Set(codigos.map((c) => c.trim()).filter(Boolean))];
+  if (!lista.length) return new Map();
+  const { rows } = await getPool().query<ItemRef>(
+    `SELECT cod, nm, dds FROM cad_itm WHERE cad = $1 AND (cod = ANY($2::text[]) OR (cod ~ '^[0-9]+$' AND ltrim(cod, '0') = ANY($3::text[])))`,
+    [cad, lista, lista.map(semZeros)]
+  );
+  return new Map(rows.map((r) => [semZeros(r.cod), r]));
+}
+
+/** Campos que vêm junto do item referenciado: um campo dele, ou o nome do código guardado nele em outro cadastro. */
+async function preencherTraz(traz: Traz, item: ItemRef, dados: DadosCadastro, cache: Map<string, Map<string, ItemRef>>) {
+  for (const [k, origem] of Object.entries(traz)) {
+    if (typeof origem === "string") {
+      dados[k] = String(item.dds?.[origem] ?? "");
+      continue;
+    }
+    const cod = String(item.dds?.[origem.campo] ?? "").trim();
+    const chave = `${origem.ref}|${cod}`;
+    if (!cache.has(chave)) cache.set(chave, await itensPorCodigo(origem.ref, [cod]));
+    dados[k] = cache.get(chave)!.get(semZeros(cod))?.nm ?? String(item.dds?.[`${origem.campo}_nm`] ?? "");
+  }
+}
 
 /**
  * Colunas de um cadastro que apontam para outro cadastro (ex.: Região em
@@ -9,6 +40,7 @@ import type { CadastroSpec, DadosCadastro } from "./cadastros-spec";
  * digitado é aceito. Devolve a mensagem de erro, ou null se estiver tudo certo.
  */
 export async function resolverReferencias(spec: CadastroSpec, dados: DadosCadastro): Promise<string | null> {
+  const cache = new Map<string, Map<string, ItemRef>>();
   for (const col of spec.colunas) {
     if (!col.ref) continue;
     const valor = String(dados[col.chave] ?? "").trim();
@@ -25,7 +57,25 @@ export async function resolverReferencias(spec: CadastroSpec, dados: DadosCadast
     }
     dados[col.chave] = r.item.cod;
     dados[`${col.chave}_nm`] = r.item.nm;
-    for (const [k, campo] of Object.entries(col.traz ?? {})) dados[k] = String(r.item.dds?.[campo] ?? "");
+    if (col.traz) await preencherTraz(col.traz, r.item, dados, cache);
   }
   return null;
+}
+
+/**
+ * Na lista, a descrição das referências (e o que vem junto, como a Classificação da Operação) é lida na hora do
+ * cadastro de origem — assim acompanha o que mudou lá depois (ex.: Operações importadas de novo).
+ */
+export async function atualizarReferenciasDaLista(spec: CadastroSpec, itens: { dados: DadosCadastro }[]): Promise<void> {
+  const cache = new Map<string, Map<string, ItemRef>>();
+  for (const col of spec.colunas) {
+    if (!col.ref) continue;
+    const mapa = await itensPorCodigo(col.ref, itens.map((i) => String(i.dados[col.chave] ?? "")));
+    for (const i of itens) {
+      const ref = mapa.get(semZeros(String(i.dados[col.chave] ?? "").trim()));
+      if (!ref) continue;
+      i.dados[`${col.chave}_nm`] = ref.nm;
+      if (col.traz) await preencherTraz(col.traz, ref, i.dados, cache);
+    }
+  }
 }

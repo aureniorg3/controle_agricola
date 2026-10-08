@@ -16,6 +16,7 @@ export const CADASTROS: { slug: string; label: string }[] = [
   { slug: "classificacao-operacoes", label: "Classificação de Operações" },
   { slug: "operacoes", label: "Operações" },
   { slug: "grupos-operacoes", label: "Grupos de Operações" },
+  { slug: "recursos", label: "Recurso" },
   { slug: "tipos-despesa", label: "Tipos de Despesa" },
   { slug: "safras", label: "Safras" },
   { slug: "sistema-aplicacao", label: "Sistema de Aplicação" },

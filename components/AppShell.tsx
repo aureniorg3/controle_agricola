@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { nomeDaTela, podeAcessar } from "@/lib/menu";
 import { useEffect, useState, type ReactNode } from "react";
 import { IconMenu } from "./icons";
+import OrdenarTabelas from "./OrdenarTabelas";
 import Sidebar from "./Sidebar";
 
 interface UsuarioLogado {
@@ -46,6 +47,8 @@ export default function AppShell({ usuario, children }: { usuario?: UsuarioLogad
 
   return (
     <div className="app-shell-root flex h-screen w-full overflow-hidden bg-surface">
+      {/* clicar no título de uma coluna ordena qualquer tabela */}
+      <OrdenarTabelas />
       {mobileAberto && (
         <div
           className="fixed inset-0 z-40 bg-navy-950/60 md:hidden"

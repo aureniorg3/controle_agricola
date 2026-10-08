@@ -14,8 +14,11 @@ export interface ColunaCadastro {
   ref?: string;
   /** preenchida pelo sistema (ex.: descrição de uma referência): aparece na lista, não no formulário */
   derivada?: boolean;
-  /** com `ref`: outros campos do item referenciado que vêm junto ({ coluna deste cadastro: campo de lá }) */
-  traz?: Record<string, string>;
+  /**
+   * com `ref`: outros campos do item referenciado que vêm junto — { coluna deste cadastro: campo de lá } ou, quando o
+   * campo de lá é um código de outro cadastro, { coluna: { campo, ref } } para trazer o nome dele
+   */
+  traz?: Record<string, string | { campo: string; ref: string }>;
 }
 
 export interface CadastroSpec {
@@ -378,6 +381,19 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
     ],
   },
   {
+    slug: "recursos",
+    titulo: "Recurso",
+    arquivos: ["recurso", "recursos"],
+    obrigatorias: ["codigo", "descricao"],
+    codigo: (d) => texto(d.codigo),
+    nome: (d) => texto(d.descricao),
+    chaves: ["codigo"],
+    colunas: [
+      { chave: "codigo", rotulo: "Código", alinhar: "direita", largura: 110 },
+      { chave: "descricao", rotulo: "Descrição", largura: 360 },
+    ],
+  },
+  {
     slug: "grupos-operacoes",
     titulo: "Grupos de Operações",
     arquivos: ["grupos de operacoes", "grupo de operacoes", "grupos das operacoes"],
@@ -386,7 +402,7 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
     nome: (d) => texto(d.grupo),
     chaves: ["operacao"],
     colunas: [
-      { chave: "operacao", rotulo: "Operação (código)", alinhar: "direita", largura: 140, ref: "operacoes", traz: { classificacao: "codigo_2_nm" } },
+      { chave: "operacao", rotulo: "Operação (código)", alinhar: "direita", largura: 140, ref: "operacoes", traz: { classificacao: { campo: "codigo_2", ref: "classificacao-operacoes" } } },
       { chave: "operacao_nm", rotulo: "Operação", largura: 300, derivada: true },
       { chave: "classificacao", rotulo: "Classificação da Operação", largura: 190, derivada: true },
       { chave: "grupo", rotulo: "Grupo (Dashboard de Atividades)", largura: 240 },
