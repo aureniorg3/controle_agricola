@@ -96,7 +96,7 @@ export async function gerarRelatorioTerceiroPdf(d: DadosRelatorioTerceiro): Prom
       const tipo = corpo[data.row.index].tipo;
       if (tipo === "frente") {
         data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fillColor = [214, 220, 235];
+        data.cell.styles.fillColor = [226, 230, 235]; // subtotal da frente: cinza (padrão dos relatórios)
       } else if (tipo === "data") {
         data.cell.styles.fontStyle = "bold";
         data.cell.styles.fillColor = ALT_ROW;

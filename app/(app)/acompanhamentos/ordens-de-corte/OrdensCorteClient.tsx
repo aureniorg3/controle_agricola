@@ -1419,11 +1419,11 @@ export default function OrdensCorteClient({
                         <CelulasResumoDetalhado v={l} tchEstimadoNoAColher={l.tchAColherEstimado} />
                       </tr>
                     ))}
-                    <tr className="bg-navy-900 font-semibold text-white">
+                    <tr className="linha-subtotal border-b border-line">
                       <td className="px-3 py-0.5" colSpan={4}>
                         {grupo.frente} Total
                       </td>
-                      <CelulasResumoDetalhado v={grupo.subtotal} total />
+                      <CelulasResumoDetalhado v={grupo.subtotal} />
                     </tr>
                   </Fragment>
                 ))}

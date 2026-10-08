@@ -1007,7 +1007,7 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
           data.cell.styles.textColor = [255, 255, 255];
           data.cell.styles.fontStyle = "bold";
         } else if (subtotais.has(data.row.index)) {
-          data.cell.styles.fillColor = [210, 219, 232];
+          data.cell.styles.fillColor = [226, 230, 235]; // subtotal: cinza (padrão dos relatórios)
           data.cell.styles.fontStyle = "bold";
         } else if (data.row.index % 2 === 1) {
           data.cell.styles.fillColor = ALT_ROW;

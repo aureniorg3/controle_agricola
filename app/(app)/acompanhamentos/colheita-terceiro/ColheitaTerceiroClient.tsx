@@ -146,7 +146,7 @@ export default function ColheitaTerceiroClient({ nomeUsuario, ultimaData }: { no
                 const totF = totFrente(frente);
                 return (
                   <Fragment key={frente}>
-                    <tr className="bg-navy-900/10 font-semibold">
+                    <tr className="linha-subtotal">
                       <td className="px-3 py-1.5">{frente || "—"}</td>
                       <td className={num}>{fmtT(totF.ton)}</td>
                       <td className={num}>{totF.viagens}</td>

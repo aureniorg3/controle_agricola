@@ -8,7 +8,8 @@ const GREEN: Cor = [45, 138, 90];
 const ORANGE: Cor = [215, 123, 56];
 const LINE: Cor = [213, 219, 225];
 const INK: Cor = [20, 26, 36];
-const SUBTOTAL: Cor = [255, 246, 204];
+/** subtotal do grupo: cinza um tom acima da linha alternada (padrão dos relatórios) */
+const SUBTOTAL: Cor = [226, 230, 235];
 const MARGEM = 8;
 const CABECALHO = 17.4;
 const RODAPE = 14;

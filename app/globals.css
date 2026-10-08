@@ -177,6 +177,16 @@ tbody tr:hover {
   }
 }
 
+/* Subtotal (total de grupo) em todas as tabelas: cinza um tom acima da linha alternada (#F4F6F8); o total geral é azul */
+.linha-subtotal {
+  background-color: #e2e6eb;
+  color: rgb(var(--c-ink));
+  font-weight: 600;
+}
+.dark .linha-subtotal {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
 /* Ordenação das tabelas (components/OrdenarTabelas): título clicável e seta da coluna ordenada */
 table:not([data-sem-ordenar]) > thead > tr:last-child > th {
   cursor: pointer;

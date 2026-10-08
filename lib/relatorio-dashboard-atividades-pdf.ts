@@ -11,6 +11,8 @@ const LINE: Cor = [213, 219, 225];
 const INK: Cor = [20, 26, 36];
 const MUTED: Cor = [92, 102, 117];
 const ALT: Cor = [244, 246, 248];
+/** subtotal: cinza um tom acima da linha alternada (padrão de todos os relatórios) */
+const SUBTOTAL: Cor = [226, 230, 235];
 const GRUPO: Cor = [226, 232, 242];
 const DIA_REF: Cor = [220, 232, 251];
 const AZUL_KPI = { fundo: [238, 244, 253] as Cor, texto: [23, 58, 120] as Cor };
@@ -147,9 +149,15 @@ export async function gerarRelatorioDashboardAtividadesPdf(d: DashboardAtividade
           }
           return;
         }
-        if (tipo === "subtotal" || tipo === "total") {
-          c.cell.styles.fillColor = tipo === "total" ? NAVY_ESCURO : NAVY;
+        if (tipo === "total") {
+          c.cell.styles.fillColor = NAVY_ESCURO;
           c.cell.styles.textColor = [255, 255, 255];
+          c.cell.styles.fontStyle = "bold";
+          return;
+        }
+        if (tipo === "subtotal") {
+          c.cell.styles.fillColor = SUBTOTAL;
+          c.cell.styles.textColor = INK;
           c.cell.styles.fontStyle = "bold";
           return;
         }

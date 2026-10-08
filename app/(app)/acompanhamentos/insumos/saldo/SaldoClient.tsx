@@ -483,7 +483,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                       })()}
                     </tr>
                   ))}
-                  <tr className="border-t border-line bg-amber-50 font-bold text-ink" style={{ background: "#FFF6CC" }}>
+                  <tr className="linha-subtotal border-t border-line font-bold">
                     <td className="px-2 py-1" colSpan={4}>
                       {g.grp.trim()} · {g.grpDs.trim()} — total
                     </td>

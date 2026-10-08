@@ -308,10 +308,10 @@ function Linha({
     impar: "bg-card text-ink",
     par: "bg-surface text-ink",
     destaque: "bg-brand-50 font-bold text-navy-900",
-    subtotal: "bg-navy-900 font-semibold text-white",
+    subtotal: "linha-subtotal",
     total: "bg-navy-950 font-bold text-white",
   }[estilo];
-  const escuro = estilo === "subtotal" || estilo === "total";
+  const escuro = estilo === "total";
   return (
     <tr className={`border-b border-line/60 ${linha}`}>
       <td className={`truncate py-1 pr-3 ${recuo ? "pl-6" : "pl-3"}`}>{rotulo}</td>
