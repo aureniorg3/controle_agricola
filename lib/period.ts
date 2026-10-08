@@ -550,3 +550,18 @@ export function resumoDiarioMes(
   const totalMeta = round2(dias.reduce((s, x) => s + x.totalMeta, 0));
   return { mes, frentes, dias, totais, totalT, totalMeta };
 }
+
+/**
+ * Produção da área colhida apontada: só a cana dos talhões que já têm área colhida lançada, e essa área.
+ * O TCH realizado da área colhida é ton ÷ área (talhão colhido sem apontamento de área não entra).
+ */
+export function calcProducaoAreaColhida(ordem: OrdemCorte, referencia: string): { t: number; areaHa: number; tch: number } {
+  let t = 0;
+  let areaHa = 0;
+  for (const tl of ordem.talhoes) {
+    if (!(tl.areaColhidaHa > 0)) continue;
+    areaHa += tl.areaColhidaHa;
+    t += calcTalhaoEntradaPeriodo(ordem, tl, "safra", referencia);
+  }
+  return { t: Math.round(t * 100) / 100, areaHa: Math.round(areaHa * 100) / 100, tch: areaHa > 0 ? Math.round((t / areaHa) * 100) / 100 : 0 };
+}

@@ -6,6 +6,7 @@ import {
   addDays,
   calcAcumSafraT,
   calcAreaColhidaHa,
+  calcProducaoAreaColhida,
   calcAreaTotalHa,
   calcOrdemMetrics,
   calcTalhaoDiaAnterior,
@@ -209,7 +210,9 @@ function TchComparativo({
           </div>
         )}
         <div className={`${linha} bg-amber-50`}>
-          <span className="text-ink">TCH Médio Realizado</span>
+          <span className="text-ink" title="Entrada total de cana ÷ área total da ordem">
+            TCH Médio Realizado
+          </span>
           <span className="flex items-center gap-2">
             {variacao !== null && (
               <span className={`text-[10.5px] ${variacao >= 0 ? "text-good-600" : "text-alert-600"}`}>
@@ -805,10 +808,10 @@ export default function OrdensCorteClient({
         areaEncerradaHa += area;
       }
       areaColhidaHa += colhida;
-      if (colhida > 0) {
-        realT += calcAcumSafraT(o, referencia);
-        realArea += colhida;
-      }
+      // TCH realizado: só a cana dos talhões com área colhida apontada, sobre essa área
+      const pc = calcProducaoAreaColhida(o, referencia);
+      realT += pc.t;
+      realArea += pc.areaHa;
     }
     // A produção do dia é a da frente inteira (todas as ordens que batem com os filtros), a mesma do
     // Resumo por frente e do Resumo diário — não só das ordens marcadas para aparecer nos cards.
@@ -842,10 +845,10 @@ export default function OrdensCorteClient({
   const divergencias = useMemo(() => {
     const lista: { numero: string; real: number; est: number; pct: number }[] = [];
     for (const o of ordensFiltradas) {
-      const colhida = calcAreaColhidaHa(o);
       const est = tchEstimadoDe(o.numero);
-      if (colhida <= 0 || est === null || est <= 0) continue;
-      const real = calcAcumSafraT(o, referencia) / colhida;
+      // mesma base do quadro do card: produção dos talhões com área colhida apontada ÷ essa área
+      const real = calcProducaoAreaColhida(o, referencia).tch;
+      if (real <= 0 || est === null || est <= 0) continue;
       const pct = (real / est - 1) * 100;
       if (Math.abs(pct) > LIMITE_DIVERGENCIA_TCH_PCT) lista.push({ numero: o.numero, real, est, pct });
     }
@@ -1769,8 +1772,8 @@ function OrdemCard({
 }) {
   const m = calcOrdemMetrics(ordem, period, referencia);
   const areaColhidaHa = calcAreaColhidaHa(ordem);
-  // TCH médio realizado: tonelada entregue ÷ área colhida apontada
-  const tchMedio = areaColhidaHa > 0 ? Math.round((m.acumSafraT / areaColhidaHa) * 100) / 100 : 0;
+  // TCH médio realizado (quadro): produção que entrou pela área colhida apontada ÷ essa área
+  const tchMedio = calcProducaoAreaColhida(ordem, referencia).tch;
   const progresso = m.areaTotalHa > 0 ? Math.min(100, Math.round((areaColhidaHa / m.areaTotalHa) * 100)) : 0;
   const diaAnteriorIso = addDays(referencia, -1);
   const totalDiaAnteriorT =
@@ -1881,7 +1884,7 @@ function OrdemCard({
             </div>
             <TchComparativo
               areaOrdemHa={m.areaTotalHa}
-              tchGeralAtual={tchMedio}
+              tchGeralAtual={m.tchGeralRealizado}
               safraAtual={safraAtual}
               safrasAnteriores={safrasAnteriores}
               historico={historico}

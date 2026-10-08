@@ -718,7 +718,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 <input data-nav value={form.numPessoas} onChange={(e) => upd({ numPessoas: e.target.value.replace(/\D/g, "") })} inputMode="numeric" className={`${INPUT} text-right tabular`} />
               </div>
               <div>
-                <label className={ROTULO}>Vazão recomendada (L/ha)</label>
+                <label className={ROTULO}>Vazão Recom. (L/ha)</label>
                 <input data-nav value={form.vazaoRec} onChange={(e) => upd({ vazaoRec: e.target.value })} inputMode="decimal" className={`${INPUT} text-right tabular`} />
               </div>
               <div>

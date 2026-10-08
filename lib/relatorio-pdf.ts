@@ -3,6 +3,7 @@ import {
   addDays,
   calcAreaColhidaHa,
   calcOrdemMetrics,
+  calcProducaoAreaColhida,
   calcTalhaoDiaAnterior,
   calcTalhaoDiaAtualAte6h,
   calcTalhaoEntradaPeriodo,
@@ -210,7 +211,8 @@ function montarCardOrdem(
   const m = calcOrdemMetrics(ordem, period, referencia);
   const areaColhidaHa = calcAreaColhidaHa(ordem);
   // TCH médio realizado: tonelada entregue ÷ área colhida apontada
-  const tchMedio = areaColhidaHa > 0 ? round2(m.acumSafraT / areaColhidaHa) : 0;
+  // quadro: produção que entrou pela área colhida apontada ÷ essa área; linha do bloco de TCH: entrada total ÷ área da ordem
+  const tchMedio = calcProducaoAreaColhida(ordem, referencia).tch;
   const progresso = m.areaTotalHa > 0 ? Math.min(100, Math.round((areaColhidaHa / m.areaTotalHa) * 100)) : 0;
   const diaAnteriorIso = addDays(referencia, -1);
   const totalDiaAnteriorT = round2(
@@ -242,7 +244,7 @@ function montarCardOrdem(
               },
             ]
           : []),
-        { texto: "TCH Médio Realizado", valor: fmtTch(tchMedio), fundo: [255, 243, 224] },
+        { texto: "TCH Médio Realizado", valor: fmtTch(m.tchGeralRealizado), fundo: [255, 243, 224] },
       ]
     : [];
   const alturaLinhaTch = 3.3;
