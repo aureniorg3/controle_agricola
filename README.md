@@ -8,7 +8,7 @@ base é sempre o retrato mais recente dos 2 arquivos.
 
 ## Stack
 
-- **Next.js 16** (App Router, Turbopack) + **TypeScript** + **Tailwind CSS**
+- **Next.js 16** (App Router, Turbopack) + **JavaScript** (.js/.jsx; até out/2026 era TypeScript) + **Tailwind CSS**
   — exige **Node 20.9+** (fixado em `package.json` → `engines.node`)
 - Persistência em **Postgres** (driver oficial `pg`, sem ORM) — tabelas
   normais (`usr`, `ord`, `tlh`, `ent_dia`,
@@ -16,7 +16,7 @@ base é sempre o retrato mais recente dos 2 arquivos.
   deploys/restarts. Ver `supabase/schema.sql` (DDL completo, rode no SQL
   Editor do Supabase **antes do primeiro uso** — a aplicação não cria as
   tabelas sozinha, só semeia o usuário admin padrão se `usr` estiver
-  vazia) e `lib/db.ts` (as consultas). Usamos o tier **grátis** do
+  vazia) e `lib/db.js` (as consultas). Usamos o tier **grátis** do
   [Supabase](https://supabase.com) — ver `DATABASE_URL` na seção "Deploy no
   Render" abaixo.
   - **Por que trocamos de um arquivo local (`data/db.json`) pra isso:** o
@@ -96,8 +96,8 @@ seguir os passos:
 4. **Sem `DATABASE_URL` o sistema não funciona de verdade** (não é mais um
    fallback silencioso pra um arquivo local): toda leitura/gravação falha, e
    qualquer admin logado vê uma faixa vermelha no topo de toda tela
-   (`diagnosticoArmazenamento()` em `lib/db.ts`, checado em
-   `app/(app)/layout.tsx`), além do aviso no log do serviço assim que o
+   (`diagnosticoArmazenamento()` em `lib/db.js`, checado em
+   `app/(app)/layout.jsx`), além do aviso no log do serviço assim que o
    processo sobe. **Importante:** usuários cadastrados, ordens importadas e
    a seleção de quais ordens aparecem na tela são **sempre globais** (um
    único documento compartilhado por todo mundo que acessa o sistema — não
@@ -115,9 +115,9 @@ seguir os passos:
 
 ## Login
 
-O sistema agora exige login (`middleware.ts` + `app/(app)/layout.tsx`). O
+O sistema agora exige login (`middleware.js` + `app/(app)/layout.jsx`). O
 campo de login aceita **e-mail OU nome de usuário** — qualquer um dos dois
-funciona (`getUsuarioPorIdentificador` em `lib/db.ts`). Um usuário
+funciona (`getUsuarioPorIdentificador` em `lib/db.js`). Um usuário
 administrador é criado automaticamente na primeira vez que o sistema
 consulta a tabela `usuarios` e ela está vazia:
 
@@ -147,12 +147,12 @@ desativa e exclui usuários. Três níveis, cada um contendo o anterior:
 | **Administrador** | Tudo de Gravação, mais gerenciar usuários (criar, editar nível/senha, desativar, excluir). |
 
 A permissão é checada **nos dois lados**: a tela esconde/desativa o que o
-nível não permite (`lib/permissoes.ts`, `podeEditar`/`ehAdmin`), e cada rota
+nível não permite (`lib/permissoes.js`, `podeEditar`/`ehAdmin`), e cada rota
 de API que grava dado confere de novo antes de gravar (`usuarioDaRequisicao`
-em `lib/db.ts`) — esconder o botão na tela nunca é, sozinho, controle de
+em `lib/db.js`) — esconder o botão na tela nunca é, sozinho, controle de
 acesso de verdade.
 
-Travas de segurança em `updateUsuario`/`deleteUsuario` (`lib/db.ts`): ninguém
+Travas de segurança em `updateUsuario`/`deleteUsuario` (`lib/db.js`): ninguém
 desativa, rebaixa ou exclui o próprio usuário logado, e o último administrador
 ativo não pode ser desativado, rebaixado nem excluído — promova outro usuário
 a admin antes.
@@ -164,16 +164,16 @@ consegue mais logar; é reversível a qualquer momento. Excluir é definitivo.
 campos (Nome e Sobrenome), mais e-mail e um **nome de usuário** (login
 alternativo — 3-30 caracteres: letras, números, ponto, hífen ou underscore).
 A senha **não é digitada por quem cadastra** — o sistema gera uma senha
-provisória sozinha (`gerarSenhaProvisoria` em `lib/auth.ts`) e mostra na tela
+provisória sozinha (`gerarSenhaProvisoria` em `lib/auth.js`) e mostra na tela
 na hora de criar, pra quem cadastrou repassar manualmente (não há envio
 automático por e-mail). No primeiro login com essa senha (ou depois de um
 admin resetar a senha de alguém em Editar), o sistema obriga a trocar por uma
 definitiva em `/trocar-senha` antes de liberar qualquer outra tela
-(`precisaTrocarSenha` em `Usuario`, checado em `app/(app)/layout.tsx`) —
+(`precisaTrocarSenha` em `Usuario`, checado em `app/(app)/layout.jsx`) —
 trocar a própria senha não ativa essa trava, só quando é OUTRA pessoa (um
 admin) quem define a senha. Todo campo de senha (login, trocar senha,
 cadastro/edição de usuário) tem um botão de olho pra mostrar/ocultar o que
-foi digitado (`InputSenha` em `components/ui.tsx`).
+foi digitado (`InputSenha` em `components/ui.jsx`).
 
 ## O que já funciona no Acompanhamento de Ordens de Corte
 
@@ -191,8 +191,8 @@ foi digitado (`InputSenha` em `components/ui.tsx`).
   não é único nesse caso (ex.: talhão "1" pode existir em duas fazendas
   diferentes da mesma ordem). O card mostra cada fazenda como uma seção
   separada na tabela de talhões (a chave real é fazenda+talhão, tanto no
-  cadastro quanto na entrada diária — ver `TalhaoOrdem`/`EntradaDiaria` em
-  `lib/types.ts`).
+  cadastro quanto na entrada diária — ver `lib/import-pesagem.js` e
+  `lib/period.js`).
 - Filtro de período **Dia / Semana / Mês / Safra**: controla os KPIs do topo
   e a "Entrada no período" de cada card — Dia, Semana e Mês somam a entrada
   real de cana dentro do intervalo; Safra mostra o acumulado corrido desde o
@@ -229,7 +229,7 @@ foi digitado (`InputSenha` em `components/ui.tsx`).
   critério de escopo do resumo por frente: todas as ordens do filtro atual,
   não só as selecionadas. Seguida de um gráfico de barras de Produção Total
   (t) por frente (`resumoDetalhadoPorOrdemFazenda`/`LinhaResumoDetalhado` em
-  `lib/period.ts`).
+  `lib/period.js`).
 - **Imprimir / PDF**: baixa um PDF completo seguindo o padrão visual CRV
   Industrial (cabeçalho azul `#23396B` com filete verde e logo da empresa,
   tabelas com cabeçalho azul/linhas alternadas/linha de total em azul) — a
@@ -239,7 +239,7 @@ foi digitado (`InputSenha` em `components/ui.tsx`).
   o conteúdo cresce. Cabeçalho com título + safra + data de referência, e
   rodapé em toda página — empresa/usuário/data-hora à esquerda, nome do
   relatório ao centro, "Página X de Y" à direita. Gerado no navegador
-  (`jspdf` + `jspdf-autotable`, ver `lib/relatorio-pdf.ts`), sem precisar de
+  (`jspdf` + `jspdf-autotable`, ver `lib/relatorio-pdf.js`), sem precisar de
   servidor; abra o PDF baixado pra imprimir.
 - **Inserir Ordem**: a importação traz a safra inteira (centenas de ordens),
   mas a tela só mostra as que forem escolhidas manualmente — digite o número
@@ -270,7 +270,7 @@ de uma vez:
 1. **"Ordem de Colheita.xlsx"** — cadastro das ordens: número, frente,
    fazenda (código/nome), proprietário, status (Aberta/Encerrada), tipo de
    cana, data de queima e a lista de talhões com área (ha) de cada ordem.
-   Parseado por `parseOrdemColheita` em [lib/import-pesagem.ts](lib/import-pesagem.ts),
+   Parseado por `parseOrdemColheita` em [lib/import-pesagem.ts](lib/import-pesagem.js),
    que separa o arquivo em blocos (cada bloco começa numa linha
    `"Ordem de Colheita"`) e lê os sub-campos de cada um.
 2. **"Relatório de Pesagem de Cana"** (ex.: `RSC0907R-275.xlsx`) — uma linha
@@ -289,7 +289,7 @@ de uma vez:
 Como o processamento funciona:
 
 - O arquivo 2 é lido **em streaming, linha a linha**
-  (`agregarPesagem` em [lib/import-pesagem.ts](lib/import-pesagem.ts), via
+  (`agregarPesagem` em [lib/import-pesagem.ts](lib/import-pesagem.js), via
   `exceljs`) — para cada viagem, confere se a "Liberação" é uma ordem
   cadastrada no arquivo 1 e já agrega direto em (ordem, data, fazenda,
   talhão), sem guardar cada viagem num array à parte (o arquivo pode chegar
@@ -305,7 +305,7 @@ Como o processamento funciona:
 - A importação é **substituição total**: os 2 arquivos são sempre a
   exportação completa da safra corrente (não deltas diários), então cada
   importação **zera e recria** a base inteira de ordens (`substituirOrdens`
-  em [lib/db.ts](lib/db.ts)), gravando o timestamp em `ultimaImportacao`.
+  em [lib/db.ts](lib/db.js)), gravando o timestamp em `ultimaImportacao`.
   Rodar o processo diariamente com os 2 arquivos mais recentes é o fluxo
   esperado.
 - Ao final, o modal mostra `totalOrdens`, `totalViagens` e
@@ -329,61 +329,65 @@ esperado e reflete o que veio dos 2 arquivos, não um erro de cálculo.
 ## Estrutura
 
 ```
-middleware.ts                    gate leve (checa cookie) antes de cada rota
+middleware.js                    gate leve (checa cookie) antes de cada rota
 app/
-  layout.tsx                     layout raiz (html/body, sem menu)
+  layout.jsx                     layout raiz (html/body, sem menu)
   login/
-    page.tsx                     redireciona pra dentro se já logado
-    LoginForm.tsx                formulário de login
+    page.jsx                     redireciona pra dentro se já logado
+    LoginForm.jsx                formulário de login
   trocar-senha/
-    page.tsx                     só acessível com sessão + precisaTrocarSenha
-    TrocarSenhaForm.tsx          formulário de nova senha
+    page.jsx                     só acessível com sessão + precisaTrocarSenha
+    TrocarSenhaForm.jsx          formulário de nova senha
   (app)/                         grupo de rotas autenticadas (mesma URL, só
                                   organização de pastas — não aparece no link)
-    layout.tsx                   valida a sessão de verdade e renderiza o menu
-    page.tsx                     redireciona para Ordens de Corte
+    layout.jsx                   valida a sessão de verdade e renderiza o menu
+    page.jsx                     redireciona para Ordens de Corte
     acompanhamentos/ordens-de-corte/
-      page.tsx                   carrega os dados no servidor
-      OrdensCorteClient.tsx      tela inteira (filtros, cards, modais)
+      page.jsx                   carrega os dados no servidor
+      OrdensCorteClient.jsx      tela inteira (filtros, cards, modais)
     configuracoes/cadastros/
-      page.tsx                   busca o usuário logado; só admin vê a tela
-      UsuariosClient.tsx         tabela de usuários + modais novo/editar
+      page.jsx                   busca o usuário logado; só admin vê a tela
+      UsuariosClient.jsx         tabela de usuários + modais novo/editar
     painel/, contencioso/, agricultura/, planejamento/
                                   demais itens do menu (em construção)
   api/
     ordens-corte/
-      route.ts                   GET (listar ordens + ordensVisiveis)
-      importar/route.ts          POST (importa os 2 arquivos, exige gravação+)
-      visiveis/route.ts          POST/DELETE (marca/desmarca ordem pra exibir, exige gravação+)
-      area-colhida/route.ts      POST (lança área colhida por ordem/talhão, exige gravação+)
+      route.js                   GET (listar ordens + ordensVisiveis)
+      importar/route.js          POST (importa os 2 arquivos, exige gravação+)
+      visiveis/route.js          POST/DELETE (marca/desmarca ordem pra exibir, exige gravação+)
+      area-colhida/route.js      POST (lança área colhida por ordem/talhão, exige gravação+)
     usuarios/
-      route.ts                   GET (listar) / POST (criar) — só admin
-      [id]/route.ts              PATCH (editar) / DELETE (excluir) — só admin
+      route.js                   GET (listar) / POST (criar) — só admin
+      [id]/route.js              PATCH (editar) / DELETE (excluir) — só admin
     auth/
-      login/route.ts             POST — confere e-mail/senha, grava cookie
-      logout/route.ts            POST — limpa o cookie
-      me/route.ts                GET — usuário da sessão atual
-      trocar-senha/route.ts      POST — troca a senha provisória, limpa precisaTrocarSenha
+      login/route.js             POST — confere e-mail/senha, grava cookie
+      logout/route.js            POST — limpa o cookie
+      me/route.js                GET — usuário da sessão atual
+      trocar-senha/route.js      POST — troca a senha provisória, limpa precisaTrocarSenha
 components/
-  Sidebar.tsx                    menu lateral (cores CRV Industrial) + usuário/sair
-  PlaceholderPage.tsx            tela-padrão dos módulos ainda não construídos
-  ui.tsx                         ModalShell e Campo, compartilhados entre telas
+  AppShell.jsx                   estrutura: barra superior, menu lateral, busca de telas (Ctrl K)
+  BarraSuperior.jsx              barra azul CRV: menu, busca, tema, usuário/sair, logo
+  MenuLateral.jsx                menu lateral claro, recolhível (ícones + lista ao lado)
+  PaletaComandos.jsx             busca de telas (Ctrl K) com as abertas por último
+  pagina.jsx                     blocos das telas: CabecalhoPagina (barra de comandos +
+                                  trilha + título), Comando, CorpoPagina, BarraFiltros,
+                                  Painel, Indicador, Abas, Selo
+  PlaceholderPage.jsx            tela-padrão dos módulos ainda não construídos
+  ui.jsx                         ModalShell e Campo, compartilhados entre telas
 lib/
-  types.ts                       modelo de dados (OrdemCorte, TalhaoOrdem, EntradaDiaria,
-                                  PerfilUsuario, UsuarioPublico)
-  db.ts                          persistência em data/db.json + substituirOrdens() +
+  db.js                          persistência em data/db.json + substituirOrdens() +
                                   CRUD de usuários + usuarioAtual()/usuarioDaRequisicao()
-  permissoes.ts                  podeEditar()/ehAdmin() — checados na tela E na API
-  import-pesagem.ts              parseOrdemColheita + agregarPesagem() (streaming,
+  permissoes.js                  podeEditar()/ehAdmin() — checados na tela E na API
+  import-pesagem.js              parseOrdemColheita + agregarPesagem() (streaming,
                                   "Liberação" já é a ordem) + montarOrdens()
-  auth.ts                        hash de senha, senha provisória e cookie de sessão
-  period.ts                      cálculo de dia/semana/mês/safra a partir de EntradaDiaria
-  format.ts                      formatação de número/data em pt-BR
+  auth.js                        hash de senha, senha provisória e cookie de sessão
+  period.js                      cálculo de dia/semana/mês/safra a partir de EntradaDiaria
+  format.js                      formatação de número/data em pt-BR
 ```
 
 ## Cores
 
-A paleta (`tailwind.config.ts`, grupo `navy`/`brand`) foi ajustada para bater
+A paleta (`tailwind.config.js`, grupo `navy`/`brand`) foi ajustada para bater
 com o padrão visual do outro sistema da CRV Industrial (menu lateral azul-marinho,
 cartões brancos, indicador verde "Salvo no servidor", destaques em azul).
 
