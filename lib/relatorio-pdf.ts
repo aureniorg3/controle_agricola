@@ -11,6 +11,8 @@ import {
   quinzenaRange,
   startOfMonth,
   startOfWeekMonday,
+  deltaTchPct,
+  fmtDeltaPct,
 } from "./period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev } from "./format";
 import { agruparClimaPorEstacao, itensClima, rotuloClima, type ClimaResp } from "./clima";
@@ -933,16 +935,19 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     nDet(l.areaColhidaHa, fmtHa),
     nDet(l.producaoTotalT, fmtT),
     nDet(l.tchRealParcial, fmtTch),
+    fmtDeltaPct(deltaTchPct(l)),
     nDet(l.areaAColherHa, fmtHa),
     `${nDet(l.tchAColher, fmtTch)}${estimadoNoAColher ? "*" : ""}`,
     nDet(l.tonAColher, fmtT),
     nDet(l.tonProjetada, fmtT),
   ];
-  const BLOCOS_DETALHE: { titulo: string; cor: [number, number, number] }[] = [
-    { titulo: "Estimado", cor: [26, 58, 99] },
-    { titulo: "Realizado", cor: [22, 100, 48] },
-    { titulo: "A colher", cor: [184, 101, 43] },
+  const BLOCOS_DETALHE: { titulo: string; cor: [number, number, number]; colunas: number }[] = [
+    { titulo: "Estimado", cor: [26, 58, 99], colunas: 3 },
+    { titulo: "Realizado", cor: [22, 100, 48], colunas: 4 },
+    { titulo: "A colher", cor: [184, 101, 43], colunas: 3 },
   ];
+  /** coluna do Delta % TCH (verde ganho, vermelho perda) */
+  const COL_DELTA = 10;
 
   /** Desenha as frentes `grupos` (com total geral, se pedido) em `d`, na coluna que começa em `x` com `largura`. */
   function desenharDetalhado(
@@ -975,19 +980,19 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
       0: { minCellWidth: 26 },
       3: { minCellWidth: 44 },
     };
-    for (let c = 4; c <= 13; c++) numericas[c] = { halign: "right" };
+    for (let c = 4; c <= 14; c++) numericas[c] = { halign: "right" };
     autoTable(d, {
       startY: topo,
       head: [
         [
           { content: "", colSpan: 4 },
-          ...BLOCOS_DETALHE.map((b) => ({ content: b.titulo, colSpan: 3, styles: { halign: "center" as const, fillColor: b.cor } })),
+          ...BLOCOS_DETALHE.map((b) => ({ content: b.titulo, colSpan: b.colunas, styles: { halign: "center" as const, fillColor: b.cor } })),
           { content: "Projetado", styles: { halign: "center" as const, fillColor: [8, 36, 66] as [number, number, number] } },
         ],
         [
           "Frente", "Ordem", "Fazenda", "Descrição Fazenda",
           "Área Total OC (ha)", "TCH Est. (t/ha)", "Ton Est. (t)",
-          "Área Colhida (ha)", "Produção Acum. (t)", "TCH Parcial (t/ha)",
+          "Área Colhida (ha)", "Produção Acum. (t)", "TCH Parcial (t/ha)", "Delta % TCH x Est.",
           "Área a Colher (ha)", "TCH (t/ha)", "Ton (t)",
           "Ton Projetada (t)",
         ],
@@ -1011,6 +1016,12 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
           data.cell.styles.fontStyle = "bold";
         } else if (data.row.index % 2 === 1) {
           data.cell.styles.fillColor = ALT_ROW;
+        }
+        if (data.column.index === COL_DELTA && data.row.index !== indiceTotalGeral) {
+          const t = String(data.cell.raw ?? "");
+          if (t.startsWith("+")) data.cell.styles.textColor = [22, 100, 48];
+          else if (t.startsWith("-")) data.cell.styles.textColor = [178, 60, 43];
+          data.cell.styles.fontStyle = "bold";
         }
       },
       margin: { top: 22, left: x, right: pageWidth - x - largura, bottom: RODAPE_ALTURA },

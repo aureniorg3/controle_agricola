@@ -166,6 +166,20 @@ export interface LinhaResumoDetalhado extends TotaisResumoDetalhado {
   tchAColherEstimado: boolean;
 }
 
+/**
+ * Variação da produtividade realizada sobre a estimada: (TCH parcial — cana entregue ÷ área colhida — ÷ TCH estimado − 1)
+ * em %; positivo é ganho, negativo é perda. Sem os dois TCHs, null.
+ */
+export function deltaTchPct(v: Pick<TotaisResumoDetalhado, "tchEst" | "tchRealParcial">): number | null {
+  return v.tchEst && v.tchEst > 0 && v.tchRealParcial > 0 ? round2((v.tchRealParcial / v.tchEst - 1) * 100) : null;
+}
+
+/** "+12,3%" / "-8,4%" (uma casa) ou "–". */
+export function fmtDeltaPct(p: number | null): string {
+  if (p === null) return "–";
+  return `${p > 0 ? "+" : ""}${p.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
 /** Soma linhas do resumo detalhado (TCHs ponderados pela área de cada um). */
 export function totaisResumoDetalhado(linhas: TotaisResumoDetalhado[]): TotaisResumoDetalhado {
   let areaTotalHa = 0, areaComEst = 0, tonEst = 0, areaColhidaHa = 0, producaoTotalT = 0, areaAColherHa = 0, tonAColher = 0, tonProjetada = 0;
