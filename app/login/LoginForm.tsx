@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import TelaAcesso from "@/components/TelaAcesso";
 import { InputSenha } from "@/components/ui";
 
 export default function LoginForm() {
@@ -38,71 +38,59 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface px-4">
-      <div className="w-full max-w-[380px]">
-        <div className="mb-6 flex flex-col items-center gap-3">
-          <Link href="/" aria-label="Ir para o início">
-            <img src="/logo-crv-azul.png" alt="CRV Industrial" className="h-auto w-64 dark:hidden" />
-            <img src="/logo-crv-branca.png" alt="CRV Industrial" className="hidden h-auto w-64 dark:block" />
-          </Link>
-          <div className="text-center text-[12px] text-muted">
-            Controle Agrícola · Unidade Capinópolis-MG
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="rounded-xl2 border border-line bg-card p-6 shadow-card">
-          <h1 className="mb-1 text-[16px] font-bold text-ink">Entrar</h1>
-          <p className="mb-5 text-[12.5px] text-muted">
-            Acesse com seu e-mail (ou usuário) e senha cadastrados.
-          </p>
-
-          <label className="mb-1 block text-[12px] font-medium text-ink" htmlFor="identificador">
-            E-mail ou usuário
-          </label>
-          <input
-            id="identificador"
-            type="text"
-            autoComplete="username"
-            required
-            autoFocus
-            value={identificador}
-            onChange={(e) => setIdentificador(e.target.value)}
-            className="input mb-3"
-            placeholder="seu.email@crv.com.br ou usuário"
-          />
-
-          <label className="mb-1 block text-[12px] font-medium text-ink" htmlFor="senha">
-            Senha
-          </label>
-          <InputSenha
-            id="senha"
-            autoComplete="current-password"
-            required
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            className="input mb-4"
-            placeholder="••••••••"
-          />
-
-          {erro && (
-            <div className="mb-4 rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">
-              {erro}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={carregando}
-            className="w-full rounded-lg bg-navy-900 px-3 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-navy-800 disabled:opacity-60"
-          >
-            {carregando ? "Entrando..." : "Entrar"}
-          </button>
-        </form>
-
-        <p className="mt-4 text-center text-[11.5px] text-muted">
-          Problemas para acessar? Fale com o administrador do sistema.
+    <TelaAcesso>
+      <form onSubmit={handleSubmit} className="rounded-xl2 border border-line bg-card p-6 shadow-card">
+        <h1 className="mb-1 font-display text-[26px] font-semibold leading-tight text-ink">Entrar</h1>
+        <p className="mb-5 text-[12.5px] text-muted">
+          Acesse com seu e-mail (ou usuário) e senha cadastrados.
         </p>
-      </div>
-    </div>
+
+        <label className="mb-1 block text-[12px] font-medium text-ink" htmlFor="identificador">
+          E-mail ou usuário
+        </label>
+        <input
+          id="identificador"
+          type="text"
+          autoComplete="username"
+          required
+          autoFocus
+          value={identificador}
+          onChange={(e) => setIdentificador(e.target.value)}
+          className="input mb-3"
+          placeholder="seu.email@crv.com.br ou usuário"
+        />
+
+        <label className="mb-1 block text-[12px] font-medium text-ink" htmlFor="senha">
+          Senha
+        </label>
+        <InputSenha
+          id="senha"
+          autoComplete="current-password"
+          required
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          className="input mb-4"
+          placeholder="••••••••"
+        />
+
+        {erro && (
+          <div className="mb-4 rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">
+            {erro}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={carregando}
+          className="w-full rounded-lg bg-navy-900 px-3 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-navy-800 disabled:opacity-60"
+        >
+          {carregando ? "Entrando..." : "Entrar"}
+        </button>
+      </form>
+
+      <p className="mt-4 text-center text-[11.5px] text-muted">
+        Problemas para acessar? Fale com o administrador do sistema.
+      </p>
+    </TelaAcesso>
   );
 }

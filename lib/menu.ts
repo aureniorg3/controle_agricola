@@ -232,3 +232,33 @@ export function nomeDaTela(pathname: string): string | null {
   SECOES_MENU.forEach((s) => s.items.forEach((i) => visitar(i, null)));
   return (melhor as { href: string; nome: string } | null)?.nome ?? null;
 }
+
+/**
+ * Onde a tela fica no menu — seção e grupos acima dela ("Operação Agrícola › Insumos") — para a trilha do cabeçalho
+ * das telas. Inclui as telas só de administrador. Null quando o endereço não é uma tela do menu.
+ */
+export function caminhoDaTela(pathname: string): { secao: string; grupos: string[]; label: string } | null {
+  if (pathname === "/" || casa(pathname, "/painel")) return { secao: "", grupos: [], label: ITEM_INICIO.label };
+  let melhor: { href: string; secao: string; grupos: string[]; label: string } | null = null;
+  const visitar = (item: ItemMenu, secao: string, grupos: string[]) => {
+    const atual = melhor as { href: string } | null;
+    if (item.href && casa(pathname, item.href) && (!atual || item.href.length > atual.href.length)) {
+      melhor = { href: item.href, secao, grupos, label: item.label };
+    }
+    item.children?.forEach((c) => visitar(c, secao, [...grupos, item.label]));
+  };
+  SECOES_MENU.forEach((s) => s.items.forEach((i) => visitar(i, s.title, [])));
+  const achado = melhor as { secao: string; grupos: string[]; label: string } | null;
+  return achado ? { secao: achado.secao, grupos: achado.grupos, label: achado.label } : null;
+}
+
+/** Todas as telas de um menu (já filtrado para o usuário), com a seção e os grupos acima — para a busca de telas. */
+export function telasParaBusca(secoes: SecaoMenu[]): { href: string; label: string; caminho: string[] }[] {
+  const lista: { href: string; label: string; caminho: string[] }[] = [{ href: ITEM_INICIO.href!, label: ITEM_INICIO.label, caminho: [] }];
+  const visitar = (item: ItemMenu, caminho: string[]) => {
+    if (item.href && !lista.some((t) => t.href === item.href)) lista.push({ href: item.href, label: item.label, caminho });
+    item.children?.forEach((c) => visitar(c, [...caminho, item.label]));
+  };
+  secoes.forEach((s) => s.items.forEach((i) => visitar(i, [s.title])));
+  return lista;
+}

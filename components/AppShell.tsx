@@ -2,25 +2,21 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { nomeDaTela, podeAcessar } from "@/lib/menu";
-import { useEffect, useState, type ReactNode } from "react";
-import { IconMenu } from "./icons";
+import { filtrarMenu, nomeDaTela, podeAcessar, SECOES_MENU, telaDoEndereco } from "@/lib/menu";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import BarraSuperior, { type UsuarioLogado } from "./BarraSuperior";
+import MenuLateral from "./MenuLateral";
 import OrdenarTabelas from "./OrdenarTabelas";
-import Sidebar from "./Sidebar";
+import { ContextoVoltar } from "./pagina";
+import PaletaComandos, { registrarRecente } from "./PaletaComandos";
 
-interface UsuarioLogado {
-  nome: string;
-  email: string;
-  perfil: string;
-  /** telas liberadas (Parâmetros → Usuários); null = todas */
-  acessos?: string[] | null;
-}
+const CHAVE_RECOLHIDO = "ca_menu_recolhido";
 
 function SemAcesso() {
   return (
     <div className="flex flex-1 items-center justify-center px-6">
       <div className="max-w-md rounded-xl2 border border-line bg-card px-8 py-10 text-center shadow-card">
-        <h1 className="text-[16px] font-semibold text-ink">Esta tela não está liberada para você</h1>
+        <h1 className="font-display text-[20px] font-semibold text-ink">Esta tela não está liberada para você</h1>
         <p className="mt-2 text-[13px] leading-relaxed text-muted">
           O acesso às telas é definido pelo administrador em Parâmetros → Usuários. Se precisar dela, peça a liberação.
         </p>
@@ -33,72 +29,101 @@ function SemAcesso() {
 }
 
 /**
- * Dono do estado "menu mobile aberto/fechado" — vive aqui (não dentro do
- * Sidebar) porque o botão de abrir precisa continuar visível mesmo com o
- * menu fora da tela (`-translate-x-full`); se estivesse dentro do próprio
- * Sidebar, o botão sumiria junto com ele.
+ * Estrutura do sistema: barra superior azul CRV (menu, busca de telas, tema, usuário, logo), menu lateral claro
+ * (recolhível; gaveta no celular) e a tela ao lado. Também guarda as telas visitadas nesta aba, para o Voltar da
+ * barra de comandos de cada tela.
  */
 export default function AppShell({ usuario, children }: { usuario?: UsuarioLogado; children: ReactNode }) {
-  const [mobileAberto, setMobileAberto] = useState(false);
+  const [gavetaAberta, setGavetaAberta] = useState(false);
+  const [recolhido, setRecolhido] = useState(false);
+  const [buscaAberta, setBuscaAberta] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
   const liberado = podeAcessar(pathname ?? "/", usuario?.perfil, usuario?.acessos ?? null);
   const anterior = usarTelaAnterior(pathname);
-  const router = useRouter();
+  // menu do usuário: sem os itens de administrador e só com as telas liberadas (Parâmetros → Usuários)
+  const secoes = useMemo(() => filtrarMenu(SECOES_MENU, usuario?.perfil, usuario?.acessos ?? null), [usuario?.perfil, usuario?.acessos]);
+
+  useEffect(() => {
+    try {
+      setRecolhido(localStorage.getItem(CHAVE_RECOLHIDO) === "1");
+    } catch {
+      /* sem armazenamento: menu aberto */
+    }
+  }, []);
+
+  useEffect(() => {
+    setGavetaAberta(false);
+    if (pathname) registrarRecente(pathname === "/" ? "/painel" : telaDoEndereco(pathname) ?? (pathname.startsWith("/painel") ? "/painel" : null));
+  }, [pathname]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setBuscaAberta(true);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const alternarRecolhido = useCallback(() => {
+    setRecolhido((r) => {
+      try {
+        localStorage.setItem(CHAVE_RECOLHIDO, r ? "0" : "1");
+      } catch {
+        /* vale só nesta visita */
+      }
+      return !r;
+    });
+  }, []);
+
+  // botão do menu: no celular abre a gaveta; na tela larga recolhe/expande o menu
+  const botaoMenu = useCallback(() => {
+    if (window.matchMedia("(min-width: 768px)").matches) alternarRecolhido();
+    else setGavetaAberta(true);
+  }, [alternarRecolhido]);
+
+  const voltar = useCallback(() => router.back(), [router]);
+  const contexto = useMemo(() => ({ anterior, voltar }), [anterior, voltar]);
 
   return (
-    <div className="app-shell-root flex h-screen w-full overflow-hidden bg-surface">
-      {/* clicar no título de uma coluna ordena qualquer tabela */}
-      <OrdenarTabelas />
-      {mobileAberto && (
-        <div
-          className="fixed inset-0 z-40 bg-navy-950/60 md:hidden"
-          onClick={() => setMobileAberto(false)}
-          aria-hidden="true"
-        />
-      )}
-      <div
-        className={`print-hide fixed inset-y-0 left-0 z-50 transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
-          mobileAberto ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <Sidebar usuario={usuario} onNavigate={() => setMobileAberto(false)} />
-      </div>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="print-hide flex flex-shrink-0 items-center gap-2.5 border-b border-line bg-card px-3 py-2 md:hidden">
-          <button
-            type="button"
-            onClick={() => setMobileAberto(true)}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-ink hover:bg-surface"
-            aria-label="Abrir menu"
+    <ContextoVoltar.Provider value={contexto}>
+      <div className="app-shell-root flex h-screen w-full flex-col overflow-hidden bg-surface">
+        {/* clicar no título de uma coluna ordena qualquer tabela */}
+        <OrdenarTabelas />
+        <BarraSuperior usuario={usuario} onMenu={botaoMenu} onBuscar={() => setBuscaAberta(true)} />
+        <div className="app-shell-corpo flex min-h-0 flex-1">
+          {gavetaAberta && <div className="fixed inset-0 z-40 bg-navy-950/55 md:hidden" onClick={() => setGavetaAberta(false)} aria-hidden="true" />}
+          {/* celular: gaveta por cima da tela */}
+          <div
+            className={`print-hide fixed inset-y-0 left-0 z-50 transition-transform duration-200 md:hidden ${gavetaAberta ? "translate-x-0" : "-translate-x-full"}`}
           >
-            <IconMenu size={20} />
-          </button>
-          <Link href="/painel" aria-label="Ir para o Início / Dashboard">
-            <img src="/logo-crv-azul.png" alt="CRV Industrial" className="h-6 w-auto" />
-          </Link>
-        </div>
-        {anterior && (
-          <div className="print-hide flex flex-shrink-0 items-center border-b border-line bg-card px-3 py-1 md:px-6">
-            <button
-              type="button"
-              onClick={() => router.back()}
-              className="flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[12px] font-medium text-[#2E5FA8] hover:bg-[#2E5FA8]/[0.06]"
-              title="Voltar para a tela anterior"
-            >
-              <span aria-hidden>←</span> Voltar{anterior.nome ? <span className="font-normal text-muted">· {anterior.nome}</span> : null}
-            </button>
+            <MenuLateral
+              secoes={secoes}
+              recolhido={false}
+              gaveta
+              onNavigate={() => setGavetaAberta(false)}
+              onAlternar={alternarRecolhido}
+              onFechar={() => setGavetaAberta(false)}
+            />
           </div>
-        )}
-        {liberado ? children : <SemAcesso />}
+          {/* tela larga: menu fixo ao lado */}
+          <div className="print-hide hidden md:flex">
+            <MenuLateral secoes={secoes} recolhido={recolhido} onAlternar={alternarRecolhido} />
+          </div>
+          <main className="flex min-w-0 flex-1 flex-col">{liberado ? children : <SemAcesso />}</main>
+        </div>
+        {buscaAberta && <PaletaComandos secoes={secoes} onFechar={() => setBuscaAberta(false)} />}
       </div>
-    </div>
+    </ContextoVoltar.Provider>
   );
 }
 
 /**
- * Telas visitadas nesta aba (sessionStorage): ao passar de uma tela para outra, aparece o botão Voltar com o nome da
- * tela de onde veio. Voltar pelo botão (ou pelo navegador) tira a tela da pilha.
+ * Telas visitadas nesta aba (sessionStorage): ao passar de uma tela para outra, a barra de comandos mostra o Voltar
+ * com o nome da tela de onde veio. Voltar pelo botão (ou pelo navegador) tira a tela da pilha.
  */
 function usarTelaAnterior(pathname: string | null): { href: string; nome: string | null } | null {
   const [anterior, setAnterior] = useState<{ href: string; nome: string | null } | null>(null);

@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -6,11 +6,13 @@
 
 :root {
   color-scheme: light;
-  --c-surface: 247 248 250;
+  /* fundo da página no padrão CRV (#EEF1EE), painéis brancos com borda #D5DBE1 */
+  --c-surface: 238 241 238;
   --c-card: 255 255 255;
-  --c-line: 232 235 240;
+  --c-line: 213 219 225;
   --c-ink: 28 36 48;
-  --c-muted: 107 117 134;
+  --c-muted: 92 103 119;
+  --c-hover: 236 239 242;
   /* caixa dos formulários de apontamento: azul claro e visível, sem escurecer */
   --form-fundo: 237 242 250;
   --form-borda: 200 213 236;
@@ -21,9 +23,10 @@
   color-scheme: dark;
   --c-surface: 11 19 33;
   --c-card: 19 31 51;
-  --c-line: 38 52 77;
+  --c-line: 42 57 84;
   --c-ink: 230 235 244;
   --c-muted: 147 160 184;
+  --c-hover: 30 45 70;
   --form-fundo: 29 47 71;
   --form-borda: 52 78 112;
   --form-acento: 127 168 232;
@@ -361,4 +364,20 @@ th[data-ordem="desc"]::after {
 .campo-boletim:focus-within {
   border-color: rgb(var(--form-acento));
   box-shadow: 0 0 0 3px rgb(var(--form-acento) / 0.15);
+}
+
+/* Estrutura nova (barra superior + menu + tela): na impressão, só a tela */
+@media print {
+  .app-shell-corpo {
+    display: block !important;
+    min-height: 0 !important;
+  }
+  .app-shell-corpo > main {
+    display: block !important;
+  }
+}
+
+/* Barra de comandos: rolagem lateral discreta quando os comandos não cabem (celular) */
+.print-hide.overflow-x-auto::-webkit-scrollbar {
+  height: 4px;
 }

@@ -495,3 +495,82 @@ export function IconAjustes(p: IconProps) {
     </Svg>
   );
 }
+
+/* ---------------------------- barra de comandos ---------------------------- */
+
+export function IconAtualizar(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" />
+      <path d="M19.5 4.5v4h-4" />
+    </Svg>
+  );
+}
+
+export function IconEditar(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M14.5 5.5l4 4" />
+      <path d="M4 20l1-4.5L15.8 4.7a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19 4 20Z" />
+    </Svg>
+  );
+}
+
+export function IconExcluir(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M4.5 7h15" />
+      <path d="M9.5 7V4.5h5V7" />
+      <path d="M6.5 7l.9 12a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5l.9-12" />
+      <path d="M10 11v6M14 11v6" />
+    </Svg>
+  );
+}
+
+export function IconBaixar(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 4v11.5" />
+      <path d="M8 11.5l4 4 4-4" />
+      <path d="M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3" />
+    </Svg>
+  );
+}
+
+export function IconFiltro(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M4 5h16l-6.2 7.4v5.4L10.2 20v-7.6L4 5Z" />
+    </Svg>
+  );
+}
+
+export function IconSalvar(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M5 4h11.5L20 7.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" />
+      <path d="M8 4v5h7V4" />
+      <rect x="7.5" y="13" width="9" height="7" rx="0.5" />
+    </Svg>
+  );
+}
+
+export function IconRecolher(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="3.5" y="4" width="17" height="16" rx="2.2" />
+      <path d="M9 4v16" />
+      <path d="M15.5 10 13.5 12l2 2" />
+    </Svg>
+  );
+}
+
+export function IconExpandir(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="3.5" y="4" width="17" height="16" rx="2.2" />
+      <path d="M9 4v16" />
+      <path d="M13.5 10l2 2-2 2" />
+    </Svg>
+  );
+}

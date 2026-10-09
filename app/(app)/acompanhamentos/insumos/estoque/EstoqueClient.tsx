@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import BotaoLog from "@/components/BotaoLog";
 import { IconImportar, IconImprimir } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina } from "@/components/pagina";
 import { GRUPOS_PADRAO_ESTOQUE, totaisEstoque, type RelatorioEstoque } from "@/lib/estoque-insumos";
 import { fmtDateBR } from "@/lib/format";
 import { EMPRESAS, nomeEmpresa } from "@/lib/insumos-saldo";
@@ -85,37 +86,28 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Insumos</span>
-          <div className="truncate text-[15px] font-bold text-ink">Estoque Insumos</div>
-        </nav>
-        {dados?.ultimaImportacao && <span className="text-[12px] text-muted">Última importação {dados.ultimaImportacao}</span>}
-        <BotaoLog titulo="Log do Estoque Insumos" filtro={{ modulo: "Insumos", entidade: "Estoque Insumos" }} />
-        <button
-          type="button"
-          onClick={gerarPdf}
-          disabled={!dados?.dt || gerandoPdf || linhas.length === 0}
-          className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-medium text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
-        >
-          <IconImprimir size={14} />
-          {gerandoPdf ? "Gerando…" : "Gerar PDF"}
-        </button>
-        {podeEditar(perfil) && (
-          <button
-            type="button"
-            onClick={() => setImportar(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-navy-900 px-3.5 py-1.5 text-[13px] font-medium text-white hover:bg-navy-800"
-          >
-            <IconImportar size={14} />
-            Importar estoque
-          </button>
-        )}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Estoque Insumos"
+        categoria="Insumos"
+        info={dados?.ultimaImportacao && <span>Última importação {dados.ultimaImportacao}</span>}
+        comandos={
+          <>
+            {podeEditar(perfil) && (
+              <Comando primario icone={<IconImportar size={16} />} onClick={() => setImportar(true)}>
+                Importar estoque
+              </Comando>
+            )}
+            <Comando icone={<IconImprimir size={16} />} onClick={gerarPdf} disabled={!dados?.dt || gerandoPdf || linhas.length === 0}>
+              {gerandoPdf ? "Gerando…" : "Gerar PDF"}
+            </Comando>
+            <BotaoLog titulo="Log do Estoque Insumos" filtro={{ modulo: "Insumos", entidade: "Estoque Insumos" }} />
+          </>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="mb-4 flex flex-wrap items-end gap-2.5 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
+      <CorpoPagina>
+        <BarraFiltros>
           <label className="flex flex-col gap-1 text-[11.5px] text-muted">
             Data do relatório
             <select value={dados?.dt ?? dt} onChange={(e) => setDt(e.target.value)} className={FILTRO}>
@@ -173,16 +165,21 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
               setTermo("");
             }}
           />
-        </div>
+        </BarraFiltros>
 
         {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
 
         {dados?.dt && (
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Cartao rotulo="Valor em estoque" valor={brl(tot.vr)} apoio={`${fmtDateBR(dados.dt)} · ${empresasTexto}`} />
-            <Cartao rotulo="Hectares (estoque ÷ dose)" valor={nf(tot.ha)} apoio="Soma dos produtos com dosagem" />
-            <Cartao rotulo="Produtos" valor={String(linhas.length)} apoio={gruposTexto} />
-            <Cartao rotulo="Real × disponível" valor={comDif ? `${comDif} com diferença` : "Sem diferença"} apoio={`Diferença total ${nf(tot.dif, 3)}`} alerta={comDif > 0} />
+            <Indicador cor="azul" rotulo="Valor em estoque" valor={brl(tot.vr)} apoio={`${fmtDateBR(dados.dt)} · ${empresasTexto}`} />
+            <Indicador cor="verde" rotulo="Hectares (estoque ÷ dose)" valor={nf(tot.ha)} unidade="ha" apoio="Soma dos produtos com dosagem" />
+            <Indicador cor="cinza" rotulo="Produtos" valor={String(linhas.length)} apoio={gruposTexto} />
+            <Indicador
+              cor={comDif > 0 ? "laranja" : "verde"}
+              rotulo="Real × disponível"
+              valor={comDif ? `${comDif} com diferença` : "Sem diferença"}
+              apoio={`Diferença total ${nf(tot.dif, 3)}`}
+            />
           </div>
         )}
 
@@ -274,7 +271,7 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
           disponível − real. Histórico até 08/10/2026 carregado da planilha (lançado como empresa 5); daí em diante, cada importação grava a empresa e a data do
           relatório.
         </p>
-      </div>
+      </CorpoPagina>
 
       {importar && (
         <ImportarEstoque
@@ -287,17 +284,7 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
           }}
         />
       )}
-    </div>
-  );
-}
-
-function Cartao({ rotulo, valor, apoio, alerta }: { rotulo: string; valor: string; apoio?: string; alerta?: boolean }) {
-  return (
-    <div className="rounded-xl2 border border-line bg-card p-4 shadow-card">
-      <div className="text-[12px] text-muted">{rotulo}</div>
-      <div className={`mt-1 tabular text-[20px] font-semibold leading-tight ${alerta ? "text-amber-700" : "text-ink"}`}>{valor}</div>
-      {apoio && <div className="mt-1 truncate text-[11.5px] text-muted">{apoio}</div>}
-    </div>
+    </Pagina>
   );
 }
 

@@ -85,14 +85,16 @@ export function getPool(): Pool {
       'DATABASE_URL não configurada — não é possível conectar ao banco de dados. Ver README.md, seção "Deploy no Render".'
     );
   }
+  // PGSSLMODE=disable só para um banco local de testes (sem SSL); em produção a conexão é sempre com SSL
+  const ssl = process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false };
   if (process.env.NODE_ENV === "development") {
     if (!global._pgPool) {
-      global._pgPool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+      global._pgPool = new Pool({ connectionString: DATABASE_URL, ssl });
     }
     return global._pgPool;
   }
   if (!cachedPool) {
-    cachedPool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    cachedPool = new Pool({ connectionString: DATABASE_URL, ssl });
   }
   return cachedPool;
 }
