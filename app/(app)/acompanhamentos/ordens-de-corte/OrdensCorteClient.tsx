@@ -53,6 +53,7 @@ import {
   IconTalhao,
   IconTch,
 } from "@/components/icons";
+import { Abas, BarraFiltros, CabecalhoPagina, Comando, type CorIndicador, CorpoPagina, Indicador, Pagina, Painel, Selo } from "@/components/pagina";
 import { ehAdmin, podeEditar } from "@/lib/permissoes";
 import { agruparClimaPorEstacao, codigoFazendaBase, itensClima, janelaClima, rotuloClima, type ClimaResp, type IconeClima } from "@/lib/clima";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
@@ -109,7 +110,7 @@ function FrentesSeletor({
         type="button"
         onClick={() => setAberto((a) => !a)}
         aria-expanded={aberto}
-        className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink shadow-card hover:bg-surface"
+        className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-surface"
       >
         Frentes · {visiveis.size}/{frentes.length}
       </button>
@@ -895,74 +896,54 @@ export default function OrdensCorteClient({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      {/* Topbar */}
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="uppercase tracking-wide text-[11px] text-muted">Acompanhamentos</span>
-          <div className="truncate text-[15px] font-bold text-ink">Ordens de Corte</div>
-        </nav>
-        <div className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[12.5px] font-medium text-ink">
-          Safra <span className="font-bold text-brand-700">{safraLabel}</span>
-          <span className="text-muted">· Capinópolis-MG</span>
-          {producao && (
-            <span
-              className="text-muted"
-              title={`Safra ${producao.rotulo}: só contam pesagens de ${fmtDateBR(producao.inicio)} a ${fmtDateBR(producao.fim)} (Cadastros > Safras)`}
-            >
-              · produção desde {fmtDateBR(producao.inicio)}
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Ordens de Corte"
+        categoria="Acompanhamentos"
+        info={
+          <>
+            <span>
+              Safra <b className="font-semibold text-ink">{safraLabel}</b> · Capinópolis-MG
+              {producao && (
+                <span
+                  title={`Safra ${producao.rotulo}: só contam pesagens de ${fmtDateBR(producao.inicio)} a ${fmtDateBR(producao.fim)} (Cadastros > Safras)`}
+                >
+                  {" "}· produção desde {fmtDateBR(producao.inicio)}
+                </span>
+              )}
             </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 rounded-full border border-good-500/30 bg-good-50 px-3 py-1.5 text-[12px] font-semibold text-good-600">
-          <span className="h-1.5 w-1.5 rounded-full bg-good-500" />
-          Dados do servidor
-        </div>
-        {!podeGravar && (
-          <div className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
-            Somente leitura
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={imprimirRelatorio}
-          disabled={gerandoPdf || resumoFrentes.length === 0}
-          className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
-        >
-          <IconImprimir size={15} />
-          {gerandoPdf ? "Gerando…" : "Imprimir / PDF"}
-        </button>
-        {podeGravar && (
-          <button
-            type="button"
-            onClick={() => setImportarAberto(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
-          >
-            <IconImportar size={15} />
-            Importar planilhas
-          </button>
-        )}
-      </header>
+            <span className="inline-flex items-center gap-1.5 font-medium text-good-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-good-500" />
+              Dados do servidor
+            </span>
+            {!podeGravar && <Selo>Somente leitura</Selo>}
+          </>
+        }
+        comandos={
+          <>
+            {podeGravar && (
+              <Comando primario icone={<IconImportar size={16} />} onClick={() => setImportarAberto(true)}>
+                Importar planilhas
+              </Comando>
+            )}
+            <Comando icone={<IconImprimir size={16} />} onClick={imprimirRelatorio} disabled={gerandoPdf || resumoFrentes.length === 0}>
+              {gerandoPdf ? "Gerando…" : "Imprimir / PDF"}
+            </Comando>
+          </>
+        }
+        abas={
+          <Abas
+            itens={[
+              { id: "painel", label: "Painel" },
+              { id: "apontamento", label: "Apontamento · Área colhida" },
+            ]}
+            ativo={aba}
+            onChange={setAba}
+          />
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="mb-4 flex rounded-lg bg-navy-900/5 p-1 sm:inline-flex">
-          {([
-            ["painel", "Painel"],
-            ["apontamento", "Apontamento · Área colhida"],
-          ] as const).map(([k, rotulo]) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setAba(k)}
-              className={`flex-1 rounded-md px-4 py-1.5 text-[13px] font-semibold transition-colors sm:flex-none ${
-                aba === k ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-white"
-              }`}
-            >
-              {rotulo}
-            </button>
-          ))}
-        </div>
-
+      <CorpoPagina>
         {aba === "apontamento" && (
           <AreaColhidaTab
             ordens={ordensBrutas}
@@ -975,55 +956,16 @@ export default function OrdensCorteClient({
 
         {aba === "painel" && (
           <>
-        {/* Inserir ordem manualmente */}
-        {podeGravar && (
-          <div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
-            <form onSubmit={inserirOrdem} className="flex flex-wrap items-center gap-2">
-              <label className="text-[12.5px] font-semibold text-ink" htmlFor="inserir-ordem-input">
-                Inserir Ordem
-              </label>
-              <input
-                id="inserir-ordem-input"
-                type="text"
-                list="ordens-disponiveis-datalist"
-                placeholder="Nº da ordem…"
-                value={inserirNumero}
-                onChange={(e) => setInserirNumero(e.target.value)}
-                className="w-40 rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink shadow-card placeholder:text-muted"
-              />
-              <datalist id="ordens-disponiveis-datalist">
-                {ordensDisponiveis.map((o) => (
-                  <option key={o.numero} value={o.numero}>
-                    {o.fazendaNome}
-                  </option>
-                ))}
-              </datalist>
-              <button
-                type="submit"
-                disabled={inserindo || !inserirNumero.trim()}
-                className="rounded-lg bg-navy-900 px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
-              >
-                {inserindo ? "Inserindo…" : "Inserir"}
-              </button>
-            </form>
-            {inserirErro && <span className="text-[12.5px] font-medium text-alert-600">{inserirErro}</span>}
-            <span className="ml-auto text-[12px] font-medium text-muted">
-              Cards automáticos: ordens abertas e encerradas com entrada de cana no dia atual ou anterior ({ordensAuto.size}). Inseridas à
-              mão: {[...ordensVisiveis].filter((n) => !ordensAuto.has(n)).length}.
-            </span>
-          </div>
-        )}
-
         {/* Filtros */}
-        <div className="mb-4 flex flex-wrap items-center gap-2.5">
-          <div className="flex rounded-lg bg-navy-900/5 p-1">
+        <BarraFiltros>
+          <div className="flex rounded-lg bg-navy-900/5 p-0.5">
             {PERIODOS.map((p) => (
               <button
                 key={p.key}
                 type="button"
                 onClick={() => setPeriod(p.key)}
                 className={`rounded-md px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
-                  period === p.key ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-white"
+                  period === p.key ? "bg-navy-900 text-white shadow-card" : "text-navy-800 hover:bg-hover"
                 }`}
               >
                 {p.label}
@@ -1036,7 +978,7 @@ export default function OrdensCorteClient({
               type="date"
               value={referencia}
               onChange={(e) => setReferencia(e.target.value)}
-              className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink shadow-card"
+              className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink"
             />
           )}
 
@@ -1045,7 +987,7 @@ export default function OrdensCorteClient({
             onChange={(e) => setHoraCorte(Number(e.target.value) as HoraCorte)}
             title="Horário de corte do dia atual: tudo que entrou depois dele não soma"
             aria-label="Horário de corte do dia atual"
-            className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink shadow-card"
+            className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink"
           >
             {HORAS_CORTE.map((h) => (
               <option key={h.hora} value={h.hora} disabled={(h.hora === 12 || h.hora === 18) && !cortesIntermediarios}>
@@ -1068,7 +1010,7 @@ export default function OrdensCorteClient({
           <select
             value={statusFiltro}
             onChange={(e) => setStatusFiltro(e.target.value as "todas" | StatusOrdem)}
-            className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink shadow-card"
+            className="rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink"
           >
             <option value="todas">Todos os status</option>
             <option value="Aberta">Abertas</option>
@@ -1080,50 +1022,93 @@ export default function OrdensCorteClient({
             placeholder="Buscar nº da ordem, fazenda…"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            className="min-w-[220px] flex-1 rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink shadow-card placeholder:text-muted"
+            className="min-w-[220px] flex-1 rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink placeholder:text-muted"
           />
           <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
 
-          <span className="ml-auto text-[12.5px] font-medium text-muted">
+          <span className="ml-auto pb-1.5 text-[12.5px] font-medium text-muted">
             {periodoTexto(period, referencia, safraLabel)}
           </span>
-        </div>
+        </BarraFiltros>
+
+        {/* Inserir ordem manualmente */}
+        {podeGravar && (
+          <div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
+            <form onSubmit={inserirOrdem} className="flex flex-wrap items-center gap-2">
+              <label className="text-[12.5px] font-semibold text-ink" htmlFor="inserir-ordem-input">
+                Inserir Ordem
+              </label>
+              <input
+                id="inserir-ordem-input"
+                type="text"
+                list="ordens-disponiveis-datalist"
+                placeholder="Nº da ordem…"
+                value={inserirNumero}
+                onChange={(e) => setInserirNumero(e.target.value)}
+                className="w-40 rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink placeholder:text-muted"
+              />
+              <datalist id="ordens-disponiveis-datalist">
+                {ordensDisponiveis.map((o) => (
+                  <option key={o.numero} value={o.numero}>
+                    {o.fazendaNome}
+                  </option>
+                ))}
+              </datalist>
+              <button
+                type="submit"
+                disabled={inserindo || !inserirNumero.trim()}
+                className="rounded-lg bg-navy-900 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:opacity-50"
+              >
+                {inserindo ? "Inserindo…" : "Inserir"}
+              </button>
+            </form>
+            {inserirErro && <span className="text-[12.5px] font-medium text-alert-600">{inserirErro}</span>}
+            <span className="ml-auto text-[12px] font-medium text-muted">
+              Cards automáticos: ordens abertas e encerradas com entrada de cana no dia atual ou anterior ({ordensAuto.size}). Inseridas à
+              mão: {[...ordensVisiveis].filter((n) => !ordensAuto.has(n)).length}.
+            </span>
+          </div>
+        )}
 
         {/* KPIs */}
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-flow-col lg:grid-cols-4 lg:grid-rows-2">
-          <KpiCard tone="green" icon={<IconOrdemCorte size={22} />} label="Ordens abertas" value={kpisTopo.abertas.toString()} sub="Ordens selecionadas" />
-          <KpiCard tone="amber" icon={<IconOrdemEncerrada size={22} />} label="Ordens encerradas" value={kpisTopo.encerradas.toString()} sub="Ordens selecionadas" />
+          <KpiCard tone="verde" icon={<IconOrdemCorte size={18} />} label="Ordens abertas" value={kpisTopo.abertas.toString()} sub="Ordens selecionadas" />
+          <KpiCard tone="amarelo" icon={<IconOrdemEncerrada size={18} />} label="Ordens encerradas" value={kpisTopo.encerradas.toString()} sub="Ordens selecionadas" />
           <KpiCard
-            tone="blue"
-            icon={<IconTalhao size={22} />}
+            tone="azul"
+            icon={<IconTalhao size={18} />}
             label="Área aberta"
-            value={`${fmtHa(kpisTopo.areaSelecionadaHa)} ha`}
+            value={fmtHa(kpisTopo.areaSelecionadaHa)}
+            unidade="ha"
             sub={`Ordens selecionadas · encerradas: ${fmtHa(kpisTopo.areaEncerradaHa)} ha`}
           />
           <KpiCard
-            tone="blue"
-            icon={<IconColhedora size={22} />}
+            tone="verde"
+            icon={<IconColhedora size={18} />}
             label="Área colhida"
-            value={`${fmtHa(kpisTopo.areaColhidaHa)} ha`}
+            value={fmtHa(kpisTopo.areaColhidaHa)}
+            unidade="ha"
             sub="Pela medição apontada"
           />
           <KpiCard
-            tone="blue"
-            icon={<IconCaminhaoCana size={22} />}
+            tone="azul"
+            icon={<IconCaminhaoCana size={18} />}
             label="Produção dia anterior"
-            value={`${fmtT(kpisTopo.prodDiaAnteriorT)} t`}
+            value={fmtT(kpisTopo.prodDiaAnteriorT)}
+            unidade="t"
             sub={`Entrada de ${fmtDateBR(addDays(referencia, -1))} · todas as ordens`}
           />
           <KpiCard
-            tone="blue"
-            icon={<IconRelogio size={22} />}
+            tone="azul"
+            icon={<IconRelogio size={18} />}
             label={`Produção dia atual até ${rotuloHora}`}
-            value={`${fmtT(kpisTopo.prodDiaAtualAte6hT)} t`}
+            value={fmtT(kpisTopo.prodDiaAtualAte6hT)}
+            unidade="t"
             sub={`Entrada de ${fmtDateBR(referencia)} até ${rotuloHora} · todas as ordens`}
           />
           <KpiCard
-            tone="amber"
-            icon={<IconMeta size={22} />}
+            tone="azul"
+            icon={<IconMeta size={18} />}
             label="TCH estimado"
             value={kpisTopo.tchEstimado !== null ? fmtTch(kpisTopo.tchEstimado) : "—"}
             sub={
@@ -1133,8 +1118,8 @@ export default function OrdensCorteClient({
             }
           />
           <KpiCard
-            tone="red"
-            icon={<IconTch size={22} />}
+            tone="verde"
+            icon={<IconTch size={18} />}
             label="TCH médio realizado"
             value={kpisTopo.tchRealizado !== null ? fmtTch(kpisTopo.tchRealizado) : "—"}
             sub="Ton entregue ÷ área medida lançada"
@@ -1370,13 +1355,13 @@ export default function OrdensCorteClient({
             Selecionada" no resumo por frente), uma linha por fazenda dentro
             de cada ordem, igual ao relatório impresso de referência. */}
         {resumoDetalhado.length > 0 && (
-          <div className="mb-4 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
-            <div className="border-b border-line px-2.5 py-0.5">
-              <div className="text-[12.5px] font-bold text-ink">Resumo Detalhado por Ordem e Fazenda</div>
-              <div className="text-[10.5px] text-muted">
-                Estimado, realizado, a colher e projeção das ordens marcadas e mostradas nos cards, por fazenda.
-              </div>
-            </div>
+          <Painel
+            semEspaco
+            className="mb-4"
+            titulo="Resumo Detalhado por Ordem e Fazenda"
+            subtitulo="Estimado, realizado, a colher e projeção das ordens marcadas e mostradas nos cards, por fazenda."
+          >
+            <div className="overflow-x-auto">
             <table className="w-full text-[11.5px] leading-tight">
               <thead>
                 <tr className="text-center text-[10.5px] font-semibold text-white">
@@ -1445,11 +1430,12 @@ export default function OrdensCorteClient({
                 </tr>
               </tbody>
             </table>
-            <div className="border-t border-line px-2.5 py-1 text-[10.5px] text-muted">
+            </div>
+            <div className="border-t border-line px-4 py-1.5 text-[10.5px] text-muted">
               A colher = área total da O.C. − área colhida (0 na ordem encerrada), pelo TCH parcial; sem TCH parcial, pelo TCH estimado (*).
               Ton projetada = produção acumulada + ton a colher.
             </div>
-          </div>
+          </Painel>
         )}
 
         {frentesOrdenadas.length > 0 && (
@@ -1470,10 +1456,10 @@ export default function OrdensCorteClient({
         </p>
           </>
         )}
-      </div>
+      </CorpoPagina>
 
       {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} onImportado={() => refetch(true)} admin={ehAdmin(perfil)} />}
-    </div>
+    </Pagina>
   );
 }
 
@@ -1510,16 +1496,11 @@ function CelulasResumoDetalhado({ v, total, tchEstimadoNoAColher }: { v: TotaisR
   );
 }
 
-const KPI_TONS = {
-  blue: "border-brand-200/60 bg-brand-50 text-brand-800",
-  green: "border-good-500/25 bg-good-50 text-good-700",
-  amber: "border-amber-500/25 bg-amber-50 text-amber-700",
-  red: "border-alert-500/25 bg-alert-50 text-alert-700",
-} as const;
-
+/** Indicador do topo do painel; com aviso (TCH fora do estimado), o filete e o número ficam em laranja. */
 function KpiCard({
   label,
   value,
+  unidade,
   sub,
   icon,
   tone,
@@ -1527,23 +1508,28 @@ function KpiCard({
 }: {
   label: string;
   value: string;
+  unidade?: string;
   sub?: string;
   icon: ReactNode;
-  tone: keyof typeof KPI_TONS;
+  tone: CorIndicador;
   aviso?: string;
 }) {
   return (
-    <div className={`rounded-xl2 border p-4 shadow-card ${KPI_TONS[tone]}`}>
-      <div className="mb-1.5 opacity-80">{icon}</div>
-      <div className="text-[11.5px] font-semibold opacity-80">{label}</div>
-      <div className="mt-0.5 text-[24px] font-bold tabular leading-none">{value}</div>
-      {sub && <div className="mt-1.5 text-[11px] opacity-70">{sub}</div>}
+    <Indicador
+      cor={aviso ? "laranja" : tone}
+      icone={icon}
+      rotulo={label}
+      valor={value}
+      unidade={unidade}
+      apoio={sub}
+      title={sub ? `${label} — ${sub}` : label}
+    >
       {aviso && (
         <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700">
           ⚠ {aviso}
         </div>
       )}
-    </div>
+    </Indicador>
   );
 }
 
@@ -1640,19 +1626,21 @@ function ResumoMensalTabela({
   rotuloHora: string;
 }) {
   return (
-    <div className="mb-5 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
-        <div>
-          <div className="text-[13px] font-bold text-ink">Resumo Diário por Frente — {rotuloMes(resumo.mes)}</div>
-          <div className="text-[11px] text-muted">
-            Toneladas (t) por dia e barra do alcançado sobre a meta diária da frente. O dia {fmtDateBR(referencia).slice(0, 5)}{" "}
-            vale até {rotuloHora}; os dias seguintes ficam em branco.
-          </div>
-        </div>
+    <Painel
+      semEspaco
+      className="mb-5"
+      titulo={`Resumo Diário por Frente — ${rotuloMes(resumo.mes)}`}
+      subtitulo={
+        <>
+          Toneladas (t) por dia e barra do alcançado sobre a meta diária da frente. O dia {fmtDateBR(referencia).slice(0, 5)}{" "}
+          vale até {rotuloHora}; os dias seguintes ficam em branco.
+        </>
+      }
+      acoes={
         <select
           value={resumo.mes}
           onChange={(e) => onMes(e.target.value)}
-          className="rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] font-medium text-ink shadow-card"
+          className="rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] font-medium text-ink"
           aria-label="Mês do resumo diário"
         >
           {meses.map((m) => (
@@ -1661,7 +1649,8 @@ function ResumoMensalTabela({
             </option>
           ))}
         </select>
-      </div>
+      }
+    >
       <div className="flex flex-wrap items-center gap-1.5 border-b border-line bg-surface px-4 py-2">
         <span className="mr-1 text-[11px] font-semibold text-muted">Frentes:</span>
         {todasFrentes.map((f) => {
@@ -1681,6 +1670,7 @@ function ResumoMensalTabela({
           );
         })}
       </div>
+      <div className="overflow-x-auto">
       <table className="w-full text-[12.5px]">
         <thead>
           <tr className="border-b border-line bg-navy-900 text-left text-white">
@@ -1745,7 +1735,8 @@ function ResumoMensalTabela({
           </tr>
         </tbody>
       </table>
-    </div>
+      </div>
+    </Painel>
   );
 }
 

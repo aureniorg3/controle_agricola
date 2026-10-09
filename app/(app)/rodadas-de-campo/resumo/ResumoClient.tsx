@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Campo, ModalShell } from "@/components/ui";
-import { IconImportar } from "@/components/icons";
+import { IconImportar, IconTrocar } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel, Selo } from "@/components/pagina";
 import { BotaoExportar } from "@/app/(app)/acompanhamentos/os-agricola/comum";
 import { fmtDateBR, fmtHa } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
@@ -139,134 +140,130 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
   };
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Rodadas de Campo</span>
-          <div className="truncate text-[15px] font-bold text-ink">Resumo</div>
-        </nav>
-        {!podeGravar && (
-          <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
-            Somente leitura
-          </div>
-        )}
-        <BotaoExportar<LinhaResumoRodada>
-          nome="Resumo Rodadas de Campo"
-          buscar={todasAsLinhas}
-          colunas={[
-            { rotulo: "Boletim", valor: (l) => l.bol },
-            { rotulo: "Rodada", valor: (l) => l.rod },
-            { rotulo: "Data", valor: (l) => fmtDateBR(l.dt) },
-            { rotulo: "Semana", valor: (l) => l.sem || "" },
-            { rotulo: "Região", valor: (l) => l.reg },
-            { rotulo: "Descrição da Região", valor: (l) => l.regNm },
-            { rotulo: "Fazenda", valor: (l) => l.faz },
-            { rotulo: "Descrição Fazenda", valor: (l) => l.fazNm },
-            { rotulo: "Talhão", valor: (l) => l.tlh },
-            { rotulo: "Área (ha)", valor: (l) => l.area },
-            { rotulo: "Ocorrência", valor: (l) => l.ocorrencia },
-            { rotulo: "Presença", valor: (l) => l.presenca },
-            { rotulo: "Nível", valor: (l) => l.nivel },
-            { rotulo: "Prioridade", valor: (l) => l.prioridade },
-            { rotulo: "Recomendação / Diagnóstico", valor: (l) => l.rec },
-            { rotulo: "Responsável", valor: (l) => l.resp },
-            { rotulo: "Origem", valor: (l) => l.origem },
-            { rotulo: "Lançado por", valor: (l) => l.lancadoPor },
-            { rotulo: "Atividade", valor: (l) => l.atividade },
-            { rotulo: "Executado", valor: (l) => l.executado },
-          ]}
-        />
-        {podeGravar && (
-          <button
-            type="button"
-            onClick={() => setPadronizarAberto(true)}
-            className="rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
-          >
-            Padronizar ocorrências
-          </button>
-        )}
-        {podeGravar && (
-          <button
-            type="button"
-            onClick={() => setImportarAberto(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
-          >
-            <IconImportar size={14} />
-            Importar
-          </button>
-        )}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Resumo"
+        categoria="Rodadas de Campo"
+        info={
+          !podeGravar && (
+            <Selo>Somente leitura</Selo>
+          )
+        }
+        comandos={
+          // os dois comandos são só de quem grava: sem eles, nada de barra vazia (nem traço solto depois do Voltar)
+          podeGravar && (
+            <>
+              <Comando primario icone={<IconImportar size={16} />} onClick={() => setImportarAberto(true)}>
+                Importar
+              </Comando>
+              <Comando icone={<IconTrocar size={16} />} onClick={() => setPadronizarAberto(true)}>
+                Padronizar ocorrências
+              </Comando>
+            </>
+          )
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <CorpoPagina>
+        <BarraFiltros>
+          <select value={rod} onChange={(e) => mudar(() => setRod(e.target.value))} className={FILTRO} aria-label="Rodada">
+            <option value="">Todas as rodadas</option>
+            {opcoes?.rodadas.map((r) => (
+              <option key={r} value={r}>
+                Rodada {r}
+              </option>
+            ))}
+          </select>
+          <select value={reg} onChange={(e) => mudar(() => setReg(e.target.value))} className={FILTRO} aria-label="Região">
+            <option value="">Todas as regiões</option>
+            {opcoes?.regioes.map((r) => (
+              <option key={r} value={r}>
+                Região {r}
+              </option>
+            ))}
+          </select>
+          <select value={sem} onChange={(e) => mudar(() => setSem(e.target.value))} className={FILTRO} aria-label="Semana">
+            <option value="">Todas as semanas</option>
+            {opcoes?.semanas.map((s) => (
+              <option key={s} value={s}>
+                Semana {s}
+              </option>
+            ))}
+          </select>
+          <select value={ori} onChange={(e) => mudar(() => setOri(e.target.value))} className={FILTRO} aria-label="Origem">
+            <option value="">Todas as origens</option>
+            <option value="apontamento">Apontamento</option>
+            <option value="importacao">Importação</option>
+          </select>
+          <select value={modoData} onChange={(e) => mudar(() => setModoData(e.target.value as "" | "dia" | "periodo"))} className={FILTRO} aria-label="Data">
+            <option value="">Todas as datas</option>
+            <option value="dia">Data</option>
+            <option value="periodo">Período</option>
+          </select>
+          {modoData === "dia" && <input type="date" value={de} onChange={(e) => mudar(() => setDe(e.target.value))} className={FILTRO} aria-label="Data do boletim" />}
+          {modoData === "periodo" && (
+            <>
+              <input type="date" value={de} onChange={(e) => mudar(() => setDe(e.target.value))} className={FILTRO} aria-label="Data inicial" />
+              <span className="pb-1.5 text-[12px] text-muted">até</span>
+              <input type="date" value={ate} onChange={(e) => mudar(() => setAte(e.target.value))} className={FILTRO} aria-label="Data final" />
+            </>
+          )}
+          <select value={usr} onChange={(e) => mudar(() => setUsr(e.target.value))} className={FILTRO} aria-label="Usuário">
+            <option value="">Todos os usuários</option>
+            {opcoes?.usuarios?.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </select>
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar fazenda, ocorrência, boletim…"
+            className={`${FILTRO} min-w-[240px]`}
+          />
+          <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
+        </BarraFiltros>
+
         <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Kpi rotulo="Boletins" valor={boletins.toLocaleString("pt-BR")} />
-          <Kpi rotulo="Linhas lançadas" valor={total.toLocaleString("pt-BR")} />
-          <Kpi rotulo="Área (ha)" valor={fmtHa(areaHa)} />
-          <Kpi rotulo="Rodadas" valor={String(opcoes?.rodadas.length ?? 0)} />
+          <Indicador cor="azul" rotulo="Boletins" valor={boletins.toLocaleString("pt-BR")} />
+          <Indicador cor="cinza" rotulo="Linhas lançadas" valor={total.toLocaleString("pt-BR")} />
+          <Indicador cor="verde" rotulo="Área (ha)" valor={fmtHa(areaHa)} />
+          <Indicador cor="cinza" rotulo="Rodadas" valor={String(opcoes?.rodadas.length ?? 0)} />
         </div>
 
-        <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-          <div className="flex flex-wrap items-center gap-2.5 border-b border-line bg-surface px-4 py-2.5">
-            <h2 className="mr-1 text-[14px] font-bold text-ink">Levantamento de campo</h2>
-            <select value={rod} onChange={(e) => mudar(() => setRod(e.target.value))} className={FILTRO} aria-label="Rodada">
-              <option value="">Todas as rodadas</option>
-              {opcoes?.rodadas.map((r) => (
-                <option key={r} value={r}>
-                  Rodada {r}
-                </option>
-              ))}
-            </select>
-            <select value={reg} onChange={(e) => mudar(() => setReg(e.target.value))} className={FILTRO} aria-label="Região">
-              <option value="">Todas as regiões</option>
-              {opcoes?.regioes.map((r) => (
-                <option key={r} value={r}>
-                  Região {r}
-                </option>
-              ))}
-            </select>
-            <select value={sem} onChange={(e) => mudar(() => setSem(e.target.value))} className={FILTRO} aria-label="Semana">
-              <option value="">Todas as semanas</option>
-              {opcoes?.semanas.map((s) => (
-                <option key={s} value={s}>
-                  Semana {s}
-                </option>
-              ))}
-            </select>
-            <select value={ori} onChange={(e) => mudar(() => setOri(e.target.value))} className={FILTRO} aria-label="Origem">
-              <option value="">Todas as origens</option>
-              <option value="apontamento">Apontamento</option>
-              <option value="importacao">Importação</option>
-            </select>
-            <select value={modoData} onChange={(e) => mudar(() => setModoData(e.target.value as "" | "dia" | "periodo"))} className={FILTRO} aria-label="Data">
-              <option value="">Todas as datas</option>
-              <option value="dia">Data</option>
-              <option value="periodo">Período</option>
-            </select>
-            {modoData === "dia" && <input type="date" value={de} onChange={(e) => mudar(() => setDe(e.target.value))} className={FILTRO} aria-label="Data do boletim" />}
-            {modoData === "periodo" && (
-              <>
-                <input type="date" value={de} onChange={(e) => mudar(() => setDe(e.target.value))} className={FILTRO} aria-label="Data inicial" />
-                <span className="text-[12px] text-muted">até</span>
-                <input type="date" value={ate} onChange={(e) => mudar(() => setAte(e.target.value))} className={FILTRO} aria-label="Data final" />
-              </>
-            )}
-            <select value={usr} onChange={(e) => mudar(() => setUsr(e.target.value))} className={FILTRO} aria-label="Usuário">
-              <option value="">Todos os usuários</option>
-              {opcoes?.usuarios?.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar fazenda, ocorrência, boletim…"
-              className={`${FILTRO} min-w-[240px]`}
+        <Painel
+          titulo="Levantamento de campo"
+          semEspaco
+          acoes={
+            <BotaoExportar<LinhaResumoRodada>
+              nome="Resumo Rodadas de Campo"
+              buscar={todasAsLinhas}
+              colunas={[
+                { rotulo: "Boletim", valor: (l) => l.bol },
+                { rotulo: "Rodada", valor: (l) => l.rod },
+                { rotulo: "Data", valor: (l) => fmtDateBR(l.dt) },
+                { rotulo: "Semana", valor: (l) => l.sem || "" },
+                { rotulo: "Região", valor: (l) => l.reg },
+                { rotulo: "Descrição da Região", valor: (l) => l.regNm },
+                { rotulo: "Fazenda", valor: (l) => l.faz },
+                { rotulo: "Descrição Fazenda", valor: (l) => l.fazNm },
+                { rotulo: "Talhão", valor: (l) => l.tlh },
+                { rotulo: "Área (ha)", valor: (l) => l.area },
+                { rotulo: "Ocorrência", valor: (l) => l.ocorrencia },
+                { rotulo: "Presença", valor: (l) => l.presenca },
+                { rotulo: "Nível", valor: (l) => l.nivel },
+                { rotulo: "Prioridade", valor: (l) => l.prioridade },
+                { rotulo: "Recomendação / Diagnóstico", valor: (l) => l.rec },
+                { rotulo: "Responsável", valor: (l) => l.resp },
+                { rotulo: "Origem", valor: (l) => l.origem },
+                { rotulo: "Lançado por", valor: (l) => l.lancadoPor },
+                { rotulo: "Atividade", valor: (l) => l.atividade },
+                { rotulo: "Executado", valor: (l) => l.executado },
+              ]}
             />
-            <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-          </div>
-
+          }
+        >
           {erro && <p className="px-4 py-3 text-[12.5px] font-medium text-alert-600">{erro}</p>}
 
           <div className="overflow-x-auto">
@@ -352,8 +349,8 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
               </button>
             </span>
           </div>
-        </div>
-      </div>
+        </Painel>
+      </CorpoPagina>
 
       {padronizarAberto && (
         <PadronizarModal
@@ -371,7 +368,7 @@ export default function ResumoClient({ perfil }: { perfil: PerfilUsuario }) {
           }}
         />
       )}
-    </div>
+    </Pagina>
   );
 }
 
@@ -511,15 +508,6 @@ function Num({ rotulo, valor }: { rotulo: string; valor: number }) {
     <div className="rounded-lg border border-line bg-surface px-3 py-2">
       <div className="text-[10.5px] font-semibold uppercase tracking-wide text-muted">{rotulo}</div>
       <div className="text-[17px] font-extrabold tabular text-navy-900">{valor.toLocaleString("pt-BR")}</div>
-    </div>
-  );
-}
-
-function Kpi({ rotulo, valor }: { rotulo: string; valor: string }) {
-  return (
-    <div className="rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{rotulo}</div>
-      <div className="mt-0.5 text-[20px] font-extrabold tabular text-navy-900">{valor}</div>
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { IconMais } from "@/components/icons";
 import { useMemo, useState } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Pagina } from "@/components/pagina";
 import { PerfilUsuario, UsuarioPublico } from "@/lib/types";
 import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIS } from "@/lib/permissoes";
 import { fmtDateBR } from "@/lib/format";
@@ -85,23 +86,18 @@ export default function UsuariosClient({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="uppercase tracking-wide text-[11px] text-muted">Configurações</span>
-          <div className="truncate text-[15px] font-bold text-ink">Cadastros · Usuários</div>
-        </nav>
-        <button
-          type="button"
-          onClick={() => setNovoAberto(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
-        >
-          <IconMais size={15} />
-          Novo usuário
-        </button>
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Usuários"
+        categoria="Configurações · Cadastros"
+        comandos={
+          <Comando primario icone={<IconMais size={16} />} onClick={() => setNovoAberto(true)}>
+            Novo usuário
+          </Comando>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <CorpoPagina>
         <p className="mb-4 max-w-2xl text-[13px] leading-relaxed text-muted">
           Controla quem entra no sistema e o que cada um pode fazer.{" "}
           {PERFIS.map((p) => (
@@ -118,7 +114,7 @@ export default function UsuariosClient({
           </div>
         )}
 
-        <div className="mb-3 flex flex-wrap items-end gap-2.5 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
+        <BarraFiltros>
           <label className="flex flex-col gap-1 text-[11.5px] text-muted">
             Procurar
             <input
@@ -154,7 +150,7 @@ export default function UsuariosClient({
           <span className="ml-auto pb-1.5 text-[12px] text-muted">
             {visiveis.length} de {usuarios.length} usuário(s)
           </span>
-        </div>
+        </BarraFiltros>
 
         <div className="overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
           <table className="w-full min-w-[720px] text-[12.5px]">
@@ -240,7 +236,7 @@ export default function UsuariosClient({
             </tbody>
           </table>
         </div>
-      </div>
+      </CorpoPagina>
 
       {novoAberto && (
         <NovoUsuarioModal
@@ -263,7 +259,7 @@ export default function UsuariosClient({
           }}
         />
       )}
-    </div>
+    </Pagina>
   );
 }
 

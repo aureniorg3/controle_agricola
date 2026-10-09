@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { fmtHa, fmtT, fmtTch } from "@/lib/format";
 import type { SafraAgregado, SafraVariedadeCorte } from "@/lib/types";
-import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import { ehBooleano, ehTexto, usarPersistido } from "@/lib/usar-persistido";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
+import { IconHistorico } from "@/components/icons";
+import { CabecalhoPagina, Comando, CorpoPagina, EstadoVazio, Indicador, Pagina, Painel, type CorIndicador } from "@/components/pagina";
 
 type Dimensao = "fazenda" | "proprietario" | "municipio" | "variedade" | "corte";
 
@@ -84,37 +86,37 @@ export default function ColheitaPainelClient({
   const dimInfo = DIMENSOES.find((d) => d.key === dim)!;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Moagem</span>
-          <div className="truncate text-[15px] font-bold text-ink">Dashboard</div>
-        </nav>
-        <Link
-          href="/acompanhamentos/colheita/historico-safras"
-          className="rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
-        >
-          Histórico de Safras
-        </Link>
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Dashboard"
+        categoria="Moagem"
+        comandos={
+          <Comando href="/acompanhamentos/colheita/historico-safras" icone={<IconHistorico size={16} />}>
+            Histórico de Safras
+          </Comando>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <CorpoPagina>
         {safras.length === 0 ? (
-          <div className="rounded-xl2 border border-dashed border-line bg-card px-6 py-14 text-center text-muted">
-            Nenhuma safra importada ainda. Importe os relatórios em{" "}
-            <Link href="/acompanhamentos/colheita/historico-safras" className="font-semibold text-brand-700">
-              Histórico de Safras
-            </Link>{" "}
-            para ver os comparativos.
-          </div>
+          <Painel semEspaco>
+            <EstadoVazio titulo="Nenhuma safra importada ainda.">
+              Importe os relatórios em{" "}
+              <Link href="/acompanhamentos/colheita/historico-safras" className="font-semibold text-brand-700">
+                Histórico de Safras
+              </Link>{" "}
+              para ver os comparativos.
+            </EstadoVazio>
+          </Painel>
         ) : (
           <>
             <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
               {ultima !== undefined && (
                 <>
-                  <Kpi titulo={`Safra ${ultima} · Área Total (ha)`} valor={fmtHa(porAno.get(ultima)!.areaTot)} />
-                  <Kpi titulo={`Safra ${ultima} · Produção (t)`} valor={fmtT(porAno.get(ultima)!.producaoT)} />
+                  <Kpi cor="azul" titulo={`Safra ${ultima} · Área Total (ha)`} valor={fmtHa(porAno.get(ultima)!.areaTot)} />
+                  <Kpi cor="azul" titulo={`Safra ${ultima} · Produção (t)`} valor={fmtT(porAno.get(ultima)!.producaoT)} />
                   <Kpi
+                    cor="verde"
                     titulo={`Safra ${ultima} · TCH Realizado (t/ha)`}
                     valor={porAno.get(ultima)!.tchReal !== null ? fmtTch(porAno.get(ultima)!.tchReal!) : "—"}
                     extra={
@@ -126,6 +128,7 @@ export default function ColheitaPainelClient({
                     }
                   />
                   <Kpi
+                    cor="cinza"
                     titulo={`Safra ${ultima} · TCH Estimado (t/ha)`}
                     valor={porAno.get(ultima)!.tchEst !== null ? fmtTch(porAno.get(ultima)!.tchEst!) : "—"}
                     extra={
@@ -148,10 +151,7 @@ export default function ColheitaPainelClient({
             </div>
 
             <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr]">
-              <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-                <div className="border-b border-line bg-surface px-4 py-2.5 text-[14px] font-bold text-ink">
-                  Comparativo por safra
-                </div>
+              <Painel titulo="Comparativo por safra" semEspaco>
                 <div className="overflow-x-auto">
                   <table className="w-full text-[12.5px]">
                     <thead>
@@ -188,11 +188,12 @@ export default function ColheitaPainelClient({
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </Painel>
 
-              <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-                <div className="flex items-center justify-between border-b border-line bg-surface px-4 py-2.5">
-                  <span className="text-[14px] font-bold text-ink">TCH por safra (t/ha)</span>
+              <Painel
+                titulo="TCH por safra (t/ha)"
+                semEspaco
+                acoes={
                   <span className="flex items-center gap-3 text-[11px] text-muted">
                     <span className="flex items-center gap-1">
                       <span className="h-2 w-2 rounded-sm bg-navy-900" /> Realizado
@@ -201,7 +202,8 @@ export default function ColheitaPainelClient({
                       <span className="h-2 w-2 rounded-sm bg-amber-500" /> Estimado
                     </span>
                   </span>
-                </div>
+                }
+              >
                 <div className="space-y-2.5 px-4 py-3">
                   {anos.map((ano) => {
                     const r = porAno.get(ano)!;
@@ -216,40 +218,44 @@ export default function ColheitaPainelClient({
                     );
                   })}
                 </div>
-              </div>
+              </Painel>
             </div>
 
             <VariedadesSecao anos={anos} variedades={dimensoes.variedade} variedadeCorte={variedadeCorte} />
 
-            <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-              <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
-                <h2 className="text-[14px] font-bold text-ink">TCH Realizado (t/ha) por {dimInfo.label}</h2>
-                <select
-                  value={dim}
-                  onChange={(e) => {
-                    setDim(e.target.value as Dimensao);
-                    setVerTudo(false);
-                  }}
-                  aria-label="Agrupar por"
-                  className={FILTRO}
-                >
-                  {DIMENSOES.map((d) => (
-                    <option key={d.key} value={d.key}>
-                      Por {d.label}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder={`Buscar ${dimInfo.label.toLowerCase()}…`}
-                  className={`${FILTRO} min-w-[220px]`}
-                />
-                <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-                <span className="ml-auto text-[12px] text-muted">
-                  {pivot.length} {pivot.length === 1 ? "linha" : "linhas"}
-                </span>
-              </div>
+            <Painel
+              titulo={`TCH Realizado (t/ha) por ${dimInfo.label}`}
+              semEspaco
+              acoes={
+                <>
+                  <select
+                    value={dim}
+                    onChange={(e) => {
+                      setDim(e.target.value as Dimensao);
+                      setVerTudo(false);
+                    }}
+                    aria-label="Agrupar por"
+                    className={FILTRO}
+                  >
+                    {DIMENSOES.map((d) => (
+                      <option key={d.key} value={d.key}>
+                        Por {d.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    placeholder={`Buscar ${dimInfo.label.toLowerCase()}…`}
+                    className={`${FILTRO} min-w-[220px]`}
+                  />
+                  <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
+                  <span className="ml-1.5 text-[12px] text-muted">
+                    {pivot.length} {pivot.length === 1 ? "linha" : "linhas"}
+                  </span>
+                </>
+              }
+            >
               <div className="overflow-x-auto">
                 <table className="w-full text-[12.5px]">
                   <thead>
@@ -313,11 +319,11 @@ export default function ColheitaPainelClient({
                   </button>
                 </div>
               )}
-            </div>
+            </Painel>
           </>
         )}
-      </div>
-    </div>
+      </CorpoPagina>
+    </Pagina>
   );
 }
 
@@ -366,25 +372,30 @@ function VariedadesSecao({
   }, [variedadeCorte, safra, linhas]);
 
   return (
-    <div className="mb-5 overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
-        <h2 className="text-[14px] font-bold text-ink">Variedades da safra</h2>
-        <select
-          value={safra}
-          onChange={(e) => setSafra(Number(e.target.value))}
-          aria-label="Safra"
-          className={FILTRO}
-        >
-          {[...anos].reverse().map((a) => (
-            <option key={a} value={a}>
-              Safra {a}
-            </option>
-          ))}
-        </select>
-        <span className="ml-auto text-[12px] text-muted">
-          {linhas.length} variedade{linhas.length === 1 ? "" : "s"}
-        </span>
-      </div>
+    <Painel
+      className="mb-5"
+      titulo="Variedades da safra"
+      semEspaco
+      acoes={
+        <>
+          <select
+            value={safra}
+            onChange={(e) => setSafra(Number(e.target.value))}
+            aria-label="Safra"
+            className={FILTRO}
+          >
+            {[...anos].reverse().map((a) => (
+              <option key={a} value={a}>
+                Safra {a}
+              </option>
+            ))}
+          </select>
+          <span className="ml-1.5 text-[12px] text-muted">
+            {linhas.length} variedade{linhas.length === 1 ? "" : "s"}
+          </span>
+        </>
+      }
+    >
       <div className="max-h-[420px] overflow-auto">
         <table className="w-full text-[12.5px]">
           <thead className="sticky top-0 bg-surface">
@@ -487,18 +498,12 @@ function VariedadesSecao({
           </div>
         </>
       )}
-    </div>
+    </Painel>
   );
 }
 
-function Kpi({ titulo, valor, extra }: { titulo: string; valor: string; extra?: React.ReactNode }) {
-  return (
-    <div className="rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
-      <div className="text-[11.5px] font-semibold text-muted">{titulo}</div>
-      <div className="text-[20px] font-bold text-ink">{valor}</div>
-      {extra ? <div className="mt-0.5 text-[11.5px] text-muted">{extra}</div> : null}
-    </div>
-  );
+function Kpi({ titulo, valor, extra, cor }: { titulo: string; valor: string; extra?: React.ReactNode; cor: CorIndicador }) {
+  return <Indicador cor={cor} rotulo={titulo} valor={valor} apoio={extra || undefined} title={titulo} />;
 }
 
 function Barra({ valor, max, cor }: { valor: number | null; max: number; cor: string }) {

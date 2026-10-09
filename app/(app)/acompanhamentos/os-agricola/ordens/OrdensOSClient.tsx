@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import { BarraFiltros, CabecalhoPagina, CorpoPagina, Pagina } from "@/components/pagina";
 import { fmtDateBR } from "@/lib/format";
 import type { LinhaOSAgr, OrdemServicoAgr } from "@/lib/os-agr";
 import { nomePosicao } from "@/lib/os-agr";
@@ -101,42 +102,44 @@ export default function OrdensOSClient({ perfil }: { perfil: PerfilUsuario }) {
   const totalPaginas = Math.max(1, Math.ceil((totais?.ordens ?? 0) / tamanho));
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Ordem de Serviço Agr.</span>
-          <div className="truncate text-[15px] font-bold text-ink">Ordens de Serviço</div>
-        </nav>
-        {opcoes?.ultimaImportacao && <span className="text-[12px] text-muted">Base atualizada em {opcoes.ultimaImportacao}</span>}
-        <BotaoExportar<OrdemServicoAgr>
-          nome="Ordens de Servico"
-          buscar={todas}
-          colunas={[
-            { rotulo: "O.S.", valor: (o) => Number(o.os) || o.os },
-            { rotulo: "Data da O.S.", valor: (o) => data(o.dtOs) },
-            { rotulo: "Previsão final", valor: (o) => data(o.prevFim) },
-            { rotulo: "Encerramento", valor: (o) => data(o.dtEnc) },
-            { rotulo: "Posição", valor: (o) => nomePosicao(o.posicao) },
-            { rotulo: "Dias", valor: (o) => o.dias },
-            { rotulo: "Faixa de dias", valor: (o) => o.faixa },
-            { rotulo: "Previsão vencida", valor: (o) => (o.atrasada ? "Sim" : "") },
-            { rotulo: "Operação", valor: (o) => o.operacoes.map((x) => `${x.cod} - ${x.ds}`).join(" | ") },
-            { rotulo: "Etapa", valor: (o) => `${o.etapaCod} - ${o.etapaDs}` },
-            { rotulo: "Solicitante", valor: (o) => o.respNm },
-            { rotulo: "Fazenda", valor: (o) => o.fazendas.map((x) => x.split(" · ")[0]).join(" | ") },
-            { rotulo: "Descrição Fazenda", valor: (o) => o.fazendas.map((x) => x.split(" · ").slice(1).join(" · ")).join(" | ") },
-            { rotulo: "Talhões", valor: (o) => o.nTlh },
-            { rotulo: "Área plantada (ha)", valor: (o) => o.areaPlant },
-            { rotulo: "Área recomendada (ha)", valor: (o) => o.areaRec },
-            { rotulo: "Safra", valor: (o) => o.safra },
-            { rotulo: "Lançada por", valor: (o) => o.usrOs },
-          ]}
-        />
-        {podeEditar(perfil) && <BotaoImportarOS onImportado={() => setVersao((v) => v + 1)} />}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Ordens de Serviço"
+        categoria="Ordem de Serviço Agr."
+        comandos={
+          <>
+            {podeEditar(perfil) && <BotaoImportarOS onImportado={() => setVersao((v) => v + 1)} />}
+            <BotaoExportar<OrdemServicoAgr>
+              nome="Ordens de Servico"
+              buscar={todas}
+              colunas={[
+                { rotulo: "O.S.", valor: (o) => Number(o.os) || o.os },
+                { rotulo: "Data da O.S.", valor: (o) => data(o.dtOs) },
+                { rotulo: "Previsão final", valor: (o) => data(o.prevFim) },
+                { rotulo: "Encerramento", valor: (o) => data(o.dtEnc) },
+                { rotulo: "Posição", valor: (o) => nomePosicao(o.posicao) },
+                { rotulo: "Dias", valor: (o) => o.dias },
+                { rotulo: "Faixa de dias", valor: (o) => o.faixa },
+                { rotulo: "Previsão vencida", valor: (o) => (o.atrasada ? "Sim" : "") },
+                { rotulo: "Operação", valor: (o) => o.operacoes.map((x) => `${x.cod} - ${x.ds}`).join(" | ") },
+                { rotulo: "Etapa", valor: (o) => `${o.etapaCod} - ${o.etapaDs}` },
+                { rotulo: "Solicitante", valor: (o) => o.respNm },
+                { rotulo: "Fazenda", valor: (o) => o.fazendas.map((x) => x.split(" · ")[0]).join(" | ") },
+                { rotulo: "Descrição Fazenda", valor: (o) => o.fazendas.map((x) => x.split(" · ").slice(1).join(" · ")).join(" | ") },
+                { rotulo: "Talhões", valor: (o) => o.nTlh },
+                { rotulo: "Área plantada (ha)", valor: (o) => o.areaPlant },
+                { rotulo: "Área recomendada (ha)", valor: (o) => o.areaRec },
+                { rotulo: "Safra", valor: (o) => o.safra },
+                { rotulo: "Lançada por", valor: (o) => o.usrOs },
+              ]}
+            />
+          </>
+        }
+        info={opcoes?.ultimaImportacao && <span>Base atualizada em {opcoes.ultimaImportacao}</span>}
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="mb-4 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
+      <CorpoPagina>
+        <BarraFiltros>
           <BarraFiltrosOS
             f={f}
             setF={setF}
@@ -184,7 +187,7 @@ export default function OrdensOSClient({ perfil }: { perfil: PerfilUsuario }) {
               </>
             }
           />
-        </div>
+        </BarraFiltros>
 
         {totais && (
           <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-muted">
@@ -310,8 +313,8 @@ export default function OrdensOSClient({ perfil }: { perfil: PerfilUsuario }) {
           Dias: O.S. em aberto, desde a data da O.S. até hoje; encerrada, da data da O.S. ao encerramento. Previsão em vermelho = vencida com a O.S. ainda em
           aberto. Clique numa O.S. para ver os talhões.
         </p>
-      </div>
-    </div>
+      </CorpoPagina>
+    </Pagina>
   );
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { CabecalhoPagina, CorpoPagina, Pagina, Painel, Selo } from "@/components/pagina";
 import { Campo, ModalShell } from "@/components/ui";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
@@ -91,70 +92,66 @@ export default function RodadasCadClient({ perfil }: { perfil: PerfilUsuario }) 
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Rodadas de Campo</span>
-          <div className="truncate text-[15px] font-bold text-ink">Cadastro de Rodadas</div>
-        </nav>
-        {!podeGravar && (
-          <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
-            Somente leitura
-          </div>
-        )}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Cadastro de Rodadas"
+        categoria="Rodadas de Campo"
+        info={
+          !podeGravar && (
+            <Selo>Somente leitura</Selo>
+          )
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <CorpoPagina>
         {podeIncluir && (
-          <form onSubmit={salvar} className="mb-5 rounded-xl2 border border-line bg-card p-4 shadow-card">
-            <h2 className="mb-3 text-[14px] font-bold text-ink">Nova rodada</h2>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
-              <Campo label="Nº da rodada">
-                <input value={rod} onChange={(e) => setRod(e.target.value)} inputMode="numeric" className={INPUT} />
-              </Campo>
-              <Campo label="Data de início (semana 1)">
-                <input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} className={INPUT} />
-              </Campo>
-              <button
-                type="submit"
-                disabled={salvando}
-                className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
-              >
-                {salvando ? "Gerando…" : "Gerar calendário"}
-              </button>
-            </div>
-            {erro && <p className="mt-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
-            <p className="mt-3 text-[12px] leading-relaxed text-muted">
-              A rodada tem 8 semanas, cada uma de segunda a domingo. A semana 1 começa na segunda-feira da data de início
-              informada. Confira a prévia abaixo antes de gerar.
-            </p>
-            {previa.length > 0 && (
-              <table className="mt-3 w-full max-w-md text-[12.5px]">
-                <thead>
-                  <tr className="border-b border-line bg-surface text-left text-muted">
-                    <th className="px-3 py-1.5 text-right font-semibold">Semana</th>
-                    <th className="px-3 py-1.5 font-semibold">Início (seg)</th>
-                    <th className="px-3 py-1.5 font-semibold">Fim (dom)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {previa.map((s) => (
-                    <tr key={s.sem} className="border-b border-line/60">
-                      <td className="px-3 py-1 text-right tabular text-ink">{s.sem}</td>
-                      <td className="px-3 py-1 text-ink">{fmtDateBR(s.ini)}</td>
-                      <td className="px-3 py-1 text-ink">{fmtDateBR(s.fim)}</td>
+          <form onSubmit={salvar} className="mb-5">
+            <Painel titulo="Nova rodada">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                <Campo label="Nº da rodada">
+                  <input value={rod} onChange={(e) => setRod(e.target.value)} inputMode="numeric" className={INPUT} />
+                </Campo>
+                <Campo label="Data de início (semana 1)">
+                  <input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} className={INPUT} />
+                </Campo>
+                <button
+                  type="submit"
+                  disabled={salvando}
+                  className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
+                >
+                  {salvando ? "Gerando…" : "Gerar calendário"}
+                </button>
+              </div>
+              {erro && <p className="mt-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
+              <p className="mt-3 text-[12px] leading-relaxed text-muted">
+                A rodada tem 8 semanas, cada uma de segunda a domingo. A semana 1 começa na segunda-feira da data de início
+                informada. Confira a prévia abaixo antes de gerar.
+              </p>
+              {previa.length > 0 && (
+                <table className="mt-3 w-full max-w-md text-[12.5px]">
+                  <thead>
+                    <tr className="border-b border-line bg-surface text-left text-muted">
+                      <th className="px-3 py-1.5 text-right font-semibold">Semana</th>
+                      <th className="px-3 py-1.5 font-semibold">Início (seg)</th>
+                      <th className="px-3 py-1.5 font-semibold">Fim (dom)</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                  </thead>
+                  <tbody>
+                    {previa.map((s) => (
+                      <tr key={s.sem} className="border-b border-line/60">
+                        <td className="px-3 py-1 text-right tabular text-ink">{s.sem}</td>
+                        <td className="px-3 py-1 text-ink">{fmtDateBR(s.ini)}</td>
+                        <td className="px-3 py-1 text-ink">{fmtDateBR(s.fim)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Painel>
           </form>
         )}
 
-        <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-          <div className="border-b border-line bg-surface px-4 py-2.5">
-            <h2 className="text-[14px] font-bold text-ink">Rodadas cadastradas</h2>
-          </div>
+        <Painel titulo="Rodadas cadastradas" semEspaco>
           <table className="w-full text-[12.5px]">
             <thead>
               <tr className="border-b border-line bg-surface text-left text-muted">
@@ -186,8 +183,8 @@ export default function RodadasCadClient({ perfil }: { perfil: PerfilUsuario }) 
               )}
             </tbody>
           </table>
-        </div>
-      </div>
+        </Painel>
+      </CorpoPagina>
       {editando && (
         <EditarSemanasModal
           rodada={editando}
@@ -198,7 +195,7 @@ export default function RodadasCadClient({ perfil }: { perfil: PerfilUsuario }) 
           }}
         />
       )}
-    </div>
+    </Pagina>
   );
 }
 

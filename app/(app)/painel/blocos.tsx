@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import type { IconProps } from "@/components/icons";
+import { Indicador as IndicadorPadrao, Painel, type CorIndicador } from "@/components/pagina";
 import type { DiaCana, FrenteCana, MesCana } from "@/lib/db-painel";
 import { fmtDateBR } from "@/lib/format";
 
@@ -45,7 +46,7 @@ export function Secao({ titulo, subtitulo, children }: { titulo: string; subtitu
   return (
     <section>
       <div className="mb-4 flex items-baseline gap-3 border-b border-line pb-2">
-        <h2 className="text-[17px] font-semibold tracking-tight text-ink">{titulo}</h2>
+        <h2 className="font-display text-[20px] font-semibold leading-tight text-ink">{titulo}</h2>
         {subtitulo && <span className="text-[12px] text-muted">{subtitulo}</span>}
       </div>
       {children}
@@ -53,16 +54,9 @@ export function Secao({ titulo, subtitulo, children }: { titulo: string; subtitu
   );
 }
 
-function Selo({ icone: I, tamanho = 36 }: { icone: Icone; tamanho?: number }) {
-  return (
-    <span className="flex flex-shrink-0 items-center justify-center rounded-lg bg-[#2D8A5A]/10 text-[#2D8A5A]" style={{ width: tamanho, height: tamanho }}>
-      <I size={Math.round(tamanho * 0.52)} />
-    </span>
-  );
-}
-
+/** Caixa de um bloco do painel: um Painel do padrão, com o ícone antes do título e a ligação para a tela à direita. */
 export function Caixa({
-  icone,
+  icone: I,
   titulo,
   subtitulo,
   ligacao,
@@ -79,23 +73,21 @@ export function Caixa({
   className?: string;
 }) {
   return (
-    <section className={`rounded-xl2 border border-line bg-card p-5 shadow-card ${className}`}>
-      <header className="mb-4 flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          {icone && <Selo icone={icone} />}
-          <div className="min-w-0">
-            <h3 className="truncate text-[14.5px] font-semibold text-ink">{titulo}</h3>
-            {subtitulo && <p className="text-[11.5px] text-muted">{subtitulo}</p>}
-          </div>
-        </div>
-        {ligacao && (
-          <Link href={ligacao} className="flex-shrink-0 pt-0.5 text-[12px] text-muted hover:text-ink">
+    <Painel
+      className={className}
+      titulo={titulo}
+      icone={I && <I size={17} />}
+      subtitulo={subtitulo}
+      acoes={
+        ligacao ? (
+          <Link href={ligacao} className="text-[12px] font-medium text-navy-900 hover:underline">
             {rotuloLigacao ?? "Ver"}
           </Link>
-        )}
-      </header>
+        ) : undefined
+      }
+    >
       {children}
-    </section>
+    </Painel>
   );
 }
 
@@ -107,15 +99,19 @@ export function Barra({ valor, cor = VERDE, altura = 4 }: { valor: number; cor?:
   );
 }
 
-/** Indicador com ícone; com `meta`, mostra a barra e o % atingido. */
+/**
+ * Indicador com ícone (o Indicador do padrão das telas); com `meta`, mostra a barra e o % atingido.
+ * `cor` é a cor de significado do filete e do número (azul quando não informada).
+ */
 export function Indicador({
-  icone,
+  icone: I,
   rotulo,
   valor,
   unidade,
   apoio,
   meta,
   real,
+  cor = "azul",
 }: {
   icone: Icone;
   rotulo: string;
@@ -124,18 +120,11 @@ export function Indicador({
   apoio?: ReactNode;
   meta?: number;
   real?: number;
+  cor?: CorIndicador;
 }) {
   const p = meta && meta > 0 && real !== undefined ? real / meta : null;
   return (
-    <div className="rounded-xl2 border border-line bg-card p-4 shadow-card">
-      <div className="flex items-center gap-3">
-        <Selo icone={icone} tamanho={34} />
-        <span className="text-[12.5px] text-muted">{rotulo}</span>
-      </div>
-      <div className="mt-3 flex items-baseline gap-1.5">
-        <span className="tabular text-[25px] font-semibold leading-none tracking-tight text-ink">{valor}</span>
-        {unidade && <span className="text-[12px] text-muted">{unidade}</span>}
-      </div>
+    <IndicadorPadrao cor={cor} icone={<I size={18} />} rotulo={rotulo} valor={valor} unidade={unidade} title={rotulo}>
       {p !== null && (
         <div className="mt-3 space-y-1">
           <Barra valor={p} cor={corAtingimento(p)} />
@@ -148,7 +137,7 @@ export function Indicador({
         </div>
       )}
       {apoio && <div className="mt-2 text-[11.5px] leading-snug text-muted">{apoio}</div>}
-    </div>
+    </IndicadorPadrao>
   );
 }
 
@@ -156,7 +145,7 @@ export function Numero({ rotulo, valor, apoio, tom }: { rotulo: string; valor: s
   return (
     <div className="min-w-0">
       <div className="text-[12px] text-muted">{rotulo}</div>
-      <div className={`tabular text-[21px] font-semibold leading-tight tracking-tight ${tom === "bom" ? "text-good-600" : tom === "ruim" ? "text-alert-600" : "text-ink"}`}>{valor}</div>
+      <div className={`tabular font-display text-[23px] font-semibold leading-tight ${tom === "bom" ? "text-good-600" : tom === "ruim" ? "text-alert-600" : "text-ink"}`}>{valor}</div>
       {apoio && <div className="mt-0.5 text-[11.5px] text-muted">{apoio}</div>}
     </div>
   );
@@ -347,7 +336,7 @@ function LinhaMeta({ rotulo, real, meta }: { rotulo: string; real: number; meta:
 
 export function CartaoFrente({ f, cor }: { f: FrenteCana; cor: string }) {
   return (
-    <div className="flex flex-col rounded-xl border border-line p-4">
+    <div className="flex flex-col rounded-xl2 border border-line p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-2">
           <span className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-[3px]" style={{ background: cor }} />

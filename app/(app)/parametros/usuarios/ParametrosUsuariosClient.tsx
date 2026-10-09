@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import BotaoLog from "@/components/BotaoLog";
+import { CabecalhoPagina, CorpoPagina, Pagina, Painel } from "@/components/pagina";
 import { telasDoMenu } from "@/lib/menu";
 import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIS } from "@/lib/permissoes";
 import type { PerfilUsuario, UsuarioPublico } from "@/lib/types";
@@ -107,167 +108,166 @@ export default function ParametrosUsuariosClient({ usuariosIniciais, idLogado }:
   const desabilitado = ehAdminSel || todas;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden" translate="no">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px]">Configurações · Parâmetros</span>
-          <div className="truncate text-[15px] font-semibold text-ink">Usuários</div>
-        </nav>
-        <BotaoLog titulo="Log dos Parâmetros" filtro={{ modulo: "Parâmetros" }} />
-      </header>
+    <Pagina>
+      <div className="flex min-h-0 flex-1 flex-col" translate="no">
+        <CabecalhoPagina
+          titulo="Usuários"
+          categoria="Configurações · Parâmetros"
+          comandos={<BotaoLog titulo="Log dos Parâmetros" filtro={{ modulo: "Parâmetros" }} />}
+        />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
-          {/* usuários e perfis */}
-          <div className="space-y-4">
-            <div className="rounded-xl2 border border-line bg-card shadow-card">
-              <div className="border-b border-line p-3">
-                <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar usuário" className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px]" aria-label="Buscar usuário" />
-              </div>
-              <ul className="max-h-[420px] overflow-y-auto p-1.5">
-                {lista.map((u) => (
-                  <li key={u.id}>
-                    <button
-                      type="button"
-                      onClick={() => escolher(u)}
-                      className={`flex w-full items-start justify-between gap-2 rounded-lg px-3 py-2 text-left ${u.id === selId ? "bg-[#2D8A5A]/10" : "hover:bg-surface"} ${u.ativo ? "" : "opacity-60"}`}
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-[13px] font-medium text-ink">
-                          {nomeCompleto(u)}
-                          {u.id === idLogado && <span className="ml-1 text-[11px] font-normal text-muted">(você)</span>}
-                        </span>
-                        <span className="block truncate text-[11.5px] text-muted">
-                          {u.perfil === "admin" ? "Todas as telas" : u.acessos === null ? "Todas as telas" : `${u.acessos.length} de ${TODAS.length} telas`}
-                          {u.ativo ? "" : " · inativo"}
-                        </span>
-                      </span>
-                      <Selo perfil={u.perfil} />
-                    </button>
-                  </li>
-                ))}
-                {lista.length === 0 && <li className="px-3 py-4 text-center text-[12.5px] text-muted">Nenhum usuário encontrado.</li>}
-              </ul>
-            </div>
-
-            <div className="rounded-xl2 border border-line bg-card p-4 shadow-card">
-              <h2 className="mb-2 text-[13px] font-semibold text-ink">Perfis</h2>
-              <dl className="space-y-2">
-                {PERFIS.map((p) => (
-                  <div key={p}>
-                    <dt>
-                      <Selo perfil={p} />
-                    </dt>
-                    <dd className="mt-1 text-[11.5px] leading-snug text-muted">{PERFIL_DESCRICAO[p]}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          </div>
-
-          {/* acesso do usuário escolhido */}
-          {sel ? (
-            <div className="rounded-xl2 border border-line bg-card p-5 shadow-card">
-              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
-                <div className="min-w-0">
-                  <h2 className="truncate text-[16px] font-semibold text-ink">{nomeCompleto(sel)}</h2>
-                  <p className="text-[12px] text-muted">
-                    {sel.email} · {sel.usuario}
-                  </p>
+        <CorpoPagina>
+          <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
+            {/* usuários e perfis */}
+            <div className="space-y-4">
+              <div className="rounded-xl2 border border-line bg-card shadow-card">
+                <div className="border-b border-line p-3">
+                  <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar usuário" className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px]" aria-label="Buscar usuário" />
                 </div>
-                <label className="block w-full max-w-[260px]">
-                  <span className="mb-1 block text-[11.5px] text-muted">Perfil</span>
-                  <select
-                    value={perfil}
-                    onChange={(e) => setPerfil(e.target.value as PerfilUsuario)}
-                    disabled={sel.id === idLogado}
-                    className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] disabled:opacity-60"
-                  >
-                    {PERFIS.map((p) => (
-                      <option key={p} value={p}>
-                        {PERFIL_LABEL[p]}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="mt-1 block text-[11.5px] leading-snug text-muted">
-                    {sel.id === idLogado ? "Você não pode alterar o próprio perfil." : PERFIL_DESCRICAO[perfil]}
-                  </span>
-                </label>
-              </div>
-
-              <div className="mt-4">
-                <h3 className="text-[13.5px] font-semibold text-ink">Telas que o usuário vê</h3>
-                {ehAdminSel ? (
-                  <p className="mt-2 text-[12.5px] text-muted">O administrador vê todas as telas, inclusive os Parâmetros.</p>
-                ) : (
-                  <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-ink">
-                    <label className="flex items-center gap-2">
-                      <input type="radio" name="modo" checked={todas} onChange={() => setTodas(true)} />
-                      Todas as telas (inclusive as que forem criadas depois)
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input type="radio" name="modo" checked={!todas} onChange={() => setTodas(false)} />
-                      Somente as telas marcadas
-                    </label>
-                  </div>
-                )}
-                <p className="mt-1 text-[11.5px] text-muted">O Início fica sempre liberado. Cadastros de usuários e Parâmetros são só do administrador.</p>
-              </div>
-
-              <div className={`mt-4 space-y-5 ${desabilitado ? "pointer-events-none opacity-45" : ""}`} aria-disabled={desabilitado}>
-                {SECOES.map((secao) => {
-                  const telas = TELAS.filter((t) => t.secao === secao);
-                  const n = telas.filter((t) => marcadas.has(t.href)).length;
-                  return (
-                    <section key={secao}>
-                      <div className="mb-2 flex flex-wrap items-baseline gap-3 border-b border-line pb-1.5">
-                        <h4 className="text-[12.5px] font-semibold text-[#2D8A5A]">{secao}</h4>
-                        <span className="text-[11.5px] text-muted">
-                          {n} de {telas.length}
+                <ul className="max-h-[420px] overflow-y-auto p-1.5">
+                  {lista.map((u) => (
+                    <li key={u.id}>
+                      <button
+                        type="button"
+                        onClick={() => escolher(u)}
+                        className={`flex w-full items-start justify-between gap-2 rounded-lg px-3 py-2 text-left ${u.id === selId ? "bg-[#2D8A5A]/10" : "hover:bg-surface"} ${u.ativo ? "" : "opacity-60"}`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] font-medium text-ink">
+                            {nomeCompleto(u)}
+                            {u.id === idLogado && <span className="ml-1 text-[11px] font-normal text-muted">(você)</span>}
+                          </span>
+                          <span className="block truncate text-[11.5px] text-muted">
+                            {u.perfil === "admin" ? "Todas as telas" : u.acessos === null ? "Todas as telas" : `${u.acessos.length} de ${TODAS.length} telas`}
+                            {u.ativo ? "" : " · inativo"}
+                          </span>
                         </span>
-                        <span className="ml-auto flex gap-3 text-[11.5px]">
-                          <button type="button" className="text-muted hover:text-ink" onClick={() => marcarSecao(secao, true)} tabIndex={desabilitado ? -1 : 0}>
-                            Marcar todas
-                          </button>
-                          <button type="button" className="text-muted hover:text-ink" onClick={() => marcarSecao(secao, false)} tabIndex={desabilitado ? -1 : 0}>
-                            Desmarcar
-                          </button>
-                        </span>
-                      </div>
-                      <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
-                        {telas.map((t) => (
-                          <label key={t.href} className="flex items-start gap-2 rounded-md px-1.5 py-1 text-[12.5px] hover:bg-surface">
-                            <input type="checkbox" className="mt-0.5" checked={desabilitado ? true : marcadas.has(t.href)} onChange={() => alternar(t.href)} tabIndex={desabilitado ? -1 : 0} />
-                            <span className="min-w-0">
-                              {t.caminho.length > 1 && <span className="text-muted">{t.caminho.slice(0, -1).join(" › ")} › </span>}
-                              <span className="text-ink">{t.label}</span>
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </section>
-                  );
-                })}
+                        <Selo perfil={u.perfil} />
+                      </button>
+                    </li>
+                  ))}
+                  {lista.length === 0 && <li className="px-3 py-4 text-center text-[12.5px] text-muted">Nenhum usuário encontrado.</li>}
+                </ul>
               </div>
 
-              <div className="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-line pt-4">
-                {msg && <p className={`mr-auto text-[12.5px] ${msg.erro ? "text-alert-700" : "text-good-600"}`}>{msg.texto}</p>}
-                {!todas && !ehAdminSel && <span className="text-[12px] text-muted">{marcadas.size} de {TODAS.length} telas marcadas</span>}
-                <button
-                  type="button"
-                  onClick={salvar}
-                  disabled={salvando || !alterado || (!todas && !ehAdminSel && marcadas.size === 0)}
-                  className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
-                >
-                  {salvando ? "Salvando…" : "Salvar"}
-                </button>
-              </div>
+              <Painel titulo="Perfis">
+                <dl className="space-y-2">
+                  {PERFIS.map((p) => (
+                    <div key={p}>
+                      <dt>
+                        <Selo perfil={p} />
+                      </dt>
+                      <dd className="mt-1 text-[11.5px] leading-snug text-muted">{PERFIL_DESCRICAO[p]}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </Painel>
             </div>
-          ) : (
-            <p className="rounded-xl2 border border-dashed border-line px-4 py-8 text-center text-[13px] text-muted">Escolha um usuário na lista.</p>
-          )}
-        </div>
+
+            {/* acesso do usuário escolhido */}
+            {sel ? (
+              <div className="rounded-xl2 border border-line bg-card p-5 shadow-card">
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-[16px] font-semibold text-ink">{nomeCompleto(sel)}</h2>
+                    <p className="text-[12px] text-muted">
+                      {sel.email} · {sel.usuario}
+                    </p>
+                  </div>
+                  <label className="block w-full max-w-[260px]">
+                    <span className="mb-1 block text-[11.5px] text-muted">Perfil</span>
+                    <select
+                      value={perfil}
+                      onChange={(e) => setPerfil(e.target.value as PerfilUsuario)}
+                      disabled={sel.id === idLogado}
+                      className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] disabled:opacity-60"
+                    >
+                      {PERFIS.map((p) => (
+                        <option key={p} value={p}>
+                          {PERFIL_LABEL[p]}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="mt-1 block text-[11.5px] leading-snug text-muted">
+                      {sel.id === idLogado ? "Você não pode alterar o próprio perfil." : PERFIL_DESCRICAO[perfil]}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="mt-4">
+                  <h3 className="text-[13.5px] font-semibold text-ink">Telas que o usuário vê</h3>
+                  {ehAdminSel ? (
+                    <p className="mt-2 text-[12.5px] text-muted">O administrador vê todas as telas, inclusive os Parâmetros.</p>
+                  ) : (
+                    <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-ink">
+                      <label className="flex items-center gap-2">
+                        <input type="radio" name="modo" checked={todas} onChange={() => setTodas(true)} />
+                        Todas as telas (inclusive as que forem criadas depois)
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input type="radio" name="modo" checked={!todas} onChange={() => setTodas(false)} />
+                        Somente as telas marcadas
+                      </label>
+                    </div>
+                  )}
+                  <p className="mt-1 text-[11.5px] text-muted">O Início fica sempre liberado. Cadastros de usuários e Parâmetros são só do administrador.</p>
+                </div>
+
+                <div className={`mt-4 space-y-5 ${desabilitado ? "pointer-events-none opacity-45" : ""}`} aria-disabled={desabilitado}>
+                  {SECOES.map((secao) => {
+                    const telas = TELAS.filter((t) => t.secao === secao);
+                    const n = telas.filter((t) => marcadas.has(t.href)).length;
+                    return (
+                      <section key={secao}>
+                        <div className="mb-2 flex flex-wrap items-baseline gap-3 border-b border-line pb-1.5">
+                          <h4 className="text-[12.5px] font-semibold text-[#2D8A5A]">{secao}</h4>
+                          <span className="text-[11.5px] text-muted">
+                            {n} de {telas.length}
+                          </span>
+                          <span className="ml-auto flex gap-3 text-[11.5px]">
+                            <button type="button" className="text-muted hover:text-ink" onClick={() => marcarSecao(secao, true)} tabIndex={desabilitado ? -1 : 0}>
+                              Marcar todas
+                            </button>
+                            <button type="button" className="text-muted hover:text-ink" onClick={() => marcarSecao(secao, false)} tabIndex={desabilitado ? -1 : 0}>
+                              Desmarcar
+                            </button>
+                          </span>
+                        </div>
+                        <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
+                          {telas.map((t) => (
+                            <label key={t.href} className="flex items-start gap-2 rounded-md px-1.5 py-1 text-[12.5px] hover:bg-surface">
+                              <input type="checkbox" className="mt-0.5" checked={desabilitado ? true : marcadas.has(t.href)} onChange={() => alternar(t.href)} tabIndex={desabilitado ? -1 : 0} />
+                              <span className="min-w-0">
+                                {t.caminho.length > 1 && <span className="text-muted">{t.caminho.slice(0, -1).join(" › ")} › </span>}
+                                <span className="text-ink">{t.label}</span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-line pt-4">
+                  {msg && <p className={`mr-auto text-[12.5px] ${msg.erro ? "text-alert-700" : "text-good-600"}`}>{msg.texto}</p>}
+                  {!todas && !ehAdminSel && <span className="text-[12px] text-muted">{marcadas.size} de {TODAS.length} telas marcadas</span>}
+                  <button
+                    type="button"
+                    onClick={salvar}
+                    disabled={salvando || !alterado || (!todas && !ehAdminSel && marcadas.size === 0)}
+                    className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
+                  >
+                    {salvando ? "Salvando…" : "Salvar"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-xl2 border border-dashed border-line px-4 py-8 text-center text-[13px] text-muted">Escolha um usuário na lista.</p>
+            )}
+          </div>
+        </CorpoPagina>
       </div>
-    </div>
+    </Pagina>
   );
 }

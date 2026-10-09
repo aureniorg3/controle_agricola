@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
-import { IconImportar } from "@/components/icons";
+import { IconBaixar, IconImportar } from "@/components/icons";
+import { Comando } from "@/components/pagina";
 import type { OpcoesOS } from "@/lib/db-os-agr";
 import { exportarPlanilha, type ColunaExportacao, type FormatoExportacao } from "@/lib/exportar-planilha";
 import type { PreviaImportacaoOS } from "@/lib/os-agr";
@@ -145,17 +146,25 @@ export function SeloPosicao({ p }: { p: string }) {
 
 /** Botão com as duas opções de exportação (CSV e XLSX); `buscar` traz todas as linhas do filtro atual. */
 export function BotaoExportar<T>({ nome, colunas, buscar }: { nome: string; colunas: ColunaExportacao<T>[]; buscar: () => Promise<T[]> }) {
-  const [aberto, setAberto] = useState(false);
+  // posição do menu na tela (fixa): assim ele não é cortado pela barra de comandos nem pelo painel
+  const [aberto, setAberto] = useState<{ top: number; right: number } | null>(null);
   const [gerando, setGerando] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!aberto) return;
-    const fechar = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setAberto(false);
+    const fechar = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setAberto(null);
+    const fecharTudo = () => setAberto(null);
     document.addEventListener("mousedown", fechar);
-    return () => document.removeEventListener("mousedown", fechar);
+    window.addEventListener("resize", fecharTudo);
+    document.addEventListener("scroll", fecharTudo, true);
+    return () => {
+      document.removeEventListener("mousedown", fechar);
+      window.removeEventListener("resize", fecharTudo);
+      document.removeEventListener("scroll", fecharTudo, true);
+    };
   }, [aberto]);
   async function gerar(formato: FormatoExportacao) {
-    setAberto(false);
+    setAberto(null);
     setGerando(true);
     try {
       await exportarPlanilha(nome, colunas, await buscar(), formato);
@@ -166,23 +175,25 @@ export function BotaoExportar<T>({ nome, colunas, buscar }: { nome: string; colu
     }
   }
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
+    <div ref={ref} className="flex-shrink-0">
+      <Comando
+        icone={<IconBaixar size={16} />}
         disabled={gerando}
-        onClick={() => setAberto((a) => !a)}
-        className="rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-medium text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setAberto((a) => (a ? null : { top: r.bottom + 4, right: window.innerWidth - r.right }));
+        }}
         aria-haspopup="menu"
-        aria-expanded={aberto}
+        aria-expanded={!!aberto}
       >
         {gerando ? "Exportando…" : "Exportar"}
-      </button>
+      </Comando>
       {aberto && (
-        <div role="menu" className="absolute right-0 z-30 mt-1 w-44 overflow-hidden rounded-lg border border-line bg-card py-1 shadow-pop">
-          <button type="button" role="menuitem" onClick={() => gerar("xlsx")} className="block w-full px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-surface">
+        <div role="menu" className="fixed z-50 w-48 overflow-hidden rounded-lg border border-line bg-card py-1 shadow-pop" style={{ top: aberto.top, right: aberto.right }}>
+          <button type="button" role="menuitem" onClick={() => gerar("xlsx")} className="block w-full px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-hover">
             Planilha Excel (.xlsx)
           </button>
-          <button type="button" role="menuitem" onClick={() => gerar("csv")} className="block w-full px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-surface">
+          <button type="button" role="menuitem" onClick={() => gerar("csv")} className="block w-full px-3 py-1.5 text-left text-[12.5px] text-ink hover:bg-hover">
             Texto separado (.csv)
           </button>
         </div>
@@ -195,14 +206,9 @@ export function BotaoImportarOS({ onImportado }: { onImportado: () => void }) {
   const [aberto, setAberto] = useState(false);
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setAberto(true)}
-        className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-medium text-navy-800 shadow-card hover:bg-surface"
-      >
-        <IconImportar size={14} />
+      <Comando primario icone={<IconImportar size={16} />} onClick={() => setAberto(true)}>
         Importar O.S.
-      </button>
+      </Comando>
       {aberto && (
         <ImportarOSModal
           onFechar={(importou) => {

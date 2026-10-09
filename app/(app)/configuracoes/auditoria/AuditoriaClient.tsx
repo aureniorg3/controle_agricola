@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { TabelaAuditoria } from "@/components/AuditoriaModal";
+import { IconAtualizar } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Pagina } from "@/components/pagina";
 import type { RegistroAuditoria } from "@/lib/auditoria";
 import { ehTexto, usarPersistido } from "@/lib/usar-persistido";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
@@ -64,19 +66,22 @@ export default function AuditoriaClient() {
   }, [busca]);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-4 py-3 md:px-6">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Configurações</span>
-          <div className="truncate text-[15px] font-bold text-ink">Log de Alterações</div>
-        </nav>
-      </header>
-      <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-5">
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Log de Alterações"
+        categoria="Configurações"
+        comandos={
+          <Comando icone={<IconAtualizar size={16} />} onClick={carregar}>
+            Atualizar
+          </Comando>
+        }
+      />
+      <CorpoPagina>
         <p className="mb-4 max-w-3xl text-[12.5px] leading-relaxed text-muted">
           Tudo o que é lançado, alterado, excluído ou importado no sistema fica registrado aqui, com a data, a hora e o usuário. Os
           registros mais recentes aparecem primeiro (até 300).
         </p>
-        <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        <BarraFiltros>
           <select value={modulo} onChange={(e) => setModulo(e.target.value)} className={FILTRO} aria-label="Módulo">
             <option value="">Todos os módulos</option>
             {opcoes?.modulos.map((m) => (
@@ -102,11 +107,8 @@ export default function AuditoriaClient() {
             <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={FILTRO} />
           </label>
           <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar no log…" className={`${FILTRO} min-w-[220px]`} />
-          <button type="button" onClick={carregar} className="rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card">
-            Atualizar
-          </button>
           <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-        </div>
+        </BarraFiltros>
         {erro && <p className="mb-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
         <div className="overflow-auto rounded-xl2 border border-line bg-card shadow-card">
           {carregando && registros.length === 0 ? (
@@ -117,7 +119,7 @@ export default function AuditoriaClient() {
             <TabelaAuditoria linhas={registros} />
           )}
         </div>
-      </div>
-    </div>
+      </CorpoPagina>
+    </Pagina>
   );
 }

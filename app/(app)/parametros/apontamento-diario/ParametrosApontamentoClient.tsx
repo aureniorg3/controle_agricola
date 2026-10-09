@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import BotaoLog from "@/components/BotaoLog";
+import { CabecalhoPagina, CorpoPagina, Pagina, Painel } from "@/components/pagina";
 import { CAMPOS_APONTAMENTO, REGRAS_PADRAO, type RegrasApontamento } from "@/lib/atividades";
 
 /** Parâmetros › Apontamento Diário: quais campos o lançamento exige. */
@@ -30,22 +31,24 @@ export default function ParametrosApontamentoClient({ regrasIniciais }: { regras
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px]">Parâmetros</span>
-          <div className="truncate text-[15px] font-semibold text-ink">Apontamento Diário</div>
-        </nav>
-        <BotaoLog titulo="Log dos parâmetros do Apontamento Diário" filtro={{ modulo: "Parâmetros", entidade: "Apontamento Diário" }} />
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Apontamento Diário"
+        categoria="Parâmetros"
+        comandos={<BotaoLog titulo="Log dos parâmetros do Apontamento Diário" filtro={{ modulo: "Parâmetros", entidade: "Apontamento Diário" }} />}
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <section className="max-w-3xl rounded-xl2 border border-line bg-card p-5 shadow-card">
-          <h2 className="text-[14.5px] font-semibold text-ink">Campos obrigatórios</h2>
-          <p className="mb-4 mt-1 text-[12.5px] leading-relaxed text-muted">
-            Marque o que o Apontamento Diário exige para gravar. Boletim, data, fazenda e área realizada são sempre obrigatórios. Na tela, os campos marcados aparecem com
-            asterisco (*).
-          </p>
+      <CorpoPagina>
+        <Painel
+          titulo="Campos obrigatórios"
+          subtitulo={
+            <>
+              Marque o que o Apontamento Diário exige para gravar. Boletim, data, fazenda e área realizada são sempre obrigatórios. Na tela, os campos marcados
+              aparecem com asterisco (*).
+            </>
+          }
+          className="max-w-3xl"
+        >
           {msg && (
             <p className={`mb-3 rounded-md border px-3 py-2 text-[12.5px] ${msg.erro ? "border-alert-500/40 bg-alert-50 text-alert-700" : "border-good-500/40 bg-good-50 text-good-700"}`}>
               {msg.texto}
@@ -87,8 +90,8 @@ export default function ParametrosApontamentoClient({ regrasIniciais }: { regras
               {salvando ? "Salvando…" : "Salvar"}
             </button>
           </div>
-        </section>
-      </div>
-    </div>
+        </Painel>
+      </CorpoPagina>
+    </Pagina>
   );
 }

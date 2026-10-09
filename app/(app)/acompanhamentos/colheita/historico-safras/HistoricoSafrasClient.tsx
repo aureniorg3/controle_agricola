@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ModalShell } from "@/components/ui";
+import { IconImportar } from "@/components/icons";
+import { CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, Selo } from "@/components/pagina";
 import { fmtHa, fmtT, fmtTch } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { BaseSafraFazenda } from "@/lib/db";
@@ -63,29 +65,25 @@ export default function HistoricoSafrasClient({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Colheita</span>
-          <div className="truncate text-[15px] font-bold text-ink">Histórico de Safras</div>
-        </nav>
-        {!podeGravar && (
-          <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
-            Somente leitura
-          </div>
-        )}
-        {podeGravar && (
-          <button
-            type="button"
-            onClick={() => setImportarAberto(true)}
-            className="rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
-          >
-            Importar safras
-          </button>
-        )}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Histórico de Safras"
+        categoria="Acompanhamentos · Colheita"
+        info={
+          !podeGravar && (
+            <Selo>Somente leitura</Selo>
+          )
+        }
+        comandos={
+          podeGravar && (
+            <Comando primario icone={<IconImportar size={16} />} onClick={() => setImportarAberto(true)}>
+              Importar safras
+            </Comando>
+          )
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <CorpoPagina>
         {resumo.length === 0 ? (
           <div className="rounded-xl2 border border-dashed border-line bg-card px-6 py-14 text-center text-muted">
             Nenhuma safra importada ainda.{" "}
@@ -99,10 +97,7 @@ export default function HistoricoSafrasClient({
           </div>
         ) : (
           <>
-            <div className="mb-5 overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-              <div className="border-b border-line bg-surface px-4 py-2.5 text-[14px] font-bold text-ink">
-                Safras importadas
-              </div>
+            <Painel titulo="Safras importadas" semEspaco className="mb-5">
               <div className="overflow-x-auto">
                 <table className="w-full text-[12.5px]">
                   <thead>
@@ -146,35 +141,39 @@ export default function HistoricoSafrasClient({
                   </tbody>
                 </table>
               </div>
-            </div>
+            </Painel>
 
-            <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-              <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
-                <h2 className="text-[14px] font-bold text-ink">Base consolidada por fazenda</h2>
-                <select
-                  value={safraFiltro}
-                  onChange={(e) => setSafraFiltro(e.target.value)}
-                  aria-label="Filtrar por safra"
-                  className={FILTRO}
-                >
-                  <option value="todas">Todas as safras</option>
-                  {resumo.map((r) => (
-                    <option key={r.safra} value={r.safra}>
-                      Safra {r.safra}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar fazenda, proprietário, município…"
-                  className={`${FILTRO} min-w-[260px]`}
-                />
-                <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-                <span className="ml-auto text-[12px] text-muted">
-                  {filtradas.length} linha{filtradas.length === 1 ? "" : "s"}
-                </span>
-              </div>
+            <Painel
+              titulo="Base consolidada por fazenda"
+              semEspaco
+              acoes={
+                <>
+                  <select
+                    value={safraFiltro}
+                    onChange={(e) => setSafraFiltro(e.target.value)}
+                    aria-label="Filtrar por safra"
+                    className={FILTRO}
+                  >
+                    <option value="todas">Todas as safras</option>
+                    {resumo.map((r) => (
+                      <option key={r.safra} value={r.safra}>
+                        Safra {r.safra}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    placeholder="Buscar fazenda, proprietário, município…"
+                    className={`${FILTRO} min-w-[260px]`}
+                  />
+                  <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
+                  <span className="ml-1.5 text-[12px] text-muted">
+                    {filtradas.length} linha{filtradas.length === 1 ? "" : "s"}
+                  </span>
+                </>
+              }
+            >
               <div className="overflow-x-auto">
                 <table className="w-full text-[12.5px]">
                   <thead>
@@ -229,13 +228,13 @@ export default function HistoricoSafrasClient({
                 produção estimada ÷ área total. Os rótulos &quot;Kg/Ha&quot; do arquivo de origem são, na verdade, o TCH
                 (t/ha) estimado e realizado.
               </p>
-            </div>
+            </Painel>
           </>
         )}
-      </div>
+      </CorpoPagina>
 
       {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} />}
-    </div>
+    </Pagina>
   );
 }
 

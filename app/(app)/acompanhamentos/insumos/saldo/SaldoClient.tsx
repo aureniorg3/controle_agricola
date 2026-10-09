@@ -2,7 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import BotaoLog from "@/components/BotaoLog";
-import { IconImprimir } from "@/components/icons";
+import { IconImportar, IconImprimir } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
 import { fmtDateBR } from "@/lib/format";
 import { addDays } from "@/lib/period";
 import { DEPOSITOS_PADRAO, EMPRESAS, hectaresDoSaldo, montarMatriz, nomeEmpresa, precoMedio, textoDosagem, textoHectares, type ResultadoSaldo } from "@/lib/insumos-saldo";
@@ -195,79 +196,79 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
   const maxTop = Math.max(1, ...topItens.map((t) => t.valor));
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden" translate="no">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Insumos</span>
-          <div className="truncate text-[15px] font-bold text-ink">Saldo Insumos</div>
-        </nav>
-        {podeImportar && (
-          <button type="button" onClick={() => setImportar(true)} className={BOTAO}>
-            Importar saldo do dia
-          </button>
-        )}
-        <button type="button" onClick={imprimir} disabled={gerando || !dados || matriz.grupos.length === 0} className={`${BOTAO} flex items-center gap-1.5`}>
-          <IconImprimir size={15} />
-          {gerando ? "Gerando…" : "Imprimir / PDF"}
-        </button>
-        <BotaoLog titulo="Log do Saldo de Insumos" filtro={{ modulo: "Insumos", entidade: "Saldo de insumos" }} />
-      </header>
+    <Pagina translate="no">
+      <CabecalhoPagina
+        titulo="Saldo Insumos"
+        categoria="Acompanhamentos · Insumos"
+        comandos={
+          <>
+            {podeImportar && (
+              <Comando primario icone={<IconImportar size={16} />} onClick={() => setImportar(true)}>
+                Importar saldo do dia
+              </Comando>
+            )}
+            <Comando icone={<IconImprimir size={16} />} onClick={imprimir} disabled={gerando || !dados || matriz.grupos.length === 0}>
+              {gerando ? "Gerando…" : "Imprimir / PDF"}
+            </Comando>
+            <BotaoLog titulo="Log do Saldo de Insumos" filtro={{ modulo: "Insumos", entidade: "Saldo de insumos" }} />
+          </>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <CorpoPagina>
         {/* Filtros */}
-        <div className="mb-4 rounded-xl2 border border-line bg-card p-3 shadow-card">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-            <div className="col-span-2 md:col-span-2">
-              <label className={ROTULO}>Data base</label>
-              <div className="flex gap-1.5">
-                <button type="button" onClick={() => irData(-1)} disabled={indiceData <= 0} className={`${BOTAO} px-2.5`} aria-label="Retrato anterior">
-                  ◀
-                </button>
-                <select
-                  value={dtBase}
-                  onChange={(e) => {
-                    setDtBase(e.target.value);
-                    setAte(e.target.value);
-                    setDe(addDays(e.target.value, -30));
-                  }}
-                  className={INPUT}
-                >
-                  {[...(dados?.datas ?? [])].reverse().map((d) => (
-                    <option key={d} value={d}>
-                      {fmtDateBR(d)}
-                    </option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => irData(1)} disabled={!dados || indiceData >= dados.datas.length - 1} className={`${BOTAO} px-2.5`} aria-label="Próximo retrato">
-                  ▶
-                </button>
-              </div>
-            </div>
-            <div>
-              <label className={ROTULO}>Período — de</label>
-              <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className={INPUT} />
-            </div>
-            <div>
-              <label className={ROTULO}>Período — até</label>
-              <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={INPUT} />
-            </div>
-            <div>
-              <label className={ROTULO}>Grupo</label>
-              <select value={grupo} onChange={(e) => setGrupo(e.target.value)} className={INPUT}>
-                <option value="">Todos</option>
-                {(dados?.grupos ?? []).map((g) => (
-                  <option key={g.cod} value={g.cod}>
-                    {g.cod.trim()} · {g.ds.trim()}
+        <BarraFiltros>
+          <div className="min-w-[240px] flex-[2]">
+            <label className={ROTULO}>Data base</label>
+            <div className="flex gap-1.5">
+              <button type="button" onClick={() => irData(-1)} disabled={indiceData <= 0} className={`${BOTAO} px-2.5`} aria-label="Retrato anterior">
+                ◀
+              </button>
+              <select
+                value={dtBase}
+                onChange={(e) => {
+                  setDtBase(e.target.value);
+                  setAte(e.target.value);
+                  setDe(addDays(e.target.value, -30));
+                }}
+                className={INPUT}
+              >
+                {[...(dados?.datas ?? [])].reverse().map((d) => (
+                  <option key={d} value={d}>
+                    {fmtDateBR(d)}
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className={ROTULO}>Insumo</label>
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Código ou nome" className={INPUT} />
+              <button type="button" onClick={() => irData(1)} disabled={!dados || indiceData >= dados.datas.length - 1} className={`${BOTAO} px-2.5`} aria-label="Próximo retrato">
+                ▶
+              </button>
             </div>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div className="min-w-[140px] flex-1">
+            <label className={ROTULO}>Período — de</label>
+            <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className={INPUT} />
+          </div>
+          <div className="min-w-[140px] flex-1">
+            <label className={ROTULO}>Período — até</label>
+            <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={INPUT} />
+          </div>
+          <div className="min-w-[180px] flex-1">
+            <label className={ROTULO}>Grupo</label>
+            <select value={grupo} onChange={(e) => setGrupo(e.target.value)} className={INPUT}>
+              <option value="">Todos</option>
+              {(dados?.grupos ?? []).map((g) => (
+                <option key={g.cod} value={g.cod}>
+                  {g.cod.trim()} · {g.ds.trim()}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[160px] flex-1">
+            <label className={ROTULO}>Insumo</label>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Código ou nome" className={INPUT} />
+          </div>
+          {/* segunda linha: empresas, depósitos e opções */}
+          <div className="flex w-full flex-wrap items-center gap-x-6 gap-y-2">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted">Empresa</span>
               {EMPRESAS.map((e) => (
@@ -304,31 +305,23 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
             </label>
             <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
           </div>
-        </div>
+        </BarraFiltros>
 
         {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[13px] text-alert-700">{erro}</p>}
 
         {/* Indicadores */}
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="rounded-xl2 border border-line bg-card p-3 shadow-card">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Valor em estoque</div>
-            <div className="text-[22px] font-bold tabular text-navy-900">{brl(matriz.total.valor)}</div>
-            <div className="text-[11.5px] text-muted">Data base {dtBase ? fmtDateBR(dtBase) : "—"}</div>
-          </div>
-          <div className="rounded-xl2 border border-line bg-card p-3 shadow-card">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Variação sobre o retrato anterior</div>
-            <div className={`text-[22px] font-bold tabular ${kpis.var1 === null ? "text-muted" : kpis.var1 >= 0 ? "text-good-600" : "text-alert-600"}`}>
-              {kpis.var1 === null ? "—" : `${kpis.var1 >= 0 ? "▲" : "▼"} ${brl(Math.abs(kpis.var1))}`}
-            </div>
-            <div className="text-[11.5px] text-muted">{kpis.anterior ? `vs ${fmtDateBR(kpis.anterior)}` : "sem retrato anterior no período"}</div>
-          </div>
-          <div className="rounded-xl2 border border-line bg-card p-3 shadow-card">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Insumos com saldo</div>
-            <div className="text-[22px] font-bold tabular text-ink">{kpis.itens}</div>
-            <div className="text-[11.5px] text-muted">{matriz.grupos.length} grupo(s)</div>
-          </div>
-          <div className="rounded-xl2 border border-line bg-card p-3 shadow-card">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Por empresa</div>
+          <Indicador cor="azul" rotulo="Valor em estoque" valor={brl(matriz.total.valor)} apoio={`Data base ${dtBase ? fmtDateBR(dtBase) : "—"}`} />
+          <Indicador
+            cor={kpis.var1 === null ? "cinza" : kpis.var1 >= 0 ? "verde" : "vermelho"}
+            rotulo="Variação sobre o retrato anterior"
+            valor={kpis.var1 === null ? "—" : `${kpis.var1 >= 0 ? "▲" : "▼"} ${brl(Math.abs(kpis.var1))}`}
+            apoio={kpis.anterior ? `vs ${fmtDateBR(kpis.anterior)}` : "sem retrato anterior no período"}
+          />
+          <Indicador cor="cinza" rotulo="Insumos com saldo" valor={kpis.itens} apoio={`${matriz.grupos.length} grupo(s)`} />
+          {/* lista por empresa: mesmo cartão do Indicador, com uma linha por empresa no lugar do número */}
+          <div className="min-w-0 rounded-xl2 border border-line bg-card py-3 pl-4 pr-3.5 shadow-card">
+            <div className="mb-1 truncate text-[12px] text-muted">Por empresa</div>
             {kpis.porEmp.map((e) => (
               <div key={e.id} className="flex items-center justify-between text-[13px]">
                 <span className="flex items-center gap-1.5 font-semibold" style={{ color: corEmpresa(e.id) }}>
@@ -343,8 +336,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
 
         {/* Gráficos */}
         <div className="mb-4 grid gap-3 lg:grid-cols-3">
-          <div className="rounded-xl2 border border-line bg-card p-3 shadow-card">
-            <div className="mb-2 text-[12px] font-bold uppercase tracking-wide text-navy-900">Valor por grupo</div>
+          <Painel titulo="Valor por grupo">
             <div className="space-y-2">
               {matriz.grupos.map((g) => (
                 <div key={g.grp}>
@@ -370,10 +362,9 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                 </span>
               ))}
             </div>
-          </div>
+          </Painel>
 
-          <div className="rounded-xl2 border border-line bg-card p-3 shadow-card">
-            <div className="mb-2 text-[12px] font-bold uppercase tracking-wide text-navy-900">Top 6 insumos (R$)</div>
+          <Painel titulo="Top 6 insumos (R$)">
             <div className="space-y-2">
               {topItens.map((t) => (
                 <div key={t.cod}>
@@ -386,12 +377,11 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
               ))}
               {topItens.length === 0 && <p className="text-[12px] text-muted">Sem dados para os filtros.</p>}
             </div>
-          </div>
+          </Painel>
 
-          <div className="rounded-xl2 border border-line bg-card p-3 shadow-card">
-            <div className="mb-2 text-[12px] font-bold uppercase tracking-wide text-navy-900">Evolução do valor no período</div>
+          <Painel titulo="Evolução do valor no período">
             <Evolucao totalPorData={movimento.totalPorData} datas={movimento.datas} />
-          </div>
+          </Painel>
         </div>
 
         {/* Matriz */}
@@ -584,7 +574,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
             </tbody>
           </table>
         </div>
-      </div>
+      </CorpoPagina>
 
       {importar && (
         <ImportarSaldo
@@ -597,7 +587,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
           }}
         />
       )}
-    </div>
+    </Pagina>
   );
 }
 

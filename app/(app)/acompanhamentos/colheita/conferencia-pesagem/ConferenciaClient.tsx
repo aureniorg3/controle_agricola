@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ModalShell } from "@/components/ui";
+import { IconBaixar, IconImportar, IconImprimir } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel, Selo } from "@/components/pagina";
 import {
   conferirLinhas,
   normalizarFrente,
@@ -181,78 +183,106 @@ export default function ConferenciaClient({
   }, [filtradas]);
 
   return (
-    <div className="print-scroll flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3 print:hidden">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Colheita</span>
-          <div className="truncate text-[15px] font-bold text-ink">Conferência de Pesagem</div>
-        </nav>
-        {!podeGravar && (
-          <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
-            Somente leitura
-          </div>
-        )}
-        {linhas.length > 0 && (
-          <div className="flex items-center gap-1.5 print:hidden">
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="rounded-lg border border-line bg-card px-3 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
-            >
-              Imprimir
-            </button>
-            <button
-              type="button"
-              disabled={exportando !== null}
-              onClick={() => exportar("pdf")}
-              className="rounded-lg border border-line bg-card px-3 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
-            >
-              {exportando === "pdf" ? "Gerando…" : "PDF"}
-            </button>
-            <button
-              type="button"
-              disabled={exportando !== null}
-              onClick={() => exportar("xlsx")}
-              className="rounded-lg border border-line bg-card px-3 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
-            >
-              {exportando === "xlsx" ? "Gerando…" : "Excel"}
-            </button>
-          </div>
-        )}
-        {podeGravar && (
-          <button
-            type="button"
-            onClick={() => setImportarAberto(true)}
-            className="rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 print:hidden"
-          >
-            Importar arquivos
-          </button>
-        )}
-      </header>
+    <Pagina className="print-scroll">
+      {/* o cabeçalho da tela não sai na impressão (a impressão tem o título próprio, logo abaixo) */}
+      <div className="flex-shrink-0 print:hidden">
+        <CabecalhoPagina
+          titulo="Conferência de Pesagem"
+          categoria="Acompanhamentos · Colheita"
+          info={
+            !podeGravar && (
+              <Selo>Somente leitura</Selo>
+            )
+          }
+          comandos={
+            // sem permissão e sem linhas não há comando: a barra fica só com o Voltar (ou não aparece)
+            (podeGravar || linhas.length > 0) && (
+              <>
+                {podeGravar && (
+                  <Comando primario icone={<IconImportar size={16} />} onClick={() => setImportarAberto(true)}>
+                    Importar arquivos
+                  </Comando>
+                )}
+                {linhas.length > 0 && (
+                  <>
+                    <Comando icone={<IconImprimir size={16} />} onClick={() => window.print()}>
+                      Imprimir
+                    </Comando>
+                    <Comando icone={<IconBaixar size={16} />} disabled={exportando !== null} onClick={() => exportar("pdf")}>
+                      {exportando === "pdf" ? "Gerando…" : "PDF"}
+                    </Comando>
+                    <Comando icone={<IconBaixar size={16} />} disabled={exportando !== null} onClick={() => exportar("xlsx")}>
+                      {exportando === "xlsx" ? "Gerando…" : "Excel"}
+                    </Comando>
+                  </>
+                )}
+              </>
+            )
+          }
+        />
+      </div>
 
-      <div className="print-scroll flex-1 overflow-y-auto px-6 py-5">
+      <CorpoPagina className="print-scroll">
         <div className="mb-3 hidden print:block">
           <div className="text-[16px] font-bold text-ink">Conferência de Pesagem — CRV Industrial</div>
-          <div className="text-[11px] text-muted">
+          {/* a hora da impressão muda entre o servidor e o navegador: sem aviso de diferença */}
+          <div className="text-[11px] text-muted" suppressHydrationWarning>
             {filtrosTexto || "Todos os registros importados"} · Gerado por {nomeUsuario} em{" "}
             {new Date().toLocaleString("pt-BR")}
           </div>
         </div>
+
+        {linhas.length > 0 && (
+          <BarraFiltros className="print:hidden">
+            <label className="flex flex-col gap-1 text-[11.5px] text-muted">
+              De
+              <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className={FILTRO} />
+            </label>
+            <label className="flex flex-col gap-1 text-[11.5px] text-muted">
+              Até
+              <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={FILTRO} />
+            </label>
+            <select
+              value={frenteFiltro}
+              onChange={(e) => setFrenteFiltro(e.target.value)}
+              aria-label="Filtrar por frente"
+              className={FILTRO}
+            >
+              <option value="todas">Todas as frentes</option>
+              {frentes.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+            <select
+              value={statusFiltro}
+              onChange={(e) => setStatusFiltro(e.target.value as typeof statusFiltro)}
+              aria-label="Filtrar por status"
+              className={FILTRO}
+            >
+              <option value="todos">Todos os status</option>
+              <option value="divergencias">Só o que precisa conferir</option>
+              {(Object.keys(STATUS_CONFERENCIA_LABEL) as StatusConferencia[]).map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_CONFERENCIA_LABEL[s]}
+                </option>
+              ))}
+            </select>
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar equipamento, fazenda, ordem…"
+              className={`${FILTRO} min-w-[220px]`}
+            />
+            <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
+          </BarraFiltros>
+        )}
+
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
-            <div className="text-[11.5px] font-semibold text-muted">Toneladas (t)</div>
-            <div className="text-[20px] font-bold text-ink">{fmtT(totais.toneladas)}</div>
-          </div>
-          <div className="rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
-            <div className="text-[11.5px] font-semibold text-muted">Equipamentos</div>
-            <div className="text-[20px] font-bold text-ink">{totais.equipamentos}</div>
-          </div>
-          <div className="rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
-            <div className="text-[11.5px] font-semibold text-muted">Linhas a conferir</div>
-            <div className={`text-[20px] font-bold ${totais.divergencias > 0 ? "text-alert-600" : "text-good-600"}`}>
-              {totais.divergencias}
-            </div>
-          </div>
+          <Indicador cor="azul" rotulo="Toneladas (t)" valor={fmtT(totais.toneladas)} />
+          <Indicador cor="cinza" rotulo="Equipamentos" valor={totais.equipamentos} />
+          <Indicador cor={totais.divergencias > 0 ? "vermelho" : "verde"} rotulo="Linhas a conferir" valor={totais.divergencias} />
         </div>
 
         {linhas.length === 0 ? (
@@ -267,55 +297,16 @@ export default function ConferenciaClient({
             )}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-            <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5 print:hidden">
-              <h2 className="text-[14px] font-bold text-ink">Conferência</h2>
-              <label className="flex items-center gap-1.5 text-[12px] text-muted">
-                De
-                <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className={FILTRO} />
-              </label>
-              <label className="flex items-center gap-1.5 text-[12px] text-muted">
-                Até
-                <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={FILTRO} />
-              </label>
-              <select
-                value={frenteFiltro}
-                onChange={(e) => setFrenteFiltro(e.target.value)}
-                aria-label="Filtrar por frente"
-                className={FILTRO}
-              >
-                <option value="todas">Todas as frentes</option>
-                {frentes.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={statusFiltro}
-                onChange={(e) => setStatusFiltro(e.target.value as typeof statusFiltro)}
-                aria-label="Filtrar por status"
-                className={FILTRO}
-              >
-                <option value="todos">Todos os status</option>
-                <option value="divergencias">Só o que precisa conferir</option>
-                {(Object.keys(STATUS_CONFERENCIA_LABEL) as StatusConferencia[]).map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_CONFERENCIA_LABEL[s]}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                placeholder="Buscar equipamento, fazenda, ordem…"
-                className={`${FILTRO} min-w-[220px]`}
-              />
-              <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-              <span className="ml-auto text-[12px] text-muted">
+          <Painel
+            titulo="Conferência"
+            acoes={
+              <span className="text-[12px] text-muted">
                 {filtradas.length} linha{filtradas.length === 1 ? "" : "s"}
               </span>
-            </div>
+            }
+            semEspaco
+            className="print:[&>header]:hidden"
+          >
             <div className="overflow-x-auto">
               <table className="w-full text-[12.5px]">
                 <thead>
@@ -399,12 +390,12 @@ export default function ConferenciaClient({
               recente ou, se não houver aberta, a encerrada mais recente. &quot;Frente divergente&quot;: o relatório
               colocou o equipamento numa frente diferente do cadastro (Equipto Frente) na data.
             </p>
-          </div>
+          </Painel>
         )}
-      </div>
+      </CorpoPagina>
 
       {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} />}
-    </div>
+    </Pagina>
   );
 }
 

@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import BotaoLog from "@/components/BotaoLog";
 import { IconAjustes, IconImprimir, IconSetaDireita, IconSetaEsquerda } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
 import { GRUPO_OUTRAS, type DashboardAtividades, type OperacaoGrupo, type ValoresPeriodo } from "@/lib/dashboard-atividades";
 import { fmtDateBR } from "@/lib/format";
 import { addDays } from "@/lib/period";
@@ -63,36 +64,27 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }: { per
   const mesRotulo = ref ? `${MESES[Number(ref.slice(5, 7)) - 1]}/${ref.slice(2, 4)}` : "";
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Atividades</span>
-          <div className="truncate text-[15px] font-bold text-ink">Dashboard</div>
-        </nav>
-        <button
-          type="button"
-          onClick={gerarPdf}
-          disabled={!dados || carregando || gerandoPdf}
-          className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-medium text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
-        >
-          <IconImprimir size={14} />
-          {gerandoPdf ? "Gerando…" : "Gerar PDF"}
-        </button>
-        <BotaoLog titulo="Log dos Grupos de Operações" filtro={{ modulo: "Cadastros", entidade: "Cadastro de Grupos de Operações" }} />
-        {podeEditar(perfil) && (
-          <button
-            type="button"
-            onClick={() => setGruposAberto(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-medium text-navy-800 shadow-card hover:bg-surface"
-          >
-            <IconAjustes size={14} />
-            Grupos das operações
-          </button>
-        )}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Dashboard"
+        categoria="Atividades"
+        comandos={
+          <>
+            <Comando icone={<IconImprimir size={16} />} onClick={gerarPdf} disabled={!dados || carregando || gerandoPdf}>
+              {gerandoPdf ? "Gerando…" : "Gerar PDF"}
+            </Comando>
+            {podeEditar(perfil) && (
+              <Comando icone={<IconAjustes size={16} />} onClick={() => setGruposAberto(true)}>
+                Grupos das operações
+              </Comando>
+            )}
+            <BotaoLog titulo="Log dos Grupos de Operações" filtro={{ modulo: "Cadastros", entidade: "Cadastro de Grupos de Operações" }} />
+          </>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="mb-4 flex flex-wrap items-end gap-2.5 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
+      <CorpoPagina>
+        <BarraFiltros>
           <label className="flex flex-col gap-1 text-[11.5px] text-muted">
             Data de referência
             <div className="flex items-center gap-1">
@@ -123,7 +115,7 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }: { per
             </div>
           )}
           <BotaoLimparFiltros ativo={!!dt} onLimpar={() => setDt("")} className="ml-auto" />
-        </div>
+        </BarraFiltros>
 
         {erro && <div className="mb-4 rounded-lg border border-alert-500/30 bg-alert-50 px-4 py-3 text-[13px] text-alert-600">{erro}</div>}
         {!dados && carregando && <div className="py-10 text-center text-[13px] text-muted">Carregando…</div>}
@@ -203,7 +195,7 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }: { per
             </p>
           </div>
         )}
-      </div>
+      </CorpoPagina>
 
       {gruposAberto && (
         <GruposModal
@@ -211,20 +203,12 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }: { per
           onAlterado={() => setVersao((v) => v + 1)}
         />
       )}
-    </div>
+    </Pagina>
   );
 }
 
 function Kpi({ rotulo, valor, unidade, tom }: { rotulo: string; valor: number; unidade: string; tom: "azul" | "verde" }) {
-  const cor = tom === "azul" ? "border-brand-200/60 bg-brand-50 text-brand-800" : "border-good-500/25 bg-good-50 text-good-600";
-  return (
-    <div className={`rounded-xl2 border px-4 py-3 ${cor}`}>
-      <div className="truncate text-[11.5px] font-semibold text-ink/70">{rotulo}</div>
-      <div className="mt-1 text-[22px] font-extrabold tabular leading-tight">
-        {nf(valor)} <span className="text-[12px] font-semibold opacity-70">{unidade}</span>
-      </div>
-    </div>
-  );
+  return <Indicador cor={tom} rotulo={rotulo} valor={nf(valor)} unidade={unidade} title={rotulo} />;
 }
 
 function Tabela({
@@ -245,51 +229,49 @@ function Tabela({
   children: ReactNode;
 }) {
   return (
-    <div className="mb-5 overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
-      <div className="border-b border-line px-3 py-1.5">
-        <div className="text-[13px] font-bold text-ink">{titulo}</div>
-        <div className="text-[11px] text-muted">{descricao}</div>
-      </div>
-      {/* colunas fixas: as duas tabelas ficam alinhadas uma embaixo da outra */}
-      <table className="w-full min-w-[1040px] table-fixed text-[12px] leading-tight">
-        <colgroup>
-          <col className="w-[290px]" />
-          {Array.from({ length: 10 }, (_, i) => (
-            <col key={i} />
-          ))}
-        </colgroup>
-        <thead>
-          <tr className="text-center text-[10.5px] font-semibold uppercase tracking-wide text-white">
-            <th className="bg-navy-900 px-3 py-1" />
-            <th colSpan={7} className="border-l border-white/25 bg-navy-700 px-2 py-1">
-              Semana de referência · {dm(dados.semana[0])} a {dm(dados.semana[6])}
-            </th>
-            <th colSpan={3} className="border-l border-white/25 bg-navy-950 px-2 py-1">
-              Acumulado
-            </th>
-          </tr>
-          <tr className="bg-navy-900 text-white">
-            <th className="px-3 py-1.5 text-left font-semibold">{rotulo}</th>
-            {dados.semana.map((d, i) => (
-              <th
-                key={d}
-                className={`whitespace-nowrap px-2 py-1 text-right text-[11px] font-semibold leading-tight ${i === 0 ? "border-l border-white/25" : ""} ${
-                  d === dados.dt ? "bg-brand-600" : d > dados.dt ? "text-white/45" : ""
-                }`}
-              >
-                {/* dia da semana em cima (caixa alta) e a data embaixo */}
-                <div>{DIAS[i].toUpperCase()}</div>
-                <div className="font-normal">{dm(d)}</div>
-              </th>
+    <Painel className="mb-5" titulo={titulo} subtitulo={descricao} semEspaco>
+      <div className="overflow-x-auto">
+        {/* colunas fixas: as duas tabelas ficam alinhadas uma embaixo da outra */}
+        <table className="w-full min-w-[1040px] table-fixed text-[12px] leading-tight">
+          <colgroup>
+            <col className="w-[290px]" />
+            {Array.from({ length: 10 }, (_, i) => (
+              <col key={i} />
             ))}
-            <th className="whitespace-nowrap border-l border-white/25 px-2 py-1.5 text-right text-[11px] font-semibold">Semana</th>
-            <th className="whitespace-nowrap px-2 py-1.5 text-right text-[11px] font-semibold">Mês · {mesRotulo}</th>
-            <th className="whitespace-nowrap px-3 py-1.5 text-right text-[11px] font-semibold">{safraRotulo}</th>
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
+          </colgroup>
+          <thead>
+            <tr className="text-center text-[10.5px] font-semibold uppercase tracking-wide text-white">
+              <th className="bg-navy-900 px-3 py-1" />
+              <th colSpan={7} className="border-l border-white/25 bg-navy-700 px-2 py-1">
+                Semana de referência · {dm(dados.semana[0])} a {dm(dados.semana[6])}
+              </th>
+              <th colSpan={3} className="border-l border-white/25 bg-navy-950 px-2 py-1">
+                Acumulado
+              </th>
+            </tr>
+            <tr className="bg-navy-900 text-white">
+              <th className="px-3 py-1.5 text-left font-semibold">{rotulo}</th>
+              {dados.semana.map((d, i) => (
+                <th
+                  key={d}
+                  className={`whitespace-nowrap px-2 py-1 text-right text-[11px] font-semibold leading-tight ${i === 0 ? "border-l border-white/25" : ""} ${
+                    d === dados.dt ? "bg-brand-600" : d > dados.dt ? "text-white/45" : ""
+                  }`}
+                >
+                  {/* dia da semana em cima (caixa alta) e a data embaixo */}
+                  <div>{DIAS[i].toUpperCase()}</div>
+                  <div className="font-normal">{dm(d)}</div>
+                </th>
+              ))}
+              <th className="whitespace-nowrap border-l border-white/25 px-2 py-1.5 text-right text-[11px] font-semibold">Semana</th>
+              <th className="whitespace-nowrap px-2 py-1.5 text-right text-[11px] font-semibold">Mês · {mesRotulo}</th>
+              <th className="whitespace-nowrap px-3 py-1.5 text-right text-[11px] font-semibold">{safraRotulo}</th>
+            </tr>
+          </thead>
+          <tbody>{children}</tbody>
+        </table>
+      </div>
+    </Painel>
   );
 }
 

@@ -12,6 +12,7 @@ import {
   IconTrocar,
   IconUsina,
 } from "@/components/icons";
+import { CabecalhoPagina, CorpoPagina, Pagina } from "@/components/pagina";
 import type { DadosPainel } from "@/lib/db-painel";
 import { fmtDateBR, fmtHa, fmtT } from "@/lib/format";
 import { nomeEmpresa, textoDosagem, textoHectares } from "@/lib/insumos-saldo";
@@ -68,17 +69,15 @@ export default function PainelView({ d, verEmprestimos }: { d: DadosPainel; verE
   const maxHa = Math.max(1, ...insumos.capacidade.map((c) => c.hDe));
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1">
-          <div className="text-[12px] text-muted">Início</div>
-          <div className="truncate text-[15px] font-semibold text-ink">Painel da safra {d.safra.rotulo}</div>
-        </nav>
-        <span className="hidden text-[12px] text-muted sm:block">Capinópolis-MG · moagem até {cana.ultimaData ? fmtDateBR(cana.ultimaData) : "—"}</span>
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo={`Painel da safra ${d.safra.rotulo}`}
+        categoria="Início"
+        info={<span className="hidden sm:inline">Capinópolis-MG · moagem até {cana.ultimaData ? fmtDateBR(cana.ultimaData) : "—"}</span>}
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-[1240px] space-y-10">
+      <CorpoPagina>
+        <div className="space-y-8">
           {/* ------------------------------------------------------------------ Moagem */}
           <Secao titulo="Moagem" subtitulo={cana.ultimaData ? `Entrada de cana na usina · dados até ${fmtDateBR(cana.ultimaData)}` : "Entrada de cana na usina"}>
             {cana.ultimaData ? (
@@ -122,6 +121,7 @@ export default function PainelView({ d, verEmprestimos }: { d: DadosPainel; verE
                   />
                   <Indicador
                     icone={IconBalanca}
+                    cor="cinza"
                     rotulo="Média por dia efetivo"
                     valor={fmtT(cana.mediaDiaEfetivoT)}
                     unidade="t/dia"
@@ -245,7 +245,7 @@ export default function PainelView({ d, verEmprestimos }: { d: DadosPainel; verE
               <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
                 <div className="flex flex-col gap-4">
                 <Caixa icone={IconCifrao} titulo="Saldo contábil" subtitulo="Valor do estoque (saldo × custo médio)" ligacao="/acompanhamentos/insumos/saldo" rotuloLigacao="Ver saldo de insumos" className={verEmprestimos ? undefined : "flex-1"}>
-                  <div className="tabular text-[28px] font-semibold leading-none tracking-tight text-ink">{brl(insumos.valor)}</div>
+                  <div className="tabular font-display text-[30px] font-semibold leading-none text-ink">{brl(insumos.valor)}</div>
                   {insumos.variacao !== null && (
                     <div className="mt-2 text-[12px]" style={{ color: insumos.variacao >= 0 ? VERDE : VERMELHO }}>
                       <span className="font-medium">
@@ -344,7 +344,7 @@ export default function PainelView({ d, verEmprestimos }: { d: DadosPainel; verE
             )}
           </Secao>
         </div>
-      </div>
-    </div>
+      </CorpoPagina>
+    </Pagina>
   );
 }

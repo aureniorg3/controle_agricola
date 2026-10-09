@@ -4,6 +4,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import BotaoLog from "@/components/BotaoLog";
 import ImportarWhatsappModal from "./ImportarWhatsappModal";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
+import { IconAtualizar, IconBusca, IconImportar } from "@/components/icons";
+import { CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, rolarCorpoParaOTopo } from "@/components/pagina";
 import {
   camposFaltando,
   chaveTalhao,
@@ -562,7 +564,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     setErroOS(null);
     if (semOS) for (const c of new Set(a.talhoes.map((t) => t.propCod))) consultarFazenda(c);
     else buscarOS(a.os, novo, a.id);
-    window.scrollTo({ top: 0 });
+    rolarCorpoParaOTopo(false);
   }
 
   async function excluir(a: ApontamentoDiario) {
@@ -598,36 +600,40 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const podeSalvar = !salvando && !!form.boletim && totalDia > 0 && (!comOS || !!op);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden" translate="no">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px]">Atividades · Apontamentos Diários</span>
-          <div className="truncate text-[15px] font-semibold text-ink">Apontamento</div>
-        </nav>
-        {base && (
-          <span className="hidden text-[12px] text-muted sm:block">
-            Base de O.S.: {base.ordens} O.S.{base.ultimaImportacao ? ` · atualizada em ${base.ultimaImportacao}` : ""}
-          </span>
-        )}
-        {podeGravar && (
-          <button type="button" onClick={() => setImportar(true)} className={BOTAO}>
-            Atualizar base de O.S.
-          </button>
-        )}
-        {podeGravar && (
-          <button type="button" onClick={() => setWhatsapp(true)} className={BOTAO} title="Lê a conversa exportada do grupo C.A.P.F.O e importa os apontamentos">
-            Importar WhatsApp
-          </button>
-        )}
-        {podeGravar && (
-          <button type="button" onClick={() => setVerificar(true)} className={BOTAO} title="Procura O.S. aberta para os apontamentos lançados sem O.S. no período da lista">
-            Verificar O.S.
-          </button>
-        )}
-        <BotaoLog titulo="Log dos Apontamentos Diários" filtro={{ modulo: "Atividades" }} />
-      </header>
+    <Pagina translate="no">
+      <CabecalhoPagina
+        titulo="Apontamento"
+        categoria="Atividades · Apontamentos Diários"
+        info={
+          base && (
+            <span className="hidden sm:block">
+              Base de O.S.: {base.ordens} O.S.{base.ultimaImportacao ? ` · atualizada em ${base.ultimaImportacao}` : ""}
+            </span>
+          )
+        }
+        comandos={
+          <>
+            {podeGravar && (
+              <Comando icone={<IconAtualizar size={16} />} onClick={() => setImportar(true)}>
+                Atualizar base de O.S.
+              </Comando>
+            )}
+            {podeGravar && (
+              <Comando icone={<IconImportar size={16} />} onClick={() => setWhatsapp(true)} title="Lê a conversa exportada do grupo C.A.P.F.O e importa os apontamentos">
+                Importar WhatsApp
+              </Comando>
+            )}
+            {podeGravar && (
+              <Comando icone={<IconBusca size={16} />} onClick={() => setVerificar(true)} title="Procura O.S. aberta para os apontamentos lançados sem O.S. no período da lista">
+                Verificar O.S.
+              </Comando>
+            )}
+            <BotaoLog titulo="Log dos Apontamentos Diários" filtro={{ modulo: "Atividades" }} />
+          </>
+        }
+      />
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-3 py-4 md:px-6 md:py-5">
+      <CorpoPagina className="space-y-5">
         {msg && <p className={`rounded-md border px-3 py-2 text-[13px] ${msg.erro ? "border-alert-500/40 bg-alert-50 text-alert-700" : "border-good-500/40 bg-good-50 text-good-700"}`}>{msg.texto}</p>}
 
         {podeGravar && (
@@ -1052,9 +1058,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
         )}
 
         {/* Lançados */}
-        <section className="rounded-xl2 border border-line bg-card p-4 shadow-card">
+        <Painel titulo="Apontamentos lançados">
           <div className="mb-3 flex flex-wrap items-end gap-3">
-            <h2 className="mr-auto text-[14.5px] font-semibold text-ink">Apontamentos lançados</h2>
             <div>
               <label className={ROTULO}>De</label>
               <input type="date" value={de} onChange={(e) => e.target.value && setDe(e.target.value)} className={INPUT} />
@@ -1185,8 +1190,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
               </tbody>
             </table>
           </div>
-        </section>
-      </div>
+        </Painel>
+      </CorpoPagina>
 
       {verificar && (
         <VerificarOSModal
@@ -1208,7 +1213,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
           }}
         />
       )}
-    </div>
+    </Pagina>
   );
 }
 

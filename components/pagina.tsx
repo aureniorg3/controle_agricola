@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { createContext, useContext, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { createContext, useContext, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import { caminhoDaTela } from "@/lib/menu";
 import { IconSetaEsquerda } from "./icons";
 
@@ -28,8 +28,12 @@ export const ContextoVoltar = createContext<{ anterior: { href: string; nome: st
 });
 
 /** Raiz de uma tela: ocupa a área ao lado do menu, com cabeçalho fixo e corpo rolando. */
-export function Pagina({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${className}`}>{children}</div>;
+export function Pagina({ children, className = "", ...props }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${className}`} {...props}>
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -82,13 +86,13 @@ export function CabecalhoPagina({
         </div>
       )}
       <div className="flex flex-wrap items-end gap-x-4 gap-y-1.5 px-4 pb-3 pt-3.5 md:px-6">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[min(100%,240px)] flex-1">
           {trilha.length > 0 && <div className="truncate text-[12px] text-muted">{trilha.join(" › ")}</div>}
           <h1 className="truncate font-display text-[24px] font-semibold leading-[1.15] text-ink">{titulo}</h1>
         </div>
         {info && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-0.5 text-[12px] text-muted">{info}</div>}
       </div>
-      {abas && <div className="px-4 md:px-6">{abas}</div>}
+      {abas && <div className="mb-3 px-4 md:px-6">{abas}</div>}
       {children}
     </div>
   );
@@ -97,7 +101,7 @@ export function CabecalhoPagina({
 /** Classes de um comando da barra (para `<label>` de envio de arquivo e outros elementos que não são `<Comando>`). */
 export function classeComando(primario = false): string {
   return primario
-    ? "inline-flex h-8 flex-shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-navy-900 px-3 text-[13px] font-medium text-white hover:bg-navy-800 disabled:pointer-events-none disabled:opacity-45 aria-disabled:pointer-events-none aria-disabled:opacity-45"
+    ? "inline-flex h-8 flex-shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-navy-900 px-3 text-[13px] font-medium text-white hover:bg-navy-800 dark:bg-crv-acao dark:hover:bg-[#3A6DBA] disabled:pointer-events-none disabled:opacity-45 aria-disabled:pointer-events-none aria-disabled:opacity-45"
     : "inline-flex h-8 flex-shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[13px] font-medium text-ink hover:bg-hover disabled:pointer-events-none disabled:opacity-45 aria-disabled:pointer-events-none aria-disabled:opacity-45";
 }
 
@@ -133,6 +137,15 @@ export function Comando({ icone, primario = false, href, className = "", childre
   );
 }
 
+/** Selo pequeno para o `info` do cabeçalho (ex.: "Somente leitura"). */
+export function Selo({ children, title }: { children: ReactNode; title?: string }) {
+  return (
+    <span className="whitespace-nowrap rounded-full border border-line bg-card px-2.5 py-0.5 text-[11.5px] font-medium text-muted" title={title}>
+      {children}
+    </span>
+  );
+}
+
 /** Traço vertical entre grupos de comandos. */
 export function SeparadorComandos() {
   return <span className="mx-1 h-5 w-px flex-shrink-0 bg-line" aria-hidden="true" />;
@@ -145,17 +158,28 @@ export function EspacoComandos() {
 
 /** Corpo da tela: rola por baixo do cabeçalho, com o recuo padrão. */
 export function CorpoPagina({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`flex-1 overflow-y-auto px-4 pb-6 pt-1 md:px-6 ${className}`}>{children}</div>;
+  return (
+    <div data-corpo-pagina="" className={`flex-1 overflow-y-auto px-4 pb-6 pt-1 md:px-6 ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+/** Volta o corpo da tela para o topo (quem rola é o CorpoPagina, não a janela) — ex.: ao abrir um item para editar. */
+export function rolarCorpoParaOTopo(suave = true) {
+  document.querySelector("[data-corpo-pagina]")?.scrollTo({ top: 0, behavior: suave ? "smooth" : "auto" });
 }
 
 /**
  * Painel: caixa branca com borda fina e, se houver, título (e ações à direita) numa faixa de cabeçalho.
- * `semEspaco` tira o recuo interno (tabelas que vão de borda a borda).
+ * `semEspaco` tira o recuo interno (tabelas que vão de borda a borda; tabela larga precisa de um
+ * `<div className="overflow-x-auto">` por fora, porque o painel corta o que passa da borda). `icone` vai antes do título.
  */
 export function Painel({
   titulo,
   subtitulo,
   acoes,
+  icone,
   children,
   className = "",
   semEspaco = false,
@@ -164,6 +188,7 @@ export function Painel({
   titulo?: ReactNode;
   subtitulo?: ReactNode;
   acoes?: ReactNode;
+  icone?: ReactNode;
   children: ReactNode;
   className?: string;
   semEspaco?: boolean;
@@ -174,7 +199,12 @@ export function Painel({
       {(titulo || acoes) && (
         <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-4 py-2.5">
           <div className="min-w-0 flex-1">
-            {titulo && <h2 className="font-display text-[17px] font-semibold leading-tight text-ink">{titulo}</h2>}
+            {titulo && (
+              <h2 className="flex min-w-0 items-center gap-2 font-display text-[17px] font-semibold leading-tight text-ink">
+                {icone && <span className="flex flex-shrink-0 text-crv-verde">{icone}</span>}
+                <span className="min-w-0 truncate">{titulo}</span>
+              </h2>
+            )}
             {subtitulo && <p className="mt-0.5 text-[12px] text-muted">{subtitulo}</p>}
           </div>
           {acoes && <div className="flex flex-wrap items-center gap-1.5">{acoes}</div>}
@@ -243,14 +273,14 @@ export function Indicador({
     <div className={`relative min-w-0 overflow-hidden rounded-xl2 border border-line bg-card py-3 pl-4 pr-3.5 shadow-card ${className}`} title={title}>
       {cor && <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: COR_FILETE[cor] }} aria-hidden="true" />}
       <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1 truncate text-[12px] text-muted">{rotulo}</div>
+        <div className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-snug text-muted">{rotulo}</div>
         {icone && <span className={`flex flex-shrink-0 opacity-80 ${cor ? COR_VALOR[cor] : "text-muted"}`}>{icone}</span>}
       </div>
-      <div className={`mt-1 flex min-w-0 items-baseline gap-1 font-display text-[26px] font-semibold leading-none tabular ${cor ? COR_VALOR[cor] : "text-ink"}`}>
-        <span className="truncate">{valor}</span>
+      <div className={`mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1 font-display text-[22px] font-semibold leading-[1.05] tabular sm:text-[26px] ${cor ? COR_VALOR[cor] : "text-ink"}`}>
+        <span className="min-w-0 break-words">{valor}</span>
         {unidade && <span className="flex-shrink-0 font-sans text-[12px] font-normal text-muted">{unidade}</span>}
       </div>
-      {apoio && <div className="mt-1.5 truncate text-[11.5px] text-muted">{apoio}</div>}
+      {apoio && <div className="mt-1.5 line-clamp-2 text-[11.5px] leading-snug text-muted">{apoio}</div>}
       {children}
     </div>
   );

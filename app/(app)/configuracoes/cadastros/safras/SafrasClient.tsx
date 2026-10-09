@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Campo } from "@/components/ui";
 import BotaoLog from "@/components/BotaoLog";
 import { fmtDataHora } from "@/components/AuditoriaModal";
+import { CabecalhoPagina, CorpoPagina, Pagina, Painel, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
 import { fmtDateBR } from "@/lib/format";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 import { escolherSafraVigente } from "@/lib/safra-cadastro";
@@ -85,7 +86,7 @@ export default function SafrasClient({
       producaoInicio: s.producaoInicio,
       producaoFim: s.producaoFim,
     });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    rolarCorpoParaOTopo();
   }
 
   function cancelar() {
@@ -106,88 +107,87 @@ export default function SafrasClient({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Configurações · Cadastros</span>
-          <div className="truncate text-[15px] font-bold text-ink">Safras</div>
-        </nav>
-        <BotaoLog titulo="Log do cadastro de safras" filtro={{ modulo: "Configurações", entidade: "Cadastro de Safras" }} />
-        {!podeGravar && (
-          <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
-            Somente leitura
-          </div>
-        )}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Safras"
+        categoria="Configurações · Cadastros"
+        info={
+          !podeGravar && (
+            <Selo>Somente leitura</Selo>
+          )
+        }
+        comandos={<BotaoLog titulo="Log do cadastro de safras" filtro={{ modulo: "Configurações", entidade: "Cadastro de Safras" }} />}
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <CorpoPagina>
         {podeGravar && (podeIncluir || editandoId) && (
-          <form onSubmit={salvar} className="mb-5 rounded-xl2 border border-line bg-card p-4 shadow-card">
-            <h2 className="mb-3 text-[14px] font-bold text-ink">{editandoId ? "Editar safra" : "Cadastrar safra"}</h2>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr]">
-              <Campo label="Tipo">
-                <select value={form.tipo} onChange={(e) => atualizar({ tipo: e.target.value as TipoSafra })} className={INPUT}>
-                  <option value="AGR">AGR · Agrícola</option>
-                  <option value="IND">IND · Industrial</option>
-                </select>
-              </Campo>
-              <Campo label="Ano">
-                <input
-                  value={form.ano}
-                  onChange={(e) => atualizar({ ano: e.target.value.replace(/\D/g, "").slice(0, 4) })}
-                  inputMode="numeric"
-                  placeholder="2026"
-                  className={INPUT}
-                />
-              </Campo>
-              <Campo label="Ano · Data Início">
-                <input type="date" value={form.anoInicio} onChange={(e) => atualizar({ anoInicio: e.target.value })} className={INPUT} />
-              </Campo>
-              <Campo label="Ano · Data Final">
-                <input type="date" value={form.anoFim} onChange={(e) => atualizar({ anoFim: e.target.value })} className={INPUT} />
-              </Campo>
-              <Campo label="Produção · Data Início">
-                <input
-                  type="date"
-                  value={form.producaoInicio}
-                  onChange={(e) => atualizar({ producaoInicio: e.target.value })}
-                  className={INPUT}
-                />
-              </Campo>
-              <Campo label="Produção · Data Final">
-                <input
-                  type="date"
-                  value={form.producaoFim}
-                  onChange={(e) => atualizar({ producaoFim: e.target.value })}
-                  className={INPUT}
-                />
-              </Campo>
-            </div>
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="submit"
-                disabled={salvando}
-                className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
-              >
-                {salvando ? "Salvando…" : editandoId ? "Salvar alteração" : "Cadastrar"}
-              </button>
-              {editandoId && (
+          <form onSubmit={salvar} className="mb-5">
+            <Painel titulo={editandoId ? "Editar safra" : "Cadastrar safra"}>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr]">
+                <Campo label="Tipo">
+                  <select value={form.tipo} onChange={(e) => atualizar({ tipo: e.target.value as TipoSafra })} className={INPUT}>
+                    <option value="AGR">AGR · Agrícola</option>
+                    <option value="IND">IND · Industrial</option>
+                  </select>
+                </Campo>
+                <Campo label="Ano">
+                  <input
+                    value={form.ano}
+                    onChange={(e) => atualizar({ ano: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+                    inputMode="numeric"
+                    placeholder="2026"
+                    className={INPUT}
+                  />
+                </Campo>
+                <Campo label="Ano · Data Início">
+                  <input type="date" value={form.anoInicio} onChange={(e) => atualizar({ anoInicio: e.target.value })} className={INPUT} />
+                </Campo>
+                <Campo label="Ano · Data Final">
+                  <input type="date" value={form.anoFim} onChange={(e) => atualizar({ anoFim: e.target.value })} className={INPUT} />
+                </Campo>
+                <Campo label="Produção · Data Início">
+                  <input
+                    type="date"
+                    value={form.producaoInicio}
+                    onChange={(e) => atualizar({ producaoInicio: e.target.value })}
+                    className={INPUT}
+                  />
+                </Campo>
+                <Campo label="Produção · Data Final">
+                  <input
+                    type="date"
+                    value={form.producaoFim}
+                    onChange={(e) => atualizar({ producaoFim: e.target.value })}
+                    className={INPUT}
+                  />
+                </Campo>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
                 <button
-                  type="button"
-                  onClick={cancelar}
-                  className="rounded-lg border border-line bg-card px-4 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+                  type="submit"
+                  disabled={salvando}
+                  className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
                 >
-                  Cancelar
+                  {salvando ? "Salvando…" : editandoId ? "Salvar alteração" : "Cadastrar"}
                 </button>
-              )}
-              {erro && <span className="text-[12.5px] font-medium text-alert-600">{erro}</span>}
-            </div>
-            <p className="mt-3 text-[12px] leading-relaxed text-muted">
-              O período de <b className="text-ink">Produção</b> da safra vigente define as pesagens e entradas de cana
-              usadas nos comparativos (Ordens de Corte): contam a partir da data de início da produção e até a data
-              final. Havendo safras IND e AGR em produção ao mesmo tempo, vale a IND. Cada tipo + ano é único;
-              cadastrar de novo o mesmo tipo e ano substitui as datas.
-            </p>
+                {editandoId && (
+                  <button
+                    type="button"
+                    onClick={cancelar}
+                    className="rounded-lg border border-line bg-card px-4 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+                  >
+                    Cancelar
+                  </button>
+                )}
+                {erro && <span className="text-[12.5px] font-medium text-alert-600">{erro}</span>}
+              </div>
+              <p className="mt-3 text-[12px] leading-relaxed text-muted">
+                O período de <b className="text-ink">Produção</b> da safra vigente define as pesagens e entradas de cana
+                usadas nos comparativos (Ordens de Corte): contam a partir da data de início da produção e até a data
+                final. Havendo safras IND e AGR em produção ao mesmo tempo, vale a IND. Cada tipo + ano é único;
+                cadastrar de novo o mesmo tipo e ano substitui as datas.
+              </p>
+            </Painel>
           </form>
         )}
 
@@ -196,23 +196,27 @@ export default function SafrasClient({
             Nenhuma safra cadastrada ainda.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-            <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
-              <h2 className="text-[14px] font-bold text-ink">Safras cadastradas</h2>
-              <select
-                value={filtroTipo}
-                onChange={(e) => setFiltroTipo(e.target.value as typeof filtroTipo)}
-                aria-label="Filtrar por tipo"
-                className="rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
-              >
-                <option value="todos">Todos os tipos</option>
-                <option value="AGR">AGR · Agrícola</option>
-                <option value="IND">IND · Industrial</option>
-              </select>
-              <span className="ml-auto text-[12px] text-muted">
-                {linhas.length} safra{linhas.length === 1 ? "" : "s"}
-              </span>
-            </div>
+          <Painel
+            semEspaco
+            titulo="Safras cadastradas"
+            acoes={
+              <>
+                <select
+                  value={filtroTipo}
+                  onChange={(e) => setFiltroTipo(e.target.value as typeof filtroTipo)}
+                  aria-label="Filtrar por tipo"
+                  className="rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
+                >
+                  <option value="todos">Todos os tipos</option>
+                  <option value="AGR">AGR · Agrícola</option>
+                  <option value="IND">IND · Industrial</option>
+                </select>
+                <span className="ml-1.5 text-[12px] text-muted">
+                  {linhas.length} safra{linhas.length === 1 ? "" : "s"}
+                </span>
+              </>
+            }
+          >
             <div className="overflow-x-auto">
               <table className="w-full text-[12.5px]">
                 <thead>
@@ -280,9 +284,9 @@ export default function SafrasClient({
                 </tbody>
               </table>
             </div>
-          </div>
+          </Painel>
         )}
-      </div>
-    </div>
+      </CorpoPagina>
+    </Pagina>
   );
 }

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Campo, ModalShell } from "@/components/ui";
 import BotaoLog from "@/components/BotaoLog";
 import { fmtDataHora } from "@/components/AuditoriaModal";
+import { IconEditar, IconImportar, IconMais } from "@/components/icons";
+import { Abas, CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, Selo } from "@/components/pagina";
 import {
   CADASTROS_SPEC,
   specPorNomeArquivo,
@@ -151,87 +153,79 @@ export default function CadastroClient({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">{categoria}</span>
-          <div className="truncate text-[15px] font-bold text-ink">{spec.titulo}</div>
-        </nav>
-        <BotaoLog titulo={`Log do cadastro de ${spec.titulo}`} filtro={{ modulo: "Cadastros", entidade: `Cadastro de ${spec.titulo}` }} />
-        {!podeGravar && (
-          <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
-            Somente leitura
-          </div>
-        )}
-        {podeIncluir && spec.ajuste && (
-          <button
-            type="button"
-            onClick={() => setAjusteAberto(true)}
-            title={spec.ajuste.descricao}
-            className="rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
-          >
-            {spec.ajuste.rotulo}
-          </button>
-        )}
-        {podeIncluir && (
+    <Pagina>
+      <CabecalhoPagina
+        titulo={spec.titulo}
+        categoria={categoria}
+        info={
+          !podeGravar && (
+            <Selo>Somente leitura</Selo>
+          )
+        }
+        comandos={
           <>
-            <button
-              type="button"
-              onClick={() => setImportarAberto(true)}
-              className="rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
-            >
-              Importar planilhas
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditando({ novo: true, item: null })}
-              className="rounded-lg bg-navy-900 px-3.5 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800"
-            >
-              Novo
-            </button>
+            {podeIncluir && (
+              <>
+                <Comando primario icone={<IconMais size={16} />} onClick={() => setEditando({ novo: true, item: null })}>
+                  Novo
+                </Comando>
+                <Comando icone={<IconImportar size={16} />} onClick={() => setImportarAberto(true)}>
+                  Importar planilhas
+                </Comando>
+              </>
+            )}
+            {podeIncluir && spec.ajuste && (
+              <Comando icone={<IconEditar size={16} />} onClick={() => setAjusteAberto(true)} title={spec.ajuste.descricao}>
+                {spec.ajuste.rotulo}
+              </Comando>
+            )}
+            <BotaoLog titulo={`Log do cadastro de ${spec.titulo}`} filtro={{ modulo: "Cadastros", entidade: `Cadastro de ${spec.titulo}` }} />
           </>
-        )}
-      </header>
-
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        {spec.abas && (
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            {spec.abas.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                title={a.descricao}
-                onClick={() => {
-                  setAba(a.id);
-                  setPagina(1);
-                  setLinha(null);
-                }}
-                className={`rounded-lg border px-4 py-1.5 text-[13px] font-semibold ${
-                  abaAtual?.id === a.id ? "border-navy-900 bg-navy-900 text-white" : "border-line bg-card text-navy-800 hover:bg-surface"
-                }`}
-              >
-                {a.rotulo}
-                {totaisAbas[a.id] !== undefined && <span className="ml-1.5 text-[11.5px] font-normal opacity-80">{totaisAbas[a.id].toLocaleString("pt-BR")}</span>}
-              </button>
-            ))}
-            {abaAtual && <span className="ml-2 text-[12px] text-muted">{abaAtual.descricao}</span>}
-          </div>
-        )}
-        <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-          <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
-            <h2 className="text-[14px] font-bold text-ink">{abaAtual ? `${spec.titulo} · ${abaAtual.rotulo}` : spec.titulo}</h2>
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar…"
-              className={`${FILTRO} min-w-[220px]`}
+        }
+        abas={
+          spec.abas && (
+            <Abas
+              itens={spec.abas.map((a) => ({
+                id: a.id,
+                title: a.descricao,
+                label: (
+                  <>
+                    {a.rotulo}
+                    {totaisAbas[a.id] !== undefined && <span className="ml-1.5 text-[11.5px] font-normal text-muted">{totaisAbas[a.id].toLocaleString("pt-BR")}</span>}
+                  </>
+                ),
+              }))}
+              ativo={abaAtual?.id ?? ""}
+              onChange={(id) => {
+                setAba(id);
+                setPagina(1);
+                setLinha(null);
+              }}
             />
-            <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-            <span className="ml-auto text-[12px] text-muted">
-              {total.toLocaleString("pt-BR")} registro{total === 1 ? "" : "s"}
-            </span>
-          </div>
+          )
+        }
+      />
 
+      <CorpoPagina>
+        <Painel
+          semEspaco
+          titulo={abaAtual ? `${spec.titulo} · ${abaAtual.rotulo}` : spec.titulo}
+          subtitulo={abaAtual?.descricao}
+          acoes={
+            <>
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar…"
+                className={`${FILTRO} min-w-[220px]`}
+              />
+              <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
+              <span className="ml-1.5 text-[12px] text-muted">
+                {total.toLocaleString("pt-BR")} registro{total === 1 ? "" : "s"}
+              </span>
+            </>
+          }
+        >
           {erroLista && <p className="px-4 py-3 text-[12.5px] font-medium text-alert-600">{erroLista}</p>}
           {erroLinha && <p className="px-4 py-2 text-[12.5px] font-medium text-alert-600">{erroLinha}</p>}
 
@@ -353,8 +347,8 @@ export default function CadastroClient({
               </button>
             </span>
           </div>
-        </div>
-      </div>
+        </Painel>
+      </CorpoPagina>
 
       {editando && (
         <EditarModal
@@ -387,7 +381,7 @@ export default function CadastroClient({
           }}
         />
       )}
-    </div>
+    </Pagina>
   );
 }
 

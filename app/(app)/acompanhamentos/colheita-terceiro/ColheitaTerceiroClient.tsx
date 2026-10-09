@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { fmtDateBR, fmtT, todayISO } from "@/lib/format";
 import { ehDataIso, ehTexto, usarPersistido } from "@/lib/usar-persistido";
 import { IconImprimir } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Pagina } from "@/components/pagina";
 import { gerarRelatorioTerceiroPdf } from "@/lib/relatorio-terceiro-pdf";
 import type { LinhaTerceiro, ResultadoTerceiros } from "@/lib/db";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
@@ -74,13 +75,33 @@ export default function ColheitaTerceiroClient({ nomeUsuario, ultimaData }: { no
   const num = "px-3 py-1.5 text-right tabular-nums";
 
   return (
-    <div className="space-y-4" translate="no">
-      <header className="flex flex-wrap items-end justify-between gap-3 print:hidden">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted">Acompanhamentos</p>
-          <h1 className="text-[22px] font-bold text-navy-900">Colheita Terceiro — Entrada de cana</h1>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
+    <Pagina translate="no" className="print-scroll">
+      {/* o cabeçalho da tela não sai na impressão (como antes) */}
+      <div className="flex-shrink-0 print:hidden">
+        <CabecalhoPagina
+          titulo="Colheita Terceiro — Entrada de cana"
+          categoria="Acompanhamentos"
+          comandos={
+            <Comando
+              icone={<IconImprimir size={16} />}
+              onClick={async () => {
+                setGerando(true);
+                try {
+                  await gerarRelatorioTerceiroPdf({ inicio, fim, frenteFiltro: frente, linhas, ...totais, nomeUsuario });
+                } finally {
+                  setGerando(false);
+                }
+              }}
+              disabled={gerando || linhas.length === 0}
+            >
+              {gerando ? "Gerando…" : "Imprimir / PDF"}
+            </Comando>
+          }
+        />
+      </div>
+
+      <CorpoPagina className="print-scroll space-y-4">
+        <BarraFiltros className="print:hidden">
           <div>
             <label className={ROTULO}>De</label>
             <input type="date" value={inicio} onChange={(e) => e.target.value && setInicio(e.target.value)} className={INPUT} />
@@ -102,93 +123,77 @@ export default function ColheitaTerceiroClient({ nomeUsuario, ultimaData }: { no
             </select>
           </div>
           <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-          <button
-            type="button"
-            onClick={async () => {
-              setGerando(true);
-              try {
-                await gerarRelatorioTerceiroPdf({ inicio, fim, frenteFiltro: frente, linhas, ...totais, nomeUsuario });
-              } finally {
-                setGerando(false);
-              }
-            }}
-            disabled={gerando || linhas.length === 0}
-            className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
-          >
-            <IconImprimir size={15} />
-            {gerando ? "Gerando…" : "Imprimir / PDF"}
-          </button>
-        </div>
-      </header>
+        </BarraFiltros>
 
-      {erro && <p className="rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[13px] text-alert-700">{erro}</p>}
-      {!carregando && linhas.length === 0 && !erro && (
-        <p className="rounded-md border border-line bg-card px-3 py-3 text-[13px] text-muted">
-          Nenhuma entrada no período para a frente escolhida.
-          {semVeiculo > 0 &&
-            ` Há ${semVeiculo} viagens importadas antes desta tela (sem veículo/frente): reimporte a pesagem do período em Ordens de Corte para que apareçam.`}
-        </p>
-      )}
+        {erro && <p className="rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[13px] text-alert-700">{erro}</p>}
+        {!carregando && linhas.length === 0 && !erro && (
+          <p className="rounded-md border border-line bg-card px-3 py-3 text-[13px] text-muted">
+            Nenhuma entrada no período para a frente escolhida.
+            {semVeiculo > 0 &&
+              ` Há ${semVeiculo} viagens importadas antes desta tela (sem veículo/frente): reimporte a pesagem do período em Ordens de Corte para que apareçam.`}
+          </p>
+        )}
 
-      {linhas.length > 0 && (
-        <div className="overflow-x-auto rounded-md border border-line">
-          <table className="w-full min-w-[560px] text-[13px]">
-            <thead className="bg-navy-900 text-white">
-              <tr>
-                <th className={th}>Frente / Data / Caminhão</th>
-                <th className={`${th} text-right`}>TON (t)</th>
-                <th className={`${th} text-right`}>Viagens</th>
-                <th className={`${th} text-right`}>Densidade (t/viagem)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {frentes.map(([frente, datas]) => {
-                const totF = totFrente(frente);
-                return (
-                  <Fragment key={frente}>
-                    <tr className="linha-subtotal">
-                      <td className="px-3 py-1.5">{frente || "—"}</td>
-                      <td className={num}>{fmtT(totF.ton)}</td>
-                      <td className={num}>{totF.viagens}</td>
-                      <td className={num}>{dens(totF.ton, totF.viagens)}</td>
-                    </tr>
-                    {Array.from(datas.entries()).map(([data, ls]) => {
-                      const t = totData(frente, data);
-                      return (
-                        <Fragment key={data}>
-                          <tr className="bg-card font-semibold">
-                            <td className="px-3 py-1.5 pl-6">{fmtDateBR(data)}</td>
-                            <td className={num}>{fmtT(t.ton)}</td>
-                            <td className={num}>{t.viagens}</td>
-                            <td className={num}>{dens(t.ton, t.viagens)}</td>
-                          </tr>
-                          {ls.map((l) => (
-                            <tr key={l.veiculo} className="border-t border-line/60">
-                              <td className="px-3 py-1 pl-10">{l.veiculo || "—"}</td>
-                              <td className={num}>{fmtT(l.ton)}</td>
-                              <td className={num}>{l.viagens}</td>
-                              <td className={num}>{dens(l.ton, l.viagens)}</td>
+        {linhas.length > 0 && (
+          <div className="overflow-x-auto rounded-md border border-line">
+            <table className="w-full min-w-[560px] text-[13px]">
+              <thead className="bg-navy-900 text-white">
+                <tr>
+                  <th className={th}>Frente / Data / Caminhão</th>
+                  <th className={`${th} text-right`}>TON (t)</th>
+                  <th className={`${th} text-right`}>Viagens</th>
+                  <th className={`${th} text-right`}>Densidade (t/viagem)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {frentes.map(([frente, datas]) => {
+                  const totF = totFrente(frente);
+                  return (
+                    <Fragment key={frente}>
+                      <tr className="linha-subtotal">
+                        <td className="px-3 py-1.5">{frente || "—"}</td>
+                        <td className={num}>{fmtT(totF.ton)}</td>
+                        <td className={num}>{totF.viagens}</td>
+                        <td className={num}>{dens(totF.ton, totF.viagens)}</td>
+                      </tr>
+                      {Array.from(datas.entries()).map(([data, ls]) => {
+                        const t = totData(frente, data);
+                        return (
+                          <Fragment key={data}>
+                            <tr className="bg-card font-semibold">
+                              <td className="px-3 py-1.5 pl-6">{fmtDateBR(data)}</td>
+                              <td className={num}>{fmtT(t.ton)}</td>
+                              <td className={num}>{t.viagens}</td>
+                              <td className={num}>{dens(t.ton, t.viagens)}</td>
                             </tr>
-                          ))}
-                        </Fragment>
-                      );
-                    })}
-                  </Fragment>
-                );
-              })}
-              <tr className="bg-navy-900 font-semibold text-white">
-                <td className="px-3 py-2">Total geral</td>
-                <td className={num}>{fmtT(geral.ton)}</td>
-                <td className={num}>{geral.viagens}</td>
-                <td className={num}>{dens(geral.ton, geral.viagens)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-      <p className="text-[11.5px] text-muted print:hidden">
-        Viagens = controles de pesagem do dia; densidade = toneladas ÷ controles. Viagens com tara zerada não contam. Frente conforme a ordem de corte da viagem.
-      </p>
-    </div>
+                            {ls.map((l) => (
+                              <tr key={l.veiculo} className="border-t border-line/60">
+                                <td className="px-3 py-1 pl-10">{l.veiculo || "—"}</td>
+                                <td className={num}>{fmtT(l.ton)}</td>
+                                <td className={num}>{l.viagens}</td>
+                                <td className={num}>{dens(l.ton, l.viagens)}</td>
+                              </tr>
+                            ))}
+                          </Fragment>
+                        );
+                      })}
+                    </Fragment>
+                  );
+                })}
+                <tr className="bg-navy-900 font-semibold text-white">
+                  <td className="px-3 py-2">Total geral</td>
+                  <td className={num}>{fmtT(geral.ton)}</td>
+                  <td className={num}>{geral.viagens}</td>
+                  <td className={num}>{dens(geral.ton, geral.viagens)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="text-[11.5px] text-muted print:hidden">
+          Viagens = controles de pesagem do dia; densidade = toneladas ÷ controles. Viagens com tara zerada não contam. Frente conforme a ordem de corte da viagem.
+        </p>
+      </CorpoPagina>
+    </Pagina>
   );
 }

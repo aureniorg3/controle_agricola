@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { IconAlerta, IconCamadas, IconGrafico, IconOrdemServico, IconRelogio } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
 import { fmtDateBR } from "@/lib/format";
 import type { LinhaGrupoOS, PainelOS } from "@/lib/os-agr";
 import { podeEditar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
-import { Barra, Caixa, Indicador, Secao, Vazio, nf } from "@/app/(app)/painel/blocos";
+import { Barra, Secao, Vazio, nf } from "@/app/(app)/painel/blocos";
 import { BarraFiltrosOS, BotaoImportarOS, paramsDosFiltros, usarFiltrosOS, usarOpcoesOS } from "./comum";
 
 const AZUL = "#2E5FA8";
@@ -52,20 +53,18 @@ export default function PainelOSClient({ perfil }: { perfil: PerfilUsuario }) {
   const emAberto = d ? d.abertas + d.liberadas : 0;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Ordem de Serviço Agr.</span>
-          <div className="truncate text-[15px] font-bold text-ink">Dashboard</div>
-        </nav>
-        {opcoes?.ultimaImportacao && <span className="text-[12px] text-muted">Base atualizada em {opcoes.ultimaImportacao}</span>}
-        {podeEditar(perfil) && <BotaoImportarOS onImportado={() => setVersao((v) => v + 1)} />}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Dashboard"
+        categoria="Ordem de Serviço Agr."
+        info={opcoes?.ultimaImportacao && <span>Base atualizada em {opcoes.ultimaImportacao}</span>}
+        comandos={podeEditar(perfil) && <BotaoImportarOS onImportado={() => setVersao((v) => v + 1)} />}
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="mb-5 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
+      <CorpoPagina>
+        <BarraFiltros>
           <BarraFiltrosOS f={f} setF={setF} opcoes={opcoes} />
-        </div>
+        </BarraFiltros>
 
         {erro && <p className="mb-4 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
         {semBase && <Vazio texto='A base de O.S. ainda está vazia. Use "Importar O.S." com o Relatório de Ordens de Serviço das Etapas.' />}
@@ -73,13 +72,21 @@ export default function PainelOSClient({ perfil }: { perfil: PerfilUsuario }) {
         {d && !semBase && (
           <div className={`space-y-8 transition-opacity ${carregando ? "opacity-60" : ""}`}>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-              <Indicador icone={IconOrdemServico} rotulo="O.S. no filtro" valor={int(d.total)} apoio={`${nf(d.areaRec)} ha recomendados`} />
-              <Indicador icone={IconCamadas} rotulo="Em aberto" valor={int(emAberto)} apoio={`${int(d.abertas)} abertas · ${int(d.liberadas)} liberadas`} />
-              <Indicador icone={IconGrafico} rotulo="Encerradas" valor={int(d.encerradas)} apoio={`${pct(d.encerradas, d.total)} das O.S.`} />
-              <Indicador icone={IconCamadas} rotulo="Área encerrada" valor={nf(d.areaRecEncerrada)} unidade="ha" apoio={`${pct(d.areaRecEncerrada, d.areaRec)} da área recomendada`} />
-              <Indicador icone={IconAlerta} rotulo="Previsão vencida" valor={int(d.atrasadas)} apoio="Em aberto com a previsão final antes de hoje" />
+              <Indicador cor="azul" icone={<IconOrdemServico size={16} />} rotulo="O.S. no filtro" valor={int(d.total)} apoio={`${nf(d.areaRec)} ha recomendados`} />
+              <Indicador cor="laranja" icone={<IconCamadas size={16} />} rotulo="Em aberto" valor={int(emAberto)} apoio={`${int(d.abertas)} abertas · ${int(d.liberadas)} liberadas`} />
+              <Indicador cor="verde" icone={<IconGrafico size={16} />} rotulo="Encerradas" valor={int(d.encerradas)} apoio={`${pct(d.encerradas, d.total)} das O.S.`} />
               <Indicador
-                icone={IconRelogio}
+                cor="verde"
+                icone={<IconCamadas size={16} />}
+                rotulo="Área encerrada"
+                valor={nf(d.areaRecEncerrada)}
+                unidade="ha"
+                apoio={`${pct(d.areaRecEncerrada, d.areaRec)} da área recomendada`}
+              />
+              <Indicador cor="vermelho" icone={<IconAlerta size={16} />} rotulo="Previsão vencida" valor={int(d.atrasadas)} apoio="Em aberto com a previsão final antes de hoje" />
+              <Indicador
+                cor="cinza"
+                icone={<IconRelogio size={16} />}
                 rotulo="Prazo médio"
                 valor={d.mediaDiasEncerrar === null ? "–" : nf(d.mediaDiasEncerrar, 1)}
                 unidade="dias"
@@ -88,7 +95,16 @@ export default function PainelOSClient({ perfil }: { perfil: PerfilUsuario }) {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-5">
-              <Caixa icone={IconRelogio} titulo="O.S. em aberto por faixa de dias" subtitulo={`Dias desde a data da O.S. até hoje (${fmtDateBR(d.hoje)})`} ligacao="/acompanhamentos/os-agricola/faixas-dias" rotuloLigacao="Editar faixas" className="lg:col-span-2">
+              <Painel
+                titulo="O.S. em aberto por faixa de dias"
+                subtitulo={`Dias desde a data da O.S. até hoje (${fmtDateBR(d.hoje)})`}
+                acoes={
+                  <Link href="/acompanhamentos/os-agricola/faixas-dias" className="text-[12px] text-muted hover:text-ink">
+                    Editar faixas
+                  </Link>
+                }
+                className="lg:col-span-2"
+              >
                 {emAberto === 0 ? (
                   <Vazio texto="Nenhuma O.S. em aberto no filtro." />
                 ) : (
@@ -110,10 +126,10 @@ export default function PainelOSClient({ perfil }: { perfil: PerfilUsuario }) {
                     ))}
                   </div>
                 )}
-              </Caixa>
-              <Caixa icone={IconGrafico} titulo="Emitidas e encerradas por mês" subtitulo="Quantidade de O.S. pela data da O.S. e pela data de encerramento" className="lg:col-span-3">
+              </Painel>
+              <Painel titulo="Emitidas e encerradas por mês" subtitulo="Quantidade de O.S. pela data da O.S. e pela data de encerramento" className="lg:col-span-3">
                 <GraficoMeses meses={d.porMes.slice(-12)} />
-              </Caixa>
+              </Painel>
             </div>
 
             <Secao titulo="Por solicitante" subtitulo="Responsável da O.S., com a área do Cadastro Responsáveis">
@@ -121,7 +137,7 @@ export default function PainelOSClient({ perfil }: { perfil: PerfilUsuario }) {
                 <div className="min-w-0 2xl:col-span-2">
                   <TabelaGrupo linhas={d.porSolicitante} rotulo="Solicitante" comArea filtro={(l) => ({ resp: l.chave })} setF={(p) => setF({ ...f, ...p })} />
                 </div>
-                <Caixa titulo="Por área" subtitulo="Somando os solicitantes de cada área">
+                <Painel titulo="Por área" subtitulo="Somando os solicitantes de cada área">
                   <div className="space-y-3">
                     {d.porArea.map((a) => (
                       <div key={a.chave}>
@@ -135,7 +151,7 @@ export default function PainelOSClient({ perfil }: { perfil: PerfilUsuario }) {
                       </div>
                     ))}
                   </div>
-                </Caixa>
+                </Painel>
               </div>
             </Secao>
 
@@ -153,8 +169,8 @@ export default function PainelOSClient({ perfil }: { perfil: PerfilUsuario }) {
             </p>
           </div>
         )}
-      </div>
-    </div>
+      </CorpoPagina>
+    </Pagina>
   );
 }
 

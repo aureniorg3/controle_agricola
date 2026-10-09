@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BotaoLog from "@/components/BotaoLog";
+import { BarraFiltros, CabecalhoPagina, CorpoPagina, Pagina } from "@/components/pagina";
 import { validarDosagem, type Dosagem, type ItemDosagem } from "@/lib/dosagens";
 import { podeEditar } from "@/lib/permissoes";
 import type { PerfilUsuario } from "@/lib/types";
@@ -207,27 +208,25 @@ export default function DosagensClient({ perfil }: { perfil: PerfilUsuario }) {
   const sufixo = (un: string) => <span className="w-[44px] flex-shrink-0 text-[11px] text-muted">{un ? `${un}/ha` : "/ha"}</span>;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden" translate="no">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px]">Acompanhamentos · Insumos</span>
-          <div className="truncate text-[15px] font-semibold text-ink">Dosagens</div>
-        </nav>
-        <BotaoLog titulo="Log das Dosagens" filtro={{ modulo: "Insumos", entidade: "Dosagem" }} />
-      </header>
+    <Pagina translate="no">
+      <CabecalhoPagina
+        titulo="Dosagens"
+        categoria="Acompanhamentos · Insumos"
+        comandos={<BotaoLog titulo="Log das Dosagens" filtro={{ modulo: "Insumos", entidade: "Dosagem" }} />}
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-          <p className="max-w-[560px] text-[12.5px] text-muted">
-            Dosagem por hectare, na unidade de medida do cadastro Material e Insumos. A descrição e a unidade vêm do cadastro pelo código do insumo.
-          </p>
+      <CorpoPagina>
+        <BarraFiltros className="justify-between">
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <div className="w-full sm:w-[280px]">
               <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por código ou descrição" className={INPUT} aria-label="Buscar" />
             </div>
             <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
           </div>
-        </div>
+          <p className="max-w-[560px] text-[12px] text-muted">
+            Dosagem por hectare, na unidade de medida do cadastro Material e Insumos. A descrição e a unidade vêm do cadastro pelo código do insumo.
+          </p>
+        </BarraFiltros>
 
         {!cadastroImportado && (
           <p className="mb-3 rounded-md border border-line bg-card px-3 py-2 text-[12.5px] text-muted">
@@ -405,7 +404,7 @@ export default function DosagensClient({ perfil }: { perfil: PerfilUsuario }) {
           {lista.length > 0 ? `${filtradas.length} de ${lista.length} insumo(s) com dosagem. ` : ""}
           Enter na dosagem salva a linha; o que for alterado fica no log.
         </p>
-      </div>
-    </div>
+      </CorpoPagina>
+    </Pagina>
   );
 }

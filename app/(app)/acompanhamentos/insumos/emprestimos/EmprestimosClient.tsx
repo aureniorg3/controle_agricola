@@ -2,6 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import BotaoLog from "@/components/BotaoLog";
+import { IconMais } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, type CorIndicador } from "@/components/pagina";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { gerarComunicadoEmprestimoPdf } from "@/lib/comunicado-emprestimo-pdf";
 import { ASSINANTES_PADRAO, totalItem, type Emprestimo, type StatusEmprestimo } from "@/lib/emprestimos";
@@ -21,6 +23,8 @@ const COR_STATUS: Record<StatusEmprestimo, string> = {
   Devolvido: "bg-brand-50 text-brand-700",
   Pago: "bg-good-50 text-good-600",
 };
+/** Cor do indicador de cada situação: em aberto é pendente (laranja), devolvido azul e pago verde, como os selos da tabela. */
+const COR_RESUMO: Record<StatusEmprestimo, CorIndicador> = { Aberto: "laranja", Devolvido: "azul", Pago: "verde" };
 
 const numero = (v: string) => (v.includes(",") ? Number(v.replace(/\./g, "").replace(",", ".")) : Number(v));
 const emTexto = (n: number | null | undefined) => (n === null || n === undefined ? "" : String(n).replace(".", ","));
@@ -319,16 +323,23 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
   const totalForm = form ? form.itens.reduce((a, i) => a + (numero(i.qtd) > 0 ? totalItem(numero(i.qtd), numero(i.vu || "0") || 0) : 0), 0) : 0;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden" translate="no">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Insumos</span>
-          <div className="truncate text-[15px] font-bold text-ink">Empréstimos</div>
-        </nav>
-        <BotaoLog titulo="Log de Empréstimos de Insumos" filtro={{ modulo: "Insumos" }} />
-      </header>
+    <Pagina translate="no">
+      <CabecalhoPagina
+        titulo="Empréstimos"
+        categoria="Acompanhamentos · Insumos"
+        comandos={
+          <>
+            {podeGravar && (
+              <Comando primario icone={<IconMais size={16} />} onClick={novoEmprestimo}>
+                Novo empréstimo
+              </Comando>
+            )}
+            <BotaoLog titulo="Log de Empréstimos de Insumos" filtro={{ modulo: "Insumos" }} />
+          </>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <CorpoPagina>
         {form && (
           <section id="form-emprestimo" className="caixa-form mb-5 scroll-mt-4">
             <div className="caixa-form-topo">
@@ -560,18 +571,20 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
               key={s}
               type="button"
               onClick={() => setFiltroStatus(filtroStatus === s ? "" : s)}
-              className={`rounded-xl2 border bg-card p-3 text-left shadow-card ${filtroStatus === s ? "border-navy-900" : "border-line"}`}
+              className={`rounded-xl2 text-left ${filtroStatus === s ? "ring-2 ring-navy-900 dark:ring-crv-acao" : ""}`}
             >
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                {s === "Aberto" ? "Em aberto" : s === "Devolvido" ? "Devolvidos" : "Pagos"}
-              </div>
-              <div className="text-[20px] font-bold tabular text-ink">{brl(resumo[s].valor)}</div>
-              <div className="text-[11.5px] text-muted">{resumo[s].n} empréstimo(s)</div>
+              <Indicador
+                cor={COR_RESUMO[s]}
+                rotulo={s === "Aberto" ? "Em aberto" : s === "Devolvido" ? "Devolvidos" : "Pagos"}
+                valor={brl(resumo[s].valor)}
+                apoio={`${resumo[s].n} empréstimo(s)`}
+                className="h-full"
+              />
             </button>
           ))}
         </div>
 
-        <div className="mb-3 flex flex-wrap items-end gap-3">
+        <BarraFiltros>
           <div className="min-w-[220px] flex-1">
             <label className={ROTULO}>Buscar</label>
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Fornecedor, fazenda, insumo ou nº" className={INPUT} />
@@ -586,12 +599,7 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
             </select>
           </div>
           <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-          {podeGravar && (
-            <button type="button" onClick={novoEmprestimo} className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-800">
-              + Novo empréstimo
-            </button>
-          )}
-        </div>
+        </BarraFiltros>
 
         {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[13px] text-alert-700">{erro}</p>}
 
@@ -714,7 +722,7 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
             </tbody>
           </table>
         </div>
-      </div>
+      </CorpoPagina>
 
       {baixa && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -752,7 +760,6 @@ export default function EmprestimosClient({ perfil }: { perfil: PerfilUsuario })
           </div>
         </div>
       )}
-
-    </div>
+    </Pagina>
   );
 }

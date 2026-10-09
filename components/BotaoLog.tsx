@@ -9,15 +9,18 @@ import { Comando } from "./pagina";
 export default function BotaoLog({
   titulo,
   filtro,
+  rotulo = "Log de alterações",
 }: {
   titulo: string;
   filtro: { modulo?: string; entidade?: string; chave?: string; q?: string };
+  /** texto do botão, quando a tela tem mais de um log */
+  rotulo?: string;
 }) {
   const [aberto, setAberto] = useState(false);
   return (
     <>
       <Comando icone={<IconHistorico size={16} />} onClick={() => setAberto(true)} title="Quem alterou o quê e quando nesta tela">
-        Log de alterações
+        {rotulo}
       </Comando>
       {aberto && <AuditoriaModal titulo={titulo} filtro={filtro} onFechar={() => setAberto(false)} />}
     </>

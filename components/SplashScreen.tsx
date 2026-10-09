@@ -41,12 +41,12 @@ export default function SplashScreen() {
       role="status"
       aria-label="Carregando Controle Agrícola"
     >
-      <img src="/logo-crv-branca.png" alt="CRV Industrial" className="w-56 max-w-[60vw]" />
-      <h1 className="mt-8 text-2xl font-bold tracking-wide text-white">Controle Agrícola</h1>
+      <img src="/logo-crv-branca-pdf.png" alt="CRV Industrial" className="w-48 max-w-[55vw]" />
+      <h1 className="mt-8 font-display text-[30px] font-semibold text-white">Controle Agrícola</h1>
       <p className="mt-1 text-[12px] text-slate-400">Safra 2026/27 · Unidade Capinópolis-MG</p>
       <div className="mt-8 h-1.5 w-64 max-w-[70vw] overflow-hidden rounded-full bg-white/10">
         <div
-          className="h-full rounded-full bg-brand-600"
+          className="h-full rounded-full bg-crv-verde"
           style={{ animation: `splash-progress ${DURACAO_MS}ms ease-out forwards` }}
         />
       </div>

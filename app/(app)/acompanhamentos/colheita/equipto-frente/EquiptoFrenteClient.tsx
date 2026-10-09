@@ -6,6 +6,7 @@ import { Campo } from "@/components/ui";
 import { frenteDoEquipamento } from "@/lib/conferencia";
 import BotaoLog from "@/components/BotaoLog";
 import { fmtDataHora } from "@/components/AuditoriaModal";
+import { CabecalhoPagina, CorpoPagina, Pagina, Painel, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { EquiptoFrente, PerfilUsuario } from "@/lib/types";
@@ -97,7 +98,7 @@ export default function EquiptoFrenteClient({
     setEqp(l.eqp);
     setFrente(l.frente);
     setVigencia(l.vigencia);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    rolarCorpoParaOTopo();
   }
 
   function cancelarEdicao() {
@@ -121,80 +122,79 @@ export default function EquiptoFrenteClient({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-6 py-3">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Acompanhamentos · Colheita</span>
-          <div className="truncate text-[15px] font-bold text-ink">Equipto Frente</div>
-        </nav>
-        <BotaoLog titulo="Log do Equipto Frente" filtro={{ modulo: "Colheita", entidade: "Equipto Frente" }} />
-        {!podeGravar && (
-          <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
-            Somente leitura
-          </div>
-        )}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Equipto Frente"
+        categoria="Acompanhamentos · Colheita"
+        info={
+          !podeGravar && (
+            <Selo>Somente leitura</Selo>
+          )
+        }
+        comandos={<BotaoLog titulo="Log do Equipto Frente" filtro={{ modulo: "Colheita", entidade: "Equipto Frente" }} />}
+      />
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <CorpoPagina>
         {podeGravar && (
-          <form onSubmit={salvar} className="mb-5 rounded-xl2 border border-line bg-card p-4 shadow-card">
-            <h2 className="mb-3 text-[14px] font-bold text-ink">{editandoId ? "Editar lançamento" : "Lançar equipamento"}</h2>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1.2fr_1fr_auto] md:items-end">
-              <Campo label="Código do Equipamento">
-                <input
-                  value={eqp}
-                  onChange={(e) => setEqp(e.target.value)}
-                  list="equipamentos-conhecidos"
-                  placeholder="Ex.: 62503"
-                  className={INPUT}
-                />
-                <datalist id="equipamentos-conhecidos">
-                  {codigosConhecidos.map((c) => (
-                    <option key={c} value={c}>
-                      {nomesEquipamentos[c] ?? ""}
-                    </option>
-                  ))}
-                </datalist>
-              </Campo>
-              <Campo label="Frente">
-                <select value={frente} onChange={(e) => setFrente(e.target.value)} className={INPUT}>
-                  {frentes.length === 0 && <option value="">Nenhuma frente disponível ainda</option>}
-                  {frentes.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-              </Campo>
-              <Campo label="Data (vigência)">
-                <input type="date" value={vigencia} onChange={(e) => setVigencia(e.target.value)} className={INPUT} />
-              </Campo>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  disabled={salvando || !frente}
-                  className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
-                >
-                  {salvando ? "Salvando…" : editandoId ? "Salvar alteração" : "Lançar"}
-                </button>
-                {editandoId && (
+          <Painel titulo={editandoId ? "Editar lançamento" : "Lançar equipamento"} className="mb-5">
+            <form onSubmit={salvar}>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1.2fr_1fr_auto] md:items-end">
+                <Campo label="Código do Equipamento">
+                  <input
+                    value={eqp}
+                    onChange={(e) => setEqp(e.target.value)}
+                    list="equipamentos-conhecidos"
+                    placeholder="Ex.: 62503"
+                    className={INPUT}
+                  />
+                  <datalist id="equipamentos-conhecidos">
+                    {codigosConhecidos.map((c) => (
+                      <option key={c} value={c}>
+                        {nomesEquipamentos[c] ?? ""}
+                      </option>
+                    ))}
+                  </datalist>
+                </Campo>
+                <Campo label="Frente">
+                  <select value={frente} onChange={(e) => setFrente(e.target.value)} className={INPUT}>
+                    {frentes.length === 0 && <option value="">Nenhuma frente disponível ainda</option>}
+                    {frentes.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                </Campo>
+                <Campo label="Data (vigência)">
+                  <input type="date" value={vigencia} onChange={(e) => setVigencia(e.target.value)} className={INPUT} />
+                </Campo>
+                <div className="flex gap-2">
                   <button
-                    type="button"
-                    onClick={cancelarEdicao}
-                    className="rounded-lg border border-line bg-card px-4 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+                    type="submit"
+                    disabled={salvando || !frente}
+                    className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
                   >
-                    Cancelar
+                    {salvando ? "Salvando…" : editandoId ? "Salvar alteração" : "Lançar"}
                   </button>
-                )}
+                  {editandoId && (
+                    <button
+                      type="button"
+                      onClick={cancelarEdicao}
+                      className="rounded-lg border border-line bg-card px-4 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-            {erro && <p className="mt-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
-            <p className="mt-3 text-[12px] leading-relaxed text-muted">
-              O equipamento fica na frente informada a partir da data (vigência). Se ele mudar de frente, lance de novo
-              com a nova frente e a data da mudança: a conferência usa a nova frente dessa data em diante e a frente
-              anterior até o dia anterior à mudança. Antes do primeiro lançamento, o equipamento fica sem cadastro.
-            </p>
-          </form>
+              {erro && <p className="mt-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
+              <p className="mt-3 text-[12px] leading-relaxed text-muted">
+                O equipamento fica na frente informada a partir da data (vigência). Se ele mudar de frente, lance de novo
+                com a nova frente e a data da mudança: a conferência usa a nova frente dessa data em diante e a frente
+                anterior até o dia anterior à mudança. Antes do primeiro lançamento, o equipamento fica sem cadastro.
+              </p>
+            </form>
+          </Painel>
         )}
 
         {lancamentosIniciais.length === 0 ? (
@@ -202,33 +202,37 @@ export default function EquiptoFrenteClient({
             Nenhum equipamento lançado ainda.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
-            <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
-              <h2 className="text-[14px] font-bold text-ink">Equipamentos lançados</h2>
-              <select
-                value={filtroFrente}
-                onChange={(e) => setFiltroFrente(e.target.value)}
-                aria-label="Filtrar por frente"
-                className="rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
-              >
-                <option value="todas">Todas as frentes</option>
-                {frentes.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={filtroEqp}
-                onChange={(e) => setFiltroEqp(e.target.value)}
-                placeholder="Buscar equipamento…"
-                className="rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
-              />
-              <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-              <span className="ml-auto text-[12px] text-muted">
-                {linhas.length} lançamento{linhas.length === 1 ? "" : "s"}
-              </span>
-            </div>
+          <Painel
+            titulo="Equipamentos lançados"
+            semEspaco
+            acoes={
+              <>
+                <select
+                  value={filtroFrente}
+                  onChange={(e) => setFiltroFrente(e.target.value)}
+                  aria-label="Filtrar por frente"
+                  className="rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
+                >
+                  <option value="todas">Todas as frentes</option>
+                  {frentes.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={filtroEqp}
+                  onChange={(e) => setFiltroEqp(e.target.value)}
+                  placeholder="Buscar equipamento…"
+                  className="rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
+                />
+                <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
+                <span className="ml-1.5 text-[12px] text-muted">
+                  {linhas.length} lançamento{linhas.length === 1 ? "" : "s"}
+                </span>
+              </>
+            }
+          >
             <div className="overflow-x-auto">
               <table className="w-full text-[12.5px]">
                 <thead>
@@ -295,9 +299,9 @@ export default function EquiptoFrenteClient({
                 </tbody>
               </table>
             </div>
-          </div>
+          </Painel>
         )}
-      </div>
-    </div>
+      </CorpoPagina>
+    </Pagina>
   );
 }

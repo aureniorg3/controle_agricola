@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import AuditoriaModal, { fmtDataHora } from "@/components/AuditoriaModal";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
+import { IconHistorico } from "@/components/icons";
+import { Comando, Painel } from "@/components/pagina";
 import { fmtDateBR, fmtHa } from "@/lib/format";
 import { ratearArea } from "@/lib/rateio";
 import type { ApontamentoArea } from "@/lib/db-area";
@@ -528,9 +530,19 @@ export default function AreaColhidaTab({
         </div>
       </section>
 
-      <section className="rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
-        <div className="mb-3 flex flex-wrap items-end gap-3">
-          <h2 className="mr-2 text-[14px] font-bold text-ink">Histórico de lançamentos</h2>
+      <Painel
+        semEspaco
+        titulo="Histórico de lançamentos"
+        acoes={
+          <Comando
+            icone={<IconHistorico size={16} />}
+            onClick={() => setLogAberto({ q: filtroOrdem.trim() ? `Ordem ${filtroOrdem.trim()} ·` : undefined })}
+          >
+            Log de alterações
+          </Comando>
+        }
+      >
+        <div className="flex flex-wrap items-end gap-3 border-b border-line px-4 py-3">
           <div>
             <label className={ROTULO}>Ordem</label>
             <input value={filtroOrdem} onChange={(e) => setFiltroOrdem(e.target.value)} placeholder="Todas" className={`${INPUT} w-[110px]`} />
@@ -551,15 +563,8 @@ export default function AreaColhidaTab({
               setAte("");
             }}
           />
-          <button
-            type="button"
-            onClick={() => setLogAberto({ q: filtroOrdem.trim() ? `Ordem ${filtroOrdem.trim()} ·` : undefined })}
-            className="rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card"
-          >
-            Log de alterações
-          </button>
         </div>
-        <div className="overflow-x-auto rounded-md border border-line">
+        <div className="overflow-x-auto">
           <table className="w-full text-[12px]">
             <thead>
               <tr className="border-b border-line bg-surface text-left text-muted">
@@ -676,7 +681,7 @@ export default function AreaColhidaTab({
             </tbody>
           </table>
         </div>
-      </section>
+      </Painel>
 
       {logAberto && (
         <AuditoriaModal

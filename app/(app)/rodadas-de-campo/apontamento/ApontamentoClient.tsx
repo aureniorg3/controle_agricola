@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { IconBusca } from "@/components/icons";
+import { IconBusca, IconHistorico } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Pagina, Selo } from "@/components/pagina";
 import { fmtDateBR, fmtHa, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 import type { RodadaCad } from "@/lib/rodadas";
@@ -543,95 +544,90 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
   const fazendaNm = nomeDe("fazendas", faz);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 items-center gap-3 border-b border-line bg-card px-4 py-3 md:px-6">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Rodadas de Campo</span>
-          <div className="truncate text-[15px] font-bold text-ink">Apontamento</div>
-        </nav>
-        {!podeGravar && (
-          <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
-            Somente leitura
-          </div>
-        )}
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Apontamento"
+        categoria="Rodadas de Campo"
+        info={
+          !podeGravar && (
+            <Selo>Somente leitura</Selo>
+          )
+        }
+        comandos={
+          <Comando icone={<IconHistorico size={16} />} onClick={() => setLogAberto({})}>
+            Log de alterações
+          </Comando>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-5">
-        <section className="mb-4 rounded-xl2 border border-line bg-card p-3 shadow-card md:p-4">
-          <div className="flex flex-wrap items-end gap-2">
-            <div>
-              <label className={ROTULO}>Buscar boletim lançado</label>
-              <div className="flex items-center gap-1.5">
-                <input
-                  value={buscaBol}
-                  onChange={(e) => setBuscaBol(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      buscarBoletim();
-                    }
-                  }}
-                  inputMode="numeric"
-                  placeholder="Nº do boletim"
-                  className={`${INPUT_BASE} w-[150px]`}
-                  aria-label="Número do boletim a buscar"
-                />
-                <button
-                  type="button"
-                  onClick={buscarBoletim}
-                  className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card"
-                >
-                  <IconBusca size={13} />
-                  Buscar
-                </button>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setLogAberto({})}
-              className="rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card"
-            >
-              Log de alterações
-            </button>
-          </div>
-          {editando && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-700">
-              <span className="font-semibold">
-                Editando o boletim {editando.bol} · lançado por {editando.usr || "—"} em {fmtDateBR(dt)}.
-              </span>
-              <button type="button" onClick={() => setLogAberto({ bol: editando.bol })} className="ml-auto font-semibold underline">
-                Ver log deste boletim
+      <CorpoPagina>
+        <BarraFiltros>
+          <div>
+            <label className={ROTULO}>Buscar boletim lançado</label>
+            <div className="flex items-center gap-1.5">
+              <input
+                value={buscaBol}
+                onChange={(e) => setBuscaBol(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    buscarBoletim();
+                  }
+                }}
+                inputMode="numeric"
+                placeholder="Nº do boletim"
+                className={`${INPUT_BASE} w-[150px]`}
+                aria-label="Número do boletim a buscar"
+              />
+              <button
+                type="button"
+                onClick={buscarBoletim}
+                className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card"
+              >
+                <IconBusca size={13} />
+                Buscar
               </button>
             </div>
-          )}
-          {importadoVisto && (
-            <div className="mt-3 rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] text-ink">
-              <p className="font-semibold">
-                Boletim {importadoVisto.bol} — veio da importação da planilha (não pode ser alterado aqui, só excluído).
-              </p>
-              <p className="mt-1 text-muted">
-                Rodada {importadoVisto.rod}, semana {importadoVisto.sem}, região {importadoVisto.reg || "—"}, fazenda {importadoVisto.faz},{" "}
-                {importadoVisto.itens.length} linha(s) de talhão, responsável {importadoVisto.resp || "—"}.
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => excluirBoletimAberto(importadoVisto.bol)}
-                  disabled={!podeGravar}
-                  className="rounded-md border border-alert-500/50 bg-card px-3 py-1.5 text-[12.5px] font-semibold text-alert-700 hover:bg-alert-50 disabled:opacity-50"
-                >
-                  Excluir boletim
-                </button>
-                <button type="button" onClick={() => setLogAberto({ bol: importadoVisto.bol })} className="rounded-md border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-surface">
-                  Ver log
-                </button>
-                <button type="button" onClick={sairDoBoletim} className="rounded-md border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-surface">
-                  Fechar
-                </button>
-              </div>
+          </div>
+        </BarraFiltros>
+
+        {editando && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-700">
+            <span className="font-semibold">
+              Editando o boletim {editando.bol} · lançado por {editando.usr || "—"} em {fmtDateBR(dt)}.
+            </span>
+            <button type="button" onClick={() => setLogAberto({ bol: editando.bol })} className="ml-auto font-semibold underline">
+              Ver log deste boletim
+            </button>
+          </div>
+        )}
+        {importadoVisto && (
+          <div className="mb-4 rounded-xl2 border border-line bg-card px-4 py-3 text-[12.5px] text-ink shadow-card">
+            <p className="font-semibold">
+              Boletim {importadoVisto.bol} — veio da importação da planilha (não pode ser alterado aqui, só excluído).
+            </p>
+            <p className="mt-1 text-muted">
+              Rodada {importadoVisto.rod}, semana {importadoVisto.sem}, região {importadoVisto.reg || "—"}, fazenda {importadoVisto.faz},{" "}
+              {importadoVisto.itens.length} linha(s) de talhão, responsável {importadoVisto.resp || "—"}.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => excluirBoletimAberto(importadoVisto.bol)}
+                disabled={!podeGravar}
+                className="rounded-md border border-alert-500/50 bg-card px-3 py-1.5 text-[12.5px] font-semibold text-alert-700 hover:bg-alert-50 disabled:opacity-50"
+              >
+                Excluir boletim
+              </button>
+              <button type="button" onClick={() => setLogAberto({ bol: importadoVisto.bol })} className="rounded-md border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-surface">
+                Ver log
+              </button>
+              <button type="button" onClick={sairDoBoletim} className="rounded-md border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-surface">
+                Fechar
+              </button>
             </div>
-          )}
-        </section>
+          </div>
+        )}
 
         <div ref={formRef} onKeyDown={aoTeclar} className="space-y-4">
           <section className="caixa-form">
@@ -921,7 +917,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
             </p>
           </section>
         </div>
-      </div>
+      </CorpoPagina>
 
       {logAberto && <LogModal bol={logAberto.bol} onFechar={() => setLogAberto(null)} />}
 
@@ -933,7 +929,7 @@ export default function ApontamentoClient({ perfil }: { perfil: PerfilUsuario })
           onFechar={() => setSeletor(null)}
         />
       )}
-    </div>
+    </Pagina>
   );
 }
 

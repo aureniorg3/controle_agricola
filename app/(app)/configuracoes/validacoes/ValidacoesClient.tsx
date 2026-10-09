@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { IconAtualizar, IconBaixar } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, type CorIndicador } from "@/components/pagina";
 import type { ResultadoValidacoes, ResultadoVerificacao, Severidade } from "@/lib/validacoes";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
@@ -101,31 +103,24 @@ export default function ValidacoesClient() {
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-line bg-card px-4 py-3 md:px-6">
-        <nav className="min-w-0 flex-1 text-[13px] text-muted">
-          <span className="text-[11px] uppercase tracking-wide">Configurações</span>
-          <div className="truncate text-[15px] font-bold text-ink">Validações</div>
-        </nav>
-        <button
-          type="button"
-          onClick={exportar}
-          disabled={!dados || carregando}
-          className="rounded-lg border border-line bg-card px-3.5 py-1.5 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
-        >
-          Exportar Excel
-        </button>
-        <button
-          type="button"
-          onClick={executar}
-          disabled={carregando}
-          className="rounded-lg bg-navy-900 px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
-        >
-          {carregando ? "Verificando…" : "Executar validações"}
-        </button>
-      </header>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Validações"
+        categoria="Configurações"
+        info={dados && <span>Verificado em {new Date(dados.executadoEm).toLocaleString("pt-BR")}</span>}
+        comandos={
+          <>
+            <Comando primario icone={<IconAtualizar size={16} />} onClick={executar} disabled={carregando}>
+              {carregando ? "Verificando…" : "Executar validações"}
+            </Comando>
+            <Comando icone={<IconBaixar size={16} />} onClick={exportar} disabled={!dados || carregando}>
+              Exportar Excel
+            </Comando>
+          </>
+        }
+      />
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-5">
+      <CorpoPagina>
         <p className="mb-4 max-w-3xl text-[12.5px] leading-relaxed text-muted">
           Cruza os dados dos módulos (Colheita, Rodadas de Campo e cadastros) e lista o que não se encontra, com o que fazer
           para corrigir. Rode de novo depois de importar ou corrigir. A cada recurso novo do sistema, as verificações dele
@@ -135,13 +130,13 @@ export default function ValidacoesClient() {
         {erro && <p className="mb-3 text-[12.5px] font-medium text-alert-600">{erro}</p>}
 
         <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Resumo rotulo="Erros" valor={resumo.erros} cor="text-alert-700" />
-          <Resumo rotulo="Atenção" valor={resumo.atencoes} cor="text-amber-700" />
-          <Resumo rotulo="Informação" valor={resumo.infos} cor="text-brand-800" />
-          <Resumo rotulo="Sem divergência" valor={resumo.ok} cor="text-good-700" />
+          <Resumo rotulo="Erros" valor={resumo.erros} cor="vermelho" />
+          <Resumo rotulo="Atenção" valor={resumo.atencoes} cor="amarelo" />
+          <Resumo rotulo="Informação" valor={resumo.infos} cor="azul" />
+          <Resumo rotulo="Sem divergência" valor={resumo.ok} cor="verde" />
         </div>
 
-        <div className="mb-3 flex flex-wrap items-center gap-3">
+        <BarraFiltros>
           <select
             value={modulo}
             onChange={(e) => setModulo(e.target.value)}
@@ -155,17 +150,12 @@ export default function ValidacoesClient() {
               </option>
             ))}
           </select>
-          <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink">
+          <label className="flex cursor-pointer items-center gap-2 pb-1.5 text-[12.5px] text-ink">
             <input type="checkbox" checked={soDivergencias} onChange={(e) => setSoDivergencias(e.target.checked)} />
             Mostrar só o que tem divergência
           </label>
           <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
-          {dados && (
-            <span className="ml-auto text-[11.5px] text-muted">
-              Verificado em {new Date(dados.executadoEm).toLocaleString("pt-BR")}
-            </span>
-          )}
-        </div>
+        </BarraFiltros>
 
         {carregando && !dados && <p className="text-[12.5px] text-muted">Verificando o sistema…</p>}
 
@@ -179,18 +169,13 @@ export default function ValidacoesClient() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </CorpoPagina>
+    </Pagina>
   );
 }
 
-function Resumo({ rotulo, valor, cor }: { rotulo: string; valor: number; cor: string }) {
-  return (
-    <div className="rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{rotulo}</div>
-      <div className={`mt-0.5 text-[22px] font-extrabold tabular ${cor}`}>{valor}</div>
-    </div>
-  );
+function Resumo({ rotulo, valor, cor }: { rotulo: string; valor: number; cor: CorIndicador }) {
+  return <Indicador cor={cor} rotulo={rotulo} valor={valor} />;
 }
 
 function Cartao({ v, aberto, onAlternar }: { v: ResultadoVerificacao; aberto: boolean; onAlternar: () => void }) {
