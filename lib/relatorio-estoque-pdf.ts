@@ -30,14 +30,14 @@ export interface DadosRelatorioEstoque {
 }
 
 /**
- * PDF do estoque (A4 retrato), no modelo da planilha "Estoque Herbicida": Descrição, Código, Est Real, Estoque Disp,
+ * PDF do estoque (A4 paisagem), no modelo da planilha "Estoque Herbicida": Descrição, Código, Est Real, Estoque Disp,
  * Dif Real x Disp, Dosagem, Vlr Unit. e Disp. (ha), produto a produto, com o cabeçalho e o rodapé padrão do sistema.
  */
 export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promise<void> {
   const { default: JsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
   const logo = await carregarImagemInfo("/logo-crv-branca-pdf.png");
-  const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const doc = new JsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const larg = doc.internal.pageSize.getWidth();
   const alt = doc.internal.pageSize.getHeight();
   const geradoEm = new Date();
@@ -67,6 +67,7 @@ export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promis
 
   const corpo = d.linhas.map((l) => [
     l.ds,
+    l.principioAtivo || "–",
     l.cod,
     nf(l.est),
     nf(l.disp),
@@ -81,6 +82,7 @@ export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promis
   corpo.push([
     "Total",
     "",
+    "",
     nf(soma((l) => l.est)),
     nf(soma((l) => l.disp)),
     nf(soma((l) => l.dif)),
@@ -92,23 +94,24 @@ export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promis
   cabecalho();
   autoTable(doc, {
     startY: 21,
-    head: [["Descrição", "Código", "Est Real", "Estoque Disp", "Dif Real x Disp", "Dosagem", "Vlr Unit.", "Disp. (ha)"]],
+    head: [["Descrição", "Princípio Ativo", "Código", "Est Real", "Estoque Disp", "Dif Real x Disp", "Dosagem", "Vlr Unit.", "Disp. (ha)"]],
     body: corpo,
     styles: { fontSize: 8, cellPadding: { top: 1.1, bottom: 1.1, left: 1.5, right: 1.5 }, textColor: INK, lineColor: LINE, lineWidth: 0.1, valign: "middle" },
     headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8, halign: "center" },
     columnStyles: {
       0: { cellWidth: 62, halign: "left" },
-      1: { cellWidth: 18, halign: "center" },
-      2: { halign: "right" },
+      1: { cellWidth: 70, halign: "left", fontSize: 7.2 },
+      2: { cellWidth: 17, halign: "center" },
       3: { halign: "right" },
       4: { halign: "right" },
-      5: { halign: "right", fillColor: DOSAGEM },
-      6: { halign: "right", cellWidth: 24 },
-      7: { halign: "right", fillColor: HECTARES, fontStyle: "bold" },
+      5: { halign: "right" },
+      6: { halign: "right", fillColor: DOSAGEM },
+      7: { halign: "right", cellWidth: 24 },
+      8: { halign: "right", fillColor: HECTARES, fontStyle: "bold" },
     },
     didParseCell: (c) => {
       if (c.section === "head") {
-        if (c.column.index === 0) c.cell.styles.halign = "left";
+        if (c.column.index <= 1) c.cell.styles.halign = "left";
         return;
       }
       if (c.row.index === nTotal) {
@@ -117,13 +120,14 @@ export async function gerarRelatorioEstoquePdf(d: DadosRelatorioEstoque): Promis
         c.cell.styles.fontStyle = "bold";
         return;
       }
-      if (c.row.index % 2 === 1 && c.column.index < 5) c.cell.styles.fillColor = ALT;
+      if (c.row.index % 2 === 1 && c.column.index < 6) c.cell.styles.fillColor = ALT;
       // sem dosagem (ou sem estoque) não há hectares para destacar
-      if (c.column.index === 7 && (d.linhas[c.row.index].ha ?? 0) <= 0) {
+      if (c.column.index === 8 && (d.linhas[c.row.index].ha ?? 0) <= 0) {
         c.cell.styles.fillColor = c.row.index % 2 === 1 ? ALT : [255, 255, 255];
         c.cell.styles.fontStyle = "normal";
       }
-      if (c.column.index === 4 && Math.abs(d.linhas[c.row.index].dif) >= 0.005) {
+      if (c.column.index === 1) c.cell.styles.textColor = MUTED;
+      if (c.column.index === 5 && Math.abs(d.linhas[c.row.index].dif) >= 0.005) {
         c.cell.styles.textColor = [178, 60, 43];
         c.cell.styles.fontStyle = "bold";
       }

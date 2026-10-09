@@ -25,6 +25,8 @@ export interface DadosRelatorioSaldo {
   topItens: { cod: string; ds: string; valor: number }[];
   /** dosagem por hectare por código do insumo (coluna Dosagem e Hectares) */
   dosagens: Record<string, DosagemInsumo>;
+  /** princípio ativo por código (cadastro Material e Insumos) */
+  principios?: Record<string, string>;
   nomeUsuario: string;
   movimento: {
     datas: string[];
@@ -68,11 +70,11 @@ export async function gerarRelatorioSaldoPdf(d: DadosRelatorioSaldo): Promise<vo
   const { colunas, grupos } = d.matriz;
   const tresCels = (c: CelSaldo | undefined) => (c ? [cel(c.qtd), cel(precoMedio(c)), rs(c.valor)] : ["", "", ""]);
 
-  const cab1: { content: string; colSpan?: number; styles?: object }[] = [{ content: `Data base: ${fmtDateBR(d.dtBase)}`, colSpan: 4, styles: { halign: "left" } }];
+  const cab1: { content: string; colSpan?: number; styles?: object }[] = [{ content: `Data base: ${fmtDateBR(d.dtBase)}`, colSpan: 5, styles: { halign: "left" } }];
   for (const c of colunas) cab1.push({ content: `${c.rotulo}${c.sub ? ` · ${c.sub}` : ""}`, colSpan: 3, styles: { halign: "center" } });
   cab1.push({ content: "Total", colSpan: 3, styles: { halign: "center", fillColor: ORANGE } });
   cab1.push({ content: "Aplicação", colSpan: 2, styles: { halign: "center", fillColor: GREEN } });
-  const sub = ["Grupo", "Código", "Descrição do insumo", "UM"];
+  const sub = ["Grupo", "Código", "Descrição do insumo", "Princípio ativo", "UM"];
   for (let i = 0; i < colunas.length + 1; i++) sub.push("Qtd", "Preço médio", "Vl. total");
   sub.push("Dosagem /ha", "Hectares");
 
@@ -86,6 +88,7 @@ export async function gerarRelatorioSaldoPdf(d: DadosRelatorioSaldo): Promise<vo
         i === 0 ? g.grp.trim() : "",
         it.cod,
         it.ds,
+        d.principios?.[it.cod] || "–",
         it.un.trim(),
         ...colunas.flatMap((c) => tresCels(it.cels[c.chave])),
         ...tresCels(it.total),
@@ -94,16 +97,16 @@ export async function gerarRelatorioSaldoPdf(d: DadosRelatorioSaldo): Promise<vo
       ]);
       tipos.push("item");
     });
-    corpo.push([`${g.grp.trim()} · ${g.grpDs.trim()} — total`, "", "", "", ...colunas.flatMap((c) => tresCels(g.cels[c.chave])), ...tresCels(g.total), "", ""]);
+    corpo.push([`${g.grp.trim()} · ${g.grpDs.trim()} — total`, "", "", "", "", ...colunas.flatMap((c) => tresCels(g.cels[c.chave])), ...tresCels(g.total), "", ""]);
     tipos.push("subtotal");
   }
-  corpo.push(["Total geral", "", "", "", ...colunas.flatMap((c) => tresCels(d.matriz.cels[c.chave])), ...tresCels(d.matriz.total), "", ""]);
+  corpo.push(["Total geral", "", "", "", "", ...colunas.flatMap((c) => tresCels(d.matriz.cels[c.chave])), ...tresCels(d.matriz.total), "", ""]);
   tipos.push("total");
 
   cabecalho();
-  const nCol = 4 + (colunas.length + 1) * 3 + 2;
-  const colStyles: Record<number, object> = { 0: { cellWidth: 14 }, 1: { cellWidth: 15 }, 2: { cellWidth: 52 }, 3: { cellWidth: 9 } };
-  for (let i = 4; i < nCol; i++) colStyles[i] = { halign: "right" };
+  const nCol = 5 + (colunas.length + 1) * 3 + 2;
+  const colStyles: Record<number, object> = { 0: { cellWidth: 14 }, 1: { cellWidth: 15 }, 2: { cellWidth: 46 }, 3: { cellWidth: 36 }, 4: { cellWidth: 9 } };
+  for (let i = 5; i < nCol; i++) colStyles[i] = { halign: "right" };
   autoTable(doc, {
     startY: 21,
     head: [cab1 as never, sub],
@@ -118,21 +121,21 @@ export async function gerarRelatorioSaldoPdf(d: DadosRelatorioSaldo): Promise<vo
           data.cell.styles.fillColor = [236, 240, 244];
           data.cell.styles.textColor = [60, 70, 85];
         }
-        if (data.column.index < 4) data.cell.styles.halign = "left";
+        if (data.column.index < 5) data.cell.styles.halign = "left";
         return;
       }
       const t = tipos[data.row.index];
       if (t === "subtotal") {
         data.cell.styles.fontStyle = "bold";
         data.cell.styles.fillColor = SUBTOTAL;
-        if (data.column.index === 0) data.cell.colSpan = 4;
-        if (data.column.index < 4) data.cell.styles.halign = "left";
+        if (data.column.index === 0) data.cell.colSpan = 5;
+        if (data.column.index < 5) data.cell.styles.halign = "left";
       } else if (t === "total") {
         data.cell.styles.fontStyle = "bold";
         data.cell.styles.fillColor = NAVY;
         data.cell.styles.textColor = [255, 255, 255];
-        if (data.column.index === 0) data.cell.colSpan = 4;
-        if (data.column.index < 4) data.cell.styles.halign = "left";
+        if (data.column.index === 0) data.cell.colSpan = 5;
+        if (data.column.index < 5) data.cell.styles.halign = "left";
       } else if (data.column.index === 0) {
         data.cell.styles.fontStyle = "bold";
         data.cell.styles.textColor = NAVY;

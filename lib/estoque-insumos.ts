@@ -35,6 +35,8 @@ export interface LinhaEstoque {
   ha: number | null;
   /** disponível na data anterior com relatório (para a variação) */
   dispAnterior: number | null;
+  /** princípio ativo (cadastro Material e Insumos) */
+  principioAtivo: string;
 }
 
 export interface RelatorioEstoque {

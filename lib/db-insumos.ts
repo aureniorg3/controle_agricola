@@ -164,7 +164,7 @@ export async function consultarSaldo(f: FiltrosSaldo): Promise<ResultadoSaldo> {
     );
     for (const r of rows) dosagens[r.cod] = { min: r.dmin, max: r.dmax };
   }
-  return { datas, dtBase, depositos, grupos, linhas, serie, dtAnterior, dosagens };
+  return { datas, dtBase, depositos, grupos, linhas, serie, dtAnterior, dosagens, principios: await principiosAtivos(cods, pool) };
 }
 
 export interface ResultadoImportacaoSaldo {
@@ -242,6 +242,20 @@ export async function snapshotsExistentes(chaves: { empresa: number; data: strin
     [chaves.map((c) => c.empresa), chaves.map((c) => c.data)]
   );
   return new Set(rows.map((r) => `${r.emp}|${r.d}`));
+}
+
+/** Princípio ativo (cadastro Material e Insumos, aba Insumos) por código do insumo; o código vale com ou sem zeros à esquerda. */
+export async function principiosAtivos(cods: string[], exec: Pick<Pool, "query"> = getPool()): Promise<Record<string, string>> {
+  const lista = Array.from(new Set(cods.map((c) => c.trim()).filter(Boolean)));
+  if (!lista.length) return {};
+  const { rows } = await exec.query<{ cod: string; pa: string }>(
+    `SELECT cod, dds->>'principio_ativo' AS pa FROM cad_itm
+      WHERE cad = 'materiais-insumos' AND coalesce(dds->>'principio_ativo', '') <> ''
+        AND ltrim(cod, '0') = ANY($1::text[])`,
+    [lista.map((c) => c.replace(/^0+(?=\d)/, ""))]
+  );
+  const porCod = new Map(rows.map((r) => [r.cod.replace(/^0+(?=\d)/, ""), r.pa]));
+  return Object.fromEntries(lista.map((c) => [c, porCod.get(c.replace(/^0+(?=\d)/, "")) ?? ""]).filter(([, pa]) => pa));
 }
 
 export interface ItemMaterial {

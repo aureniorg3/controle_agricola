@@ -193,6 +193,7 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
                 <tr className="border-b border-line bg-surface text-left text-muted">
                   <th className="px-3 py-2 font-medium">Código</th>
                   <th className="px-3 py-2 font-medium">Descrição</th>
+                  <th className="px-3 py-2 font-medium" title="Do cadastro Material e Insumos (aba Insumos)">Princípio Ativo</th>
                   <th className="px-3 py-2 text-center font-medium">UN</th>
                   <th className="px-3 py-2 text-right font-medium">Est. Real</th>
                   <th className="px-3 py-2 text-right font-medium">Estoque Disp.</th>
@@ -214,7 +215,7 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
                     <Fragment key={l.cod}>
                       {novoGrupo && (
                         <tr className="border-t border-line bg-[#2E5FA8]/[0.07]">
-                          <td colSpan={11} className="px-3 py-1.5 text-[12px] font-semibold text-[#2E5FA8]">
+                          <td colSpan={12} className="px-3 py-1.5 text-[12px] font-semibold text-[#2E5FA8]">
                             {l.grp.trim()}
                             {l.grpDs ? ` · ${l.grpDs}` : ""}
                           </td>
@@ -223,6 +224,7 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
                       <tr className="border-t border-line/60">
                         <td className="px-3 py-1.5 tabular text-muted">{l.cod}</td>
                         <td className="px-3 py-1.5 text-ink">{l.ds}</td>
+                        <td className="max-w-[260px] px-3 py-1.5 text-[12px] text-muted">{l.principioAtivo || "–"}</td>
                         <td className="px-3 py-1.5 text-center text-muted">{l.un}</td>
                         <td className="px-3 py-1.5 text-right tabular text-ink">{cel(l.est, 3)}</td>
                         <td className="px-3 py-1.5 text-right tabular text-ink">{cel(l.disp, 3)}</td>
@@ -243,7 +245,7 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
                 })}
                 {linhas.length > 0 && (
                   <tr className="border-t border-line bg-navy-900 font-semibold text-white">
-                    <td className="px-3 py-1.5" colSpan={3}>
+                    <td className="px-3 py-1.5" colSpan={4}>
                       Total geral
                     </td>
                     <td className="px-3 py-1.5 text-right tabular">{nf(tot.est, 3)}</td>
@@ -258,7 +260,7 @@ export default function EstoqueClient({ perfil, nomeUsuario }: { perfil: PerfilU
                 )}
                 {!carregando && linhas.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-4 py-10 text-center text-muted">
+                    <td colSpan={12} className="px-4 py-10 text-center text-muted">
                       {dados?.datas.length ? "Nenhum produto no filtro." : 'Nenhum estoque importado. Use "Importar estoque" com o Relatório de Estoque Físico.'}
                     </td>
                   </tr>

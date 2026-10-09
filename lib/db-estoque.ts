@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 import { auditar } from "./auditar";
 import { getPool, prepararBanco } from "./db";
 import { prepararDosagens } from "./db-dosagens";
-import { prepararInsumos } from "./db-insumos";
+import { prepararInsumos, principiosAtivos } from "./db-insumos";
 import { round, type ItemEstoque, type LinhaEstoque, type RelatorioEstoque } from "./estoque-insumos";
 import semente from "./estoque-insumos-seed.json";
 
@@ -172,6 +172,7 @@ export async function relatorioEstoque(f: FiltroEstoque): Promise<RelatorioEstoq
       ORDER BY e.grp, MAX(e.ds)`,
     [...params, dtAnterior]
   );
+  const principios = await principiosAtivos(rows.map((r) => r.cod), pool);
   const linhas: LinhaEstoque[] = rows.map((r) => {
     // dose do relatório de estoque (a da planilha, como no Resumo_Estoque); produto sem ela usa Insumos › Dosagens (máxima)
     const hist = r.dose_hist !== null && r.dose_hist > 0 ? r.dose_hist : null;
@@ -192,6 +193,7 @@ export async function relatorioEstoque(f: FiltroEstoque): Promise<RelatorioEstoq
       // como na planilha: hectares que o estoque real cobre (estoque real ÷ dose)
       ha: dose ? round(r.est / dose) : null,
       dispAnterior: dtAnterior ? (r.ant !== null ? round(r.ant, 3) : 0) : null,
+      principioAtivo: principios[r.cod] ?? "",
     };
   });
   return { dt, dtAnterior, datas, empresas, grupos, linhas, ultimaImportacao: ult };

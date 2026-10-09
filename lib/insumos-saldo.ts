@@ -45,6 +45,8 @@ export interface ResultadoSaldo {
   dtAnterior: string | null;
   /** dosagem por hectare (Insumos › Dosagens) dos insumos da posição, por código */
   dosagens: Record<string, DosagemInsumo>;
+  /** princípio ativo (cadastro Material e Insumos) por código */
+  principios?: Record<string, string>;
 }
 
 /** Dosagem por hectare, na unidade de consumo do insumo; qualquer uma das duas pode faltar. */

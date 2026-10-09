@@ -178,6 +178,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
         topItens,
         nomeUsuario,
         dosagens: dados.dosagens ?? {},
+        principios: dados.principios ?? {},
         movimento: { datas: movimento.datas.slice(-10), lista: movimento.lista, delta: movimento.delta, totalPorData: movimento.totalPorData },
       });
     } finally {
@@ -187,7 +188,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
 
   const cols = matriz.colunas;
   // 4 colunas de identificação + 3 por empresa + 3 do total + dosagem e hectares
-  const nColsTotal = 4 + cols.length * 3 + 3 + 2;
+  const nColsTotal = 5 + cols.length * 3 + 3 + 2;
   const th = "px-2 py-1.5 text-right text-[10.5px] font-semibold uppercase tracking-wide";
   const td = "px-2 py-1 text-right tabular";
   const maxGrupo = Math.max(1, ...matriz.grupos.map((g) => g.total.valor));
@@ -398,7 +399,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
           <table className="w-full min-w-[900px] text-[12px]">
             <thead>
               <tr className="bg-navy-900 text-white">
-                <th colSpan={4} className="px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide">
+                <th colSpan={5} className="px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide">
                   Data base: {dtBase ? fmtDateBR(dtBase) : "—"}
                 </th>
                 {cols.map((c) => (
@@ -418,6 +419,9 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                 <th className="px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide">Grupo</th>
                 <th className="px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide">Código</th>
                 <th className="px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide">Descrição do insumo</th>
+                <th className="px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide" title="Do cadastro Material e Insumos (aba Insumos)">
+                  Princípio ativo
+                </th>
                 <th className="px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wide">UM</th>
                 {[...cols, null].map((c) => (
                   <Fragment key={c?.chave ?? "total"}>
@@ -456,6 +460,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                       <td className="px-2 py-1 font-semibold text-navy-900">{i === 0 ? g.grp.trim() : ""}</td>
                       <td className="px-2 py-1 tabular text-muted">{it.cod}</td>
                       <td className="px-2 py-1 text-ink">{it.ds}</td>
+                      <td className="max-w-[240px] px-2 py-1 text-[11.5px] text-muted">{dados?.principios?.[it.cod] || "–"}</td>
                       <td className="px-2 py-1 text-muted">{it.un}</td>
                       {cols.map((c) => {
                         const x = it.cels[c.chave];
@@ -484,7 +489,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
                     </tr>
                   ))}
                   <tr className="linha-subtotal border-t border-line font-bold">
-                    <td className="px-2 py-1" colSpan={4}>
+                    <td className="px-2 py-1" colSpan={5}>
                       {g.grp.trim()} · {g.grpDs.trim()} — total
                     </td>
                     {cols.map((c) => {
@@ -506,7 +511,7 @@ export default function SaldoClient({ perfil, nomeUsuario }: { perfil: PerfilUsu
               ))}
               {matriz.grupos.length > 0 && (
                 <tr className="border-t-2 border-navy-900 bg-navy-900 font-bold text-white">
-                  <td className="px-2 py-1.5" colSpan={4}>
+                  <td className="px-2 py-1.5" colSpan={5}>
                     Total geral
                   </td>
                   {cols.map((c) => {
