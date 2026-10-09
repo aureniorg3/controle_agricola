@@ -63,15 +63,57 @@ export default function CadastroClient({
   const [editando, setEditando] = useState<{ novo: boolean; item: Item | null } | null>(null);
   const [importarAberto, setImportarAberto] = useState(false);
   const [ajusteAberto, setAjusteAberto] = useState(false);
+  // abas do cadastro (ex.: Insumos / Materiais) e quantos itens cada uma tem
+  const [aba, setAba] = usarPersistido(`cadastro.${slug}.aba`, spec.abas?.[0]?.id ?? "", ehTexto);
+  const abaAtual = spec.abas?.find((a) => a.id === aba) ?? spec.abas?.[0];
+  const [totaisAbas, setTotaisAbas] = useState<Record<string, number>>({});
+  const colunas = spec.colunas.filter((c) => !c.aba || c.aba === abaAtual?.id);
+  // edição na própria linha
+  const [linha, setLinha] = useState<{ cod: string; valores: Record<string, string> } | null>(null);
+  const [salvandoLinha, setSalvandoLinha] = useState(false);
+  const [erroLinha, setErroLinha] = useState<string | null>(null);
+  const editavel = (c: (typeof spec.colunas)[number]) => !c.derivada && !spec.chaves.includes(c.chave);
+
+  function editarLinha(i: Item) {
+    setErroLinha(null);
+    setLinha({ cod: i.cod, valores: Object.fromEntries(colunas.filter(editavel).map((c) => [c.chave, String(i.dados[c.chave] ?? "")])) });
+  }
+
+  async function salvarLinha() {
+    if (!linha) return;
+    setSalvandoLinha(true);
+    setErroLinha(null);
+    try {
+      const dados: Record<string, string | number> = {};
+      for (const c of colunas.filter(editavel)) {
+        const v = (linha.valores[c.chave] ?? "").trim();
+        dados[c.chave] = v !== "" && /^-?\d+([.,]\d+)?$/.test(v) && c.alinhar === "direita" ? Number(v.replace(",", ".")) : v;
+      }
+      const res = await fetch(`/api/cadastros/${slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cod: linha.cod, dados }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Não foi possível salvar.");
+      setLinha(null);
+      carregar();
+    } catch (e) {
+      setErroLinha(e instanceof Error ? e.message : "Não foi possível salvar.");
+    } finally {
+      setSalvandoLinha(false);
+    }
+  }
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     setErroLista(null);
     try {
-      const res = await fetch(`/api/cadastros/${slug}?q=${encodeURIComponent(termo)}&pg=${pagina}`, { cache: "no-store" });
+      const res = await fetch(`/api/cadastros/${slug}?q=${encodeURIComponent(termo)}&pg=${pagina}${abaAtual ? `&aba=${abaAtual.id}` : ""}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar o cadastro.");
       setItens(json.itens);
+      setTotaisAbas(json.abas ?? {});
       setTotal(json.total);
       setTamanho(json.tamanho);
     } catch (e) {
@@ -79,7 +121,8 @@ export default function CadastroClient({
     } finally {
       setCarregando(false);
     }
-  }, [slug, termo, pagina]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, termo, pagina, abaAtual?.id]);
 
   useEffect(() => {
     carregar();
@@ -151,9 +194,32 @@ export default function CadastroClient({
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        {spec.abas && (
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            {spec.abas.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                title={a.descricao}
+                onClick={() => {
+                  setAba(a.id);
+                  setPagina(1);
+                  setLinha(null);
+                }}
+                className={`rounded-lg border px-4 py-1.5 text-[13px] font-semibold ${
+                  abaAtual?.id === a.id ? "border-navy-900 bg-navy-900 text-white" : "border-line bg-card text-navy-800 hover:bg-surface"
+                }`}
+              >
+                {a.rotulo}
+                {totaisAbas[a.id] !== undefined && <span className="ml-1.5 text-[11.5px] font-normal opacity-80">{totaisAbas[a.id].toLocaleString("pt-BR")}</span>}
+              </button>
+            ))}
+            {abaAtual && <span className="ml-2 text-[12px] text-muted">{abaAtual.descricao}</span>}
+          </div>
+        )}
         <div className="overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
           <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
-            <h2 className="text-[14px] font-bold text-ink">{spec.titulo}</h2>
+            <h2 className="text-[14px] font-bold text-ink">{abaAtual ? `${spec.titulo} · ${abaAtual.rotulo}` : spec.titulo}</h2>
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
@@ -167,12 +233,13 @@ export default function CadastroClient({
           </div>
 
           {erroLista && <p className="px-4 py-3 text-[12.5px] font-medium text-alert-600">{erroLista}</p>}
+          {erroLinha && <p className="px-4 py-2 text-[12.5px] font-medium text-alert-600">{erroLinha}</p>}
 
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="border-b border-line bg-surface text-muted">
-                  {spec.colunas.map((c) => (
+                  {colunas.map((c) => (
                     <th
                       key={c.chave}
                       style={c.largura ? { minWidth: c.largura } : undefined}
@@ -187,21 +254,51 @@ export default function CadastroClient({
                 </tr>
               </thead>
               <tbody>
-                {itens.map((i) => (
-                  <tr key={i.cod} className="border-b border-line last:border-0">
-                    {spec.colunas.map((c) => (
+                {itens.map((i) => {
+                  const emEdicao = linha?.cod === i.cod;
+                  return (
+                  <tr key={i.cod} className={`border-b border-line last:border-0 ${emEdicao ? "bg-[#2E5FA8]/[0.06]" : ""}`}>
+                    {colunas.map((c) => (
                       <td key={c.chave} className={`px-3 py-1.5 text-ink ${ALINHAR[c.alinhar ?? "esquerda"]}`}>
-                        {String(i.dados[c.chave] ?? "")}
+                        {emEdicao && editavel(c) ? (
+                          <input
+                            value={linha!.valores[c.chave] ?? ""}
+                            onChange={(e) => setLinha((l) => (l ? { ...l, valores: { ...l.valores, [c.chave]: e.target.value } } : l))}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") salvarLinha();
+                              if (e.key === "Escape") setLinha(null);
+                            }}
+                            autoFocus={colunas.filter(editavel)[0]?.chave === c.chave}
+                            className={`w-full min-w-[80px] rounded border border-brand-600/50 bg-card px-1.5 py-0.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none ${ALINHAR[c.alinhar ?? "esquerda"]}`}
+                          />
+                        ) : (
+                          String(i.dados[c.chave] ?? "")
+                        )}
                       </td>
                     ))}
                     <td className="whitespace-nowrap px-3 py-1.5 text-muted">{i.lancadoPor || "—"}</td>
                     <td className="whitespace-nowrap px-3 py-1.5 text-muted">{i.alteradoEm ? `${i.alteradoPor || "—"} · ${fmtDataHora(i.alteradoEm)}` : ""}</td>
-                    <td className="px-2 py-1.5 text-right">
-                      {podeGravar && (
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right">
+                      {podeGravar && emEdicao && (
                         <>
                           <button
                             type="button"
-                            onClick={() => setEditando({ novo: false, item: i })}
+                            onClick={salvarLinha}
+                            disabled={salvandoLinha}
+                            className="mr-1 rounded bg-navy-900 px-2 py-0.5 text-[12px] font-semibold text-white hover:bg-navy-800 disabled:opacity-50"
+                          >
+                            {salvandoLinha ? "Salvando…" : "Salvar"}
+                          </button>
+                          <button type="button" onClick={() => setLinha(null)} className="rounded px-1.5 py-0.5 text-[12px] font-semibold text-muted hover:bg-surface">
+                            Cancelar
+                          </button>
+                        </>
+                      )}
+                      {podeGravar && !emEdicao && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => editarLinha(i)}
                             className="mr-1 rounded px-1.5 py-0.5 text-[12px] font-semibold text-brand-700 hover:bg-brand-50"
                           >
                             Editar
@@ -218,10 +315,11 @@ export default function CadastroClient({
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {!carregando && itens.length === 0 && (
                   <tr>
-                    <td colSpan={spec.colunas.length + 3} className="px-4 py-10 text-center text-muted">
+                    <td colSpan={colunas.length + 3} className="px-4 py-10 text-center text-muted">
                       {termo
                         ? "Nenhum registro encontrado para a busca."
                         : podeGravar
@@ -261,6 +359,7 @@ export default function CadastroClient({
       {editando && (
         <EditarModal
           spec={spec}
+          aba={abaAtual?.id}
           novo={editando.novo}
           item={editando.item}
           onFechar={() => setEditando(null)}
@@ -294,17 +393,20 @@ export default function CadastroClient({
 
 function EditarModal({
   spec,
+  aba,
   novo,
   item,
   onFechar,
   onSalvo,
 }: {
   spec: CadastroSpec;
+  aba?: string;
   novo: boolean;
   item: Item | null;
   onFechar: () => void;
   onSalvo: () => void;
 }) {
+  const colunasForm = spec.colunas.filter((c) => !c.derivada && (!c.aba || c.aba === aba));
   const [valores, setValores] = useState<Record<string, string>>(() =>
     Object.fromEntries(spec.colunas.map((c) => [c.chave, String(item?.dados[c.chave] ?? "")]))
   );
@@ -329,7 +431,7 @@ function EditarModal({
     setSalvando(true);
     try {
       const dados: Record<string, string | number> = {};
-      for (const c of spec.colunas.filter((x) => !x.derivada)) {
+      for (const c of colunasForm) {
         const v = valores[c.chave].trim();
         dados[c.chave] = v !== "" && /^-?\d+([.,]\d+)?$/.test(v) && c.alinhar === "direita" ? Number(v.replace(",", ".")) : v;
       }
@@ -352,9 +454,7 @@ function EditarModal({
     <ModalShell titulo={`${novo ? "Novo" : "Editar"} · ${spec.titulo}`} onFechar={onFechar}>
       <form onSubmit={salvar} className="space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {spec.colunas
-            .filter((c) => !c.derivada)
-            .map((c) => (
+          {colunasForm.map((c) => (
               <div key={c.chave} className="relative">
                 <Campo label={c.rotulo}>
                   <input

@@ -11,6 +11,7 @@ import {
 } from "@/lib/db";
 import { specPorSlug, type DadosCadastro } from "@/lib/cadastros-spec";
 import { atualizarReferenciasDaLista, resolverReferencias } from "@/lib/cadastros-ref";
+import { filtroDaAba, FILTROS_ABA } from "@/lib/cadastros-abas";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 const TAMANHO_PAGINA = 50;
@@ -35,10 +36,17 @@ export async function GET(req: NextRequest, ctx: Contexto) {
 
   const q = req.nextUrl.searchParams.get("q") ?? "";
   const pagina = Math.max(1, Number(req.nextUrl.searchParams.get("pg")) || 1);
-  const { total, itens } = await listarCadastro(slug, q, pagina, TAMANHO_PAGINA);
+  const aba = req.nextUrl.searchParams.get("aba");
+  const { total, itens } = await listarCadastro(slug, q, pagina, TAMANHO_PAGINA, filtroDaAba(slug, aba));
+  // quantos itens cada aba tem (com a mesma busca), para mostrar no título das abas
+  const abas = FILTROS_ABA[slug]
+    ? Object.fromEntries(
+        await Promise.all(Object.entries(FILTROS_ABA[slug]).map(async ([id, f]) => [id, (await listarCadastro(slug, q, 1, 1, f)).total] as const))
+      )
+    : undefined;
   // descrições das referências lidas na hora do cadastro de origem (ex.: Operação e Classificação em Grupos de Operações)
   await atualizarReferenciasDaLista(specPorSlug(slug)!, itens);
-  return NextResponse.json({ total, pagina, tamanho: TAMANHO_PAGINA, itens });
+  return NextResponse.json({ total, pagina, tamanho: TAMANHO_PAGINA, itens, abas });
 }
 
 /** Cria um item (ou atualiza, se o código já existir). */

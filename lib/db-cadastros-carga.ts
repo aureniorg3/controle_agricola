@@ -71,3 +71,71 @@ export async function carregarCadastrosExportados(pool: Pool = getPool()): Promi
   }
   await preparado;
 }
+
+let complemento: Promise<void> | null = null;
+const MARCA_COMPLEMENTO = "Carga inicial · dados de aplicação dos insumos (t_ins.xls)";
+
+/**
+ * Completa uma vez o cadastro Material e Insumos com os dados de aplicação do arquivo t_ins.xls (nome comercial,
+ * princípio ativo, concentração, classe agronômica, categoria e unidade de aplicação), pelo código do item. Itens que
+ * não estão no cadastro ficam de fora (e vão para o log); depois, a manutenção é feita na própria linha do cadastro.
+ */
+export async function carregarComplementoInsumos(pool: Pool = getPool()): Promise<void> {
+  await prepararBanco(pool);
+  if (!complemento) {
+    complemento = (async () => {
+      const entidade = "Cadastro de Material e Insumos";
+      const marcada = async (exec: Pick<Pool, "query">) =>
+        ((await exec.query("SELECT 1 FROM aud_log WHERE modulo = 'Cadastros' AND entidade = $1 AND chave = $2 LIMIT 1", [entidade, MARCA_COMPLEMENTO])).rowCount ?? 0) > 0;
+      if (await marcada(pool)) return;
+      // sem o cadastro importado ainda não há o que completar: tenta de novo na próxima vez
+      const n = (await pool.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM cad_itm WHERE cad = 'materiais-insumos'")).rows[0].n;
+      if (n === 0) {
+        complemento = null;
+        return;
+      }
+      const { itens } = (await import("./insumos-complemento-seed.json")).default as { itens: Record<string, Record<string, string>> };
+      const lista = Object.entries(itens).map(([cod, dds]) => ({ cod, dds }));
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('carga_complemento_insumos'))");
+        if (await marcada(client)) {
+          await client.query("ROLLBACK");
+          return;
+        }
+        const r = await client.query<{ cod: string }>(
+          `UPDATE cad_itm c SET dds = c.dds || x.dds, atu_em = now(), atu_usr = 'Carga inicial'
+             FROM jsonb_to_recordset($1::jsonb) AS x(cod text, dds jsonb)
+            WHERE c.cad = 'materiais-insumos' AND ltrim(c.cod, '0') = ltrim(x.cod, '0')
+           RETURNING x.cod`,
+          [JSON.stringify(lista)]
+        );
+        const achados = new Set(r.rows.map((x) => x.cod));
+        const fora = lista.filter((i) => !achados.has(i.cod));
+        await auditar(client, {
+          usuario: "Carga inicial",
+          modulo: "Cadastros",
+          entidade,
+          chave: MARCA_COMPLEMENTO,
+          acao: "importacao",
+          depois: {
+            noArquivo: lista.length,
+            completados: achados.size,
+            foraDoCadastro: fora.length ? fora.map((i) => `${i.cod} ${i.dds.nome_comercial ?? ""}`.trim()) : undefined,
+          },
+        });
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    })().catch((err) => {
+      complemento = null;
+      console.error("Carga dos dados de aplicação dos insumos não concluída:", err);
+    });
+  }
+  await complemento;
+}

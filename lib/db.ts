@@ -1370,12 +1370,14 @@ export async function listarCadastro(
   cad: string,
   busca: string,
   pagina: number,
-  tamanho: number
+  tamanho: number,
+  /** filtro fixo da aba (SQL do servidor, lib/cadastros-abas.ts) */
+  filtroAba = ""
 ): Promise<{ total: number; itens: ItemCadastro[] }> {
   const pool = getPool();
   await prepararBanco(pool);
   const termo = `%${busca.trim().replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
-  const filtro = "cad = $1 AND ($2 = '%%' OR cod ILIKE $2 OR nm ILIKE $2 OR dds::text ILIKE $2)";
+  const filtro = `cad = $1 AND ($2 = '%%' OR cod ILIKE $2 OR nm ILIKE $2 OR dds::text ILIKE $2)${filtroAba ? ` AND ${filtroAba}` : ""}`;
   const { rows: cont } = await pool.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM cad_itm WHERE ${filtro}`, [cad, termo]);
   const { rows } = await pool.query<{ cod: string; nm: string; dds: Record<string, string | number>; usr: string; atu_usr: string; atu: string | null }>(
     `SELECT cod, nm, dds, usr, atu_usr, to_char(atu_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') AS atu
@@ -1410,7 +1412,7 @@ export async function upsertCadastroLote(cad: string, itens: ItemCadastro[], usu
       await client.query(
         `INSERT INTO cad_itm (cad, cod, nm, dds, usr, atu_usr)
          SELECT $1, x.cod, x.nm, x.dds, $3, $3 FROM jsonb_to_recordset($2::jsonb) AS x(cod text, nm text, dds jsonb)
-         ON CONFLICT (cad, cod) DO UPDATE SET nm = EXCLUDED.nm, dds = EXCLUDED.dds, atu_em = now(), atu_usr = EXCLUDED.atu_usr`,
+         ON CONFLICT (cad, cod) DO UPDATE SET nm = EXCLUDED.nm, dds = cad_itm.dds || EXCLUDED.dds, atu_em = now(), atu_usr = EXCLUDED.atu_usr`,
         [cad, json, usuario]
       );
     }

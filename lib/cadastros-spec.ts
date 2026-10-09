@@ -19,6 +19,8 @@ export interface ColunaCadastro {
    * campo de lá é um código de outro cadastro, { coluna: { campo, ref } } para trazer o nome dele
    */
   traz?: Record<string, string | { campo: string; ref: string }>;
+  /** coluna que só aparece numa aba do cadastro (ex.: dados de insumo só na aba Insumos) */
+  aba?: string;
 }
 
 export interface CadastroSpec {
@@ -35,6 +37,8 @@ export interface CadastroSpec {
   chaves: string[];
   /** planilha muito grande (dezenas de milhares de linhas): lida em fluxo, guardando só as colunas de `colunas` */
   grande?: boolean;
+  /** divisão da tela em abas (o filtro de cada uma fica no servidor, em lib/cadastros-abas.ts) */
+  abas?: { id: string; rotulo: string; descricao: string }[];
   /** correção opcional dos dados (na importação e pelo botão da tela) */
   ajuste?: { rotulo: string; descricao: string; aplicar: (d: DadosCadastro) => DadosCadastro };
 }
@@ -279,10 +283,20 @@ export const CADASTROS_SPEC: CadastroSpec[] = [
     nome: (d) => texto(d.descricao),
     chaves: ["codigo"],
     grande: true,
+    abas: [
+      { id: "insumos", rotulo: "Insumos", descricao: "Grupos 01.02.00 a 01.02.35 (defensivos, adjuvantes, fertilizantes…), com os dados de aplicação." },
+      { id: "materiais", rotulo: "Materiais", descricao: "Os demais grupos do cadastro." },
+    ],
     colunas: [
       { chave: "codigo", rotulo: "Código", alinhar: "direita" },
-      { chave: "descricao", rotulo: "Descrição", largura: 320 },
-      { chave: "descricao_complementar_1", rotulo: "Descrição Complementar", largura: 220 },
+      { chave: "descricao", rotulo: "Descrição", largura: 300 },
+      { chave: "nome_comercial", rotulo: "Nome Comercial", largura: 160, aba: "insumos" },
+      { chave: "principio_ativo", rotulo: "Princípio Ativo", largura: 260, aba: "insumos" },
+      { chave: "concentracao", rotulo: "Concentração", largura: 150, aba: "insumos" },
+      { chave: "classe_agronomica", rotulo: "Classe Agronômica", largura: 170, aba: "insumos" },
+      { chave: "categoria", rotulo: "Categoria", largura: 170, aba: "insumos" },
+      { chave: "un_aplicacao", rotulo: "Un. Aplicação", alinhar: "centro", aba: "insumos" },
+      { chave: "descricao_complementar_1", rotulo: "Descrição Complementar", largura: 220, aba: "materiais" },
       { chave: "grupo_de_produto", rotulo: "Grupo" },
       { chave: "unidade_medida_consumo", rotulo: "UM", alinhar: "centro" },
       { chave: "tipo_de_produto", rotulo: "Tipo de Produto" },

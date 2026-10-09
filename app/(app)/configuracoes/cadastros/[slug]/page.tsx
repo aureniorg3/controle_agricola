@@ -3,7 +3,7 @@ import PlaceholderPage from "@/components/PlaceholderPage";
 import { CADASTROS } from "@/lib/cadastros";
 import { specPorSlug } from "@/lib/cadastros-spec";
 import { usuarioAtual } from "@/lib/db";
-import { carregarCadastrosExportados, CADASTROS_COM_CARGA_EXPORTADA } from "@/lib/db-cadastros-carga";
+import { carregarCadastrosExportados, carregarComplementoInsumos, CADASTROS_COM_CARGA_EXPORTADA } from "@/lib/db-cadastros-carga";
 import { prepararGruposOperacoes } from "@/lib/db-dashboard-atividades";
 import { prepararOSAgr } from "@/lib/db-os-agr";
 import CadastroClient from "./CadastroClient";
@@ -23,6 +23,8 @@ export default async function CadastroPage({ params }: { params: Promise<{ slug:
     if (CADASTROS_COM_CARGA_EXPORTADA.includes(slug)) await carregarCadastrosExportados();
     // Grupos de Operações: os grupos do Dashboard de Atividades (a operação vem do cadastro Operações)
     if (slug === "grupos-operacoes") await prepararGruposOperacoes();
+    // Material e Insumos: dados de aplicação dos insumos (arquivo t_ins.xls), uma vez
+    if (slug === "materiais-insumos") await carregarComplementoInsumos();
     const usuario = await usuarioAtual();
     return <CadastroClient slug={slug} perfil={usuario?.perfil ?? "leitura"} />;
   }
