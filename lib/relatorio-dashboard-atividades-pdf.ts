@@ -20,7 +20,7 @@ const VERDE_KPI = { fundo: [232, 245, 233] as Cor, texto: [22, 100, 48] as Cor }
 const MARGEM = 8;
 const CABECALHO = 17.4;
 const RODAPE = 14;
-const DIAS = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"];
+const DIAS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
 const nf = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -108,7 +108,8 @@ export async function gerarRelatorioDashboardAtividadesPdf(d: DashboardAtividade
       { content: `Semana de referência · ${dm(d.semana[0])} a ${dm(d.semana[6])}`, colSpan: 7, styles: { halign: "center" as const, fillColor: NAVY_MEDIO } },
       { content: "Acumulado", colSpan: 3, styles: { halign: "center" as const, fillColor: NAVY_ESCURO } },
     ],
-    [rotulo, ...d.semana.map((s, i) => `${DIAS[i]} ${dm(s)}`), "Semana", `Mês ${mesRotulo}`, safraRotulo],
+    // dia da semana em cima (caixa alta) e a data embaixo
+    [rotulo, ...d.semana.map((s, i) => `${DIAS[i].toUpperCase()}\n${dm(s)}`), "Semana", `Mês ${mesRotulo}`, safraRotulo],
   ];
   const valores = (v: ValoresPeriodo) => [...v.dias.map(cel), cel(v.semana), cel(v.mes), cel(v.safra)];
   type Tipo = "dado" | "par" | "destaque" | "grupo" | "subtotal" | "total";

@@ -273,11 +273,13 @@ function Tabela({
             {dados.semana.map((d, i) => (
               <th
                 key={d}
-                className={`whitespace-nowrap px-2 py-1.5 text-right text-[11px] font-semibold ${i === 0 ? "border-l border-white/25" : ""} ${
+                className={`whitespace-nowrap px-2 py-1 text-right text-[11px] font-semibold leading-tight ${i === 0 ? "border-l border-white/25" : ""} ${
                   d === dados.dt ? "bg-brand-600" : d > dados.dt ? "text-white/45" : ""
                 }`}
               >
-                {DIAS[i]} {dm(d)}
+                {/* dia da semana em cima (caixa alta) e a data embaixo */}
+                <div>{DIAS[i].toUpperCase()}</div>
+                <div className="font-normal">{dm(d)}</div>
               </th>
             ))}
             <th className="whitespace-nowrap border-l border-white/25 px-2 py-1.5 text-right text-[11px] font-semibold">Semana</th>
