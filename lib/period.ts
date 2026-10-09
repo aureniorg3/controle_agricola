@@ -279,8 +279,16 @@ function diasInclusivo(inicio: string, fim: string): number {
   return b < a ? 0 : Math.round((b - a) / 86400000) + 1;
 }
 
-/** Meta (t/dia) em vigor num dia: a última cadastrada com vigência <= dia. */
+/** Período de atividade da frente (Metas › Atividade das frentes); sem cadastro, sempre ativa. */
+function atividadeDaFrente(metas: MetaFrente[], frente: string): { ini: string; fim: string } {
+  const m = metas.find((x) => x.frente === frente && (x.atvIni || x.atvFim));
+  return { ini: m?.atvIni || "0000-01-01", fim: m?.atvFim || "9999-12-31" };
+}
+
+/** Meta (t/dia) em vigor num dia: a última cadastrada com vigência <= dia (zero fora da atividade da frente). */
 export function metaDoDia(metas: MetaFrente[], frente: string, dia: string): number {
+  const atv = atividadeDaFrente(metas, frente);
+  if (dia < atv.ini || dia > atv.fim) return 0;
   let atual: MetaFrente | undefined;
   for (const m of metas) {
     if (m.frente === frente && m.vigencia <= dia && (!atual || m.vigencia > atual.vigencia)) atual = m;
@@ -299,6 +307,9 @@ export function metaNoIntervalo(
   range: { inicio: string; fim: string }
 ): number {
   const lista = metas.filter((m) => m.frente === frente).sort((a, b) => a.vigencia.localeCompare(b.vigencia));
+  // só os dias em que a frente está em atividade (início–fim) contam meta
+  const atv = atividadeDaFrente(metas, frente);
+  range = { inicio: range.inicio > atv.ini ? range.inicio : atv.ini, fim: range.fim < atv.fim ? range.fim : atv.fim };
   let total = 0;
   for (let i = 0; i < lista.length; i++) {
     const trechoInicio = lista[i].vigencia;

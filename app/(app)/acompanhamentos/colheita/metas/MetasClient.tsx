@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Campo, ModalShell } from "@/components/ui";
 import BotaoLog from "@/components/BotaoLog";
@@ -9,7 +9,7 @@ import { IconImportar } from "@/components/icons";
 import { fmtDateBR, fmtT, todayISO } from "@/lib/format";
 import { metaDoDia } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
-import type { MetaFrente, PerfilUsuario } from "@/lib/types";
+import type { AtividadeFrente, MetaFrente, PerfilUsuario } from "@/lib/types";
 import { ehBooleano, ehDataIso, ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
@@ -131,6 +131,7 @@ export default function MetasClient({
           <div className="truncate text-[15px] font-bold text-ink">Metas</div>
         </nav>
         <BotaoLog titulo="Log das metas" filtro={{ modulo: "Colheita", entidade: "Meta" }} />
+        <BotaoLog titulo="Log da atividade das frentes" filtro={{ modulo: "Colheita", entidade: "Atividade da frente" }} />
         {!podeGravar && (
           <div className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12px] font-semibold text-muted">
             Somente leitura
@@ -295,6 +296,8 @@ export default function MetasClient({
             </div>
           </div>
         )}
+
+        <AtividadeFrentes frentes={todasFrentes} podeGravar={podeGravar} onAlterado={() => router.refresh()} />
       </div>
       {importarAberto && (
         <ImportarMetasModal
@@ -398,5 +401,144 @@ function ImportarMetasModal({ onFechar, onImportado }: { onFechar: () => void; o
         </button>
       </div>
     </ModalShell>
+  );
+}
+
+/**
+ * Início e fim de atividade de cada frente: a meta da frente só conta nos dias em que ela está em atividade (sem fim =
+ * ativa). Vale para todos os relatórios que comparam a entrega de cana com a meta.
+ */
+function AtividadeFrentes({ frentes, podeGravar, onAlterado }: { frentes: string[]; podeGravar: boolean; onAlterado: () => void }) {
+  const [lista, setLista] = useState<AtividadeFrente[] | null>(null);
+  const [edicao, setEdicao] = useState<Record<string, { inicio: string; fim: string }>>({});
+  const [salvando, setSalvando] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const hoje = todayISO();
+
+  useEffect(() => {
+    fetch("/api/metas/atividade", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => setLista(j.atividades ?? []))
+      .catch(() => setLista([]));
+  }, []);
+
+  const doCadastro = (f: string) => lista?.find((a) => a.frente === f);
+  const valor = (f: string) => edicao[f] ?? { inicio: doCadastro(f)?.inicio ?? "", fim: doCadastro(f)?.fim ?? "" };
+  const mudou = (f: string) => {
+    const v = valor(f);
+    return v.inicio !== (doCadastro(f)?.inicio ?? "") || v.fim !== (doCadastro(f)?.fim ?? "");
+  };
+  const nomes = Array.from(new Set([...frentes, ...(lista ?? []).map((a) => a.frente)])).sort((a, b) => a.localeCompare(b));
+
+  async function salvar(f: string) {
+    const v = valor(f);
+    setSalvando(f);
+    setErro(null);
+    try {
+      const res = await fetch("/api/metas/atividade", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frente: f, inicio: v.inicio || null, fim: v.fim || null }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error);
+      setLista(j.atividades);
+      setEdicao((e) => {
+        const n = { ...e };
+        delete n[f];
+        return n;
+      });
+      onAlterado();
+    } catch (e) {
+      setErro(e instanceof Error && e.message ? e.message : "Não foi possível salvar.");
+    } finally {
+      setSalvando(null);
+    }
+  }
+
+  const situacao = (f: string) => {
+    const a = doCadastro(f);
+    if (!a || (!a.inicio && !a.fim)) return <span className="text-[11px] text-muted">Sem período (sempre ativa)</span>;
+    if (a.inicio && a.inicio > hoje) return <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10.5px] font-bold text-amber-600">Começa em {fmtDateBR(a.inicio)}</span>;
+    if (a.fim && a.fim < hoje) return <span className="rounded-full bg-alert-50 px-2 py-0.5 text-[10.5px] font-bold text-alert-600">Parada desde {fmtDateBR(a.fim)}</span>;
+    return <span className="rounded-full bg-good-50 px-2 py-0.5 text-[10.5px] font-bold text-good-600">Ativa{a.fim ? ` até ${fmtDateBR(a.fim)}` : ""}</span>;
+  };
+
+  return (
+    <div className="mt-5 overflow-hidden rounded-xl2 border border-line bg-card shadow-card">
+      <div className="border-b border-line bg-surface px-4 py-2.5">
+        <h2 className="text-[14px] font-bold text-ink">Atividade das frentes</h2>
+        <p className="text-[12px] text-muted">
+          A meta da frente só conta entre o início e o fim da atividade; sem fim, a frente está ativa. Frente parada não soma meta em nenhum relatório
+          (Ordens de Corte, resumo diário, painel e PDF).
+        </p>
+      </div>
+      {erro && <p className="px-4 py-2 text-[12.5px] font-medium text-alert-600">{erro}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="border-b border-line bg-surface text-left text-muted">
+              <th className="px-4 py-2 font-semibold">Frente</th>
+              <th className="px-3 py-2 font-semibold">Início Ativ.</th>
+              <th className="px-3 py-2 font-semibold">Fim Ativ.</th>
+              <th className="px-3 py-2 font-semibold">Situação</th>
+              <th className="px-3 py-2 font-semibold">Última alteração</th>
+              <th className="w-24 px-2 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {lista === null && (
+              <tr>
+                <td colSpan={6} className="px-4 py-4 text-center text-muted">
+                  Carregando…
+                </td>
+              </tr>
+            )}
+            {lista !== null &&
+              nomes.map((f) => {
+                const v = valor(f);
+                const a = doCadastro(f);
+                return (
+                  <tr key={f} className="border-b border-line last:border-0">
+                    <td className="px-4 py-1.5 font-semibold text-ink">{f}</td>
+                    <td className="px-3 py-1.5">
+                      <input
+                        type="date"
+                        value={v.inicio}
+                        disabled={!podeGravar}
+                        onChange={(e) => setEdicao((x) => ({ ...x, [f]: { ...v, inicio: e.target.value } }))}
+                        className="rounded-md border border-line bg-card px-2 py-1 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface"
+                      />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <input
+                        type="date"
+                        value={v.fim}
+                        disabled={!podeGravar}
+                        onChange={(e) => setEdicao((x) => ({ ...x, [f]: { ...v, fim: e.target.value } }))}
+                        className="rounded-md border border-line bg-card px-2 py-1 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface"
+                      />
+                    </td>
+                    <td className="px-3 py-1.5">{situacao(f)}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-muted">{a?.alteradoEm ? `${a.alteradoPor || "—"} · ${fmtDataHora(a.alteradoEm)}` : ""}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      {podeGravar && mudou(f) && (
+                        <button
+                          type="button"
+                          onClick={() => salvar(f)}
+                          disabled={salvando === f}
+                          className="rounded bg-navy-900 px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-navy-800 disabled:opacity-50"
+                        >
+                          {salvando === f ? "Salvando…" : "Salvar"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

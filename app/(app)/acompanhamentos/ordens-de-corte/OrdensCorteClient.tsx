@@ -587,9 +587,14 @@ export default function OrdensCorteClient({
     [ordensFiltradasTodas, referencia, producao]
   );
 
-  const resumoTotais = useMemo(
-    () =>
-      resumoFrentes.reduce(
+  // Mês Anterior e Safra do total geral: todas as frentes, independente do filtro de frente/status/busca
+  const totalSemFiltro = useMemo(() => {
+    const r = resumoPorFrente(ordens, ordens, referencia, metas, producao?.inicio, primeiraEntradaPorFrente, horaCorte);
+    return { safraT: r.reduce((s, x) => s + x.safraT, 0), mesAnteriorT: r.reduce((s, x) => s + x.mesAnteriorT, 0) };
+  }, [ordens, referencia, metas, producao, primeiraEntradaPorFrente, horaCorte]);
+
+  const resumoTotais = useMemo(() => {
+    const t = resumoFrentes.reduce(
         (acc, r) => ({
           ordensSelecionadas: acc.ordensSelecionadas + r.ordensSelecionadas,
           areaSelecionadaHa: acc.areaSelecionadaHa + r.areaSelecionadaHa,
@@ -618,13 +623,14 @@ export default function OrdensCorteClient({
           diasEfetivos: 0,
           mediaDiaEfetivoT: 0,
         }
-      ),
-    [resumoFrentes, mediaDiaria]
-  );
+      );
+    return { ...t, safraT: totalSemFiltro.safraT, mesAnteriorT: totalSemFiltro.mesAnteriorT };
+  }, [resumoFrentes, mediaDiaria, totalSemFiltro]);
 
+  // a meta do total soma só as frentes selecionadas (com ordem marcada nos cards)
   const metaTotais = useMemo(
     () =>
-      resumoFrentes.reduce(
+      resumoFrentes.filter((r) => r.ordensSelecionadas > 0).reduce(
         (acc, r) => ({
           safra: acc.safra + r.meta.safra,
           mesAnterior: acc.mesAnterior + r.meta.mesAnterior,

@@ -119,6 +119,18 @@ export interface MetaFrente {
   metaDiaT: number;
   /** YYYY-MM-DD — primeiro dia em que esta meta vale. */
   vigencia: string;
+  /** atividade da frente (Metas › Atividade das frentes): fora de início–fim a meta é zero; sem fim, a frente está ativa */
+  atvIni?: string | null;
+  atvFim?: string | null;
+}
+
+/** Início e fim de atividade de uma frente (fim vazio = ativa). */
+export interface AtividadeFrente {
+  frente: string;
+  inicio: string | null;
+  fim: string | null;
+  alteradoPor?: string;
+  alteradoEm?: string;
 }
 
 /** Linha do "Relatório de Frentes por Especialidade" (conferência de pesagem):

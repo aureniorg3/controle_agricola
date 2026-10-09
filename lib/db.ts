@@ -7,6 +7,7 @@ import {
   Database,
   EntradaDiaria,
   EquiptoFrente,
+  AtividadeFrente,
   MetaFrente,
   OrdemConferencia,
   HistoricoTchOrdem,
@@ -274,6 +275,13 @@ export function prepararBanco(pool: Pool): Promise<void> {
            vig date NOT NULL,
            cri_em timestamptz NOT NULL DEFAULT now(),
            UNIQUE (frt, vig)
+         )`
+      );
+      // início e fim de atividade de cada frente (fim vazio = ativa): fora disso a meta da frente é zero
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS frt_atv (
+           frt text PRIMARY KEY, ini date, fim date,
+           usr text NOT NULL DEFAULT '', atu_usr text NOT NULL DEFAULT '', atu_em timestamptz NOT NULL DEFAULT now()
          )`
       );
       await pool.query(
@@ -1028,19 +1036,63 @@ export async function removerOrdemVisivel(numero: string, usuario = ""): Promise
 export async function listMetas(): Promise<MetaFrente[]> {
   const pool = getPool();
   await prepararBanco(pool);
-  const { rows } = await pool.query<{ id: string; frente: string; meta_dia_t: number; vigencia: string; usr: string; atu_usr: string; atu: string | null }>(
-    `SELECT id, frt AS frente, met_dia_t AS meta_dia_t, vig AS vigencia, usr, atu_usr,
-            to_char(atu_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') AS atu FROM met_frt ORDER BY frt, vig`
+  const { rows } = await pool.query<{
+    id: string; frente: string; meta_dia_t: number; vigencia: string; usr: string; atu_usr: string; atu: string | null; ini: string | null; fim: string | null;
+  }>(
+    `SELECT m.id, m.frt AS frente, m.met_dia_t AS meta_dia_t, m.vig AS vigencia, m.usr, m.atu_usr,
+            to_char(m.atu_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') AS atu,
+            a.ini::text AS ini, a.fim::text AS fim
+       FROM met_frt m LEFT JOIN frt_atv a ON a.frt = m.frt ORDER BY m.frt, m.vig`
   );
   return rows.map((r) => ({
     id: r.id,
     frente: r.frente,
     metaDiaT: r.meta_dia_t,
     vigencia: r.vigencia,
+    atvIni: r.ini,
+    atvFim: r.fim,
     lancadoPor: r.usr,
     alteradoPor: r.atu_usr,
     alteradoEm: r.atu ?? undefined,
   }));
+}
+
+/** Início e fim de atividade das frentes (Metas › Atividade das frentes). */
+export async function listAtividadesFrentes(): Promise<AtividadeFrente[]> {
+  const pool = getPool();
+  await prepararBanco(pool);
+  const { rows } = await pool.query<{ frt: string; ini: string | null; fim: string | null; atu_usr: string; atu: string | null }>(
+    `SELECT frt, ini::text AS ini, fim::text AS fim, atu_usr,
+            to_char(atu_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') AS atu FROM frt_atv ORDER BY frt`
+  );
+  return rows.map((r) => ({ frente: r.frt, inicio: r.ini, fim: r.fim, alteradoPor: r.atu_usr, alteradoEm: r.atu ?? undefined }));
+}
+
+/** Grava o início e o fim de atividade de uma frente (os dois vazios tiram a frente da lista). */
+export async function salvarAtividadeFrente(frente: string, inicio: string | null, fim: string | null, usuario = ""): Promise<true | { erro: string }> {
+  if (inicio && fim && fim < inicio) return { erro: "O fim da atividade não pode ser antes do início." };
+  const pool = getPool();
+  await prepararBanco(pool);
+  const antes = (await pool.query<{ ini: string | null; fim: string | null }>("SELECT ini::text AS ini, fim::text AS fim FROM frt_atv WHERE frt = $1", [frente])).rows[0];
+  if (!inicio && !fim) await pool.query("DELETE FROM frt_atv WHERE frt = $1", [frente]);
+  else
+    await pool.query(
+      `INSERT INTO frt_atv (frt, ini, fim, usr, atu_usr) VALUES ($1, $2::date, $3::date, $4, $4)
+       ON CONFLICT (frt) DO UPDATE SET ini = EXCLUDED.ini, fim = EXCLUDED.fim, atu_usr = EXCLUDED.atu_usr, atu_em = now()`,
+      [frente, inicio, fim, usuario]
+    );
+  const txt = (v: string | null | undefined) => (v ? dataBR(v) : "—");
+  if (!antes || antes.ini !== inicio || antes.fim !== fim)
+    await auditar(pool, {
+      usuario,
+      modulo: "Colheita",
+      entidade: "Atividade da frente",
+      chave: frente,
+      acao: !antes ? "inclusao" : !inicio && !fim ? "exclusao" : "alteracao",
+      antes: antes ? { início: txt(antes.ini), fim: txt(antes.fim) } : undefined,
+      depois: inicio || fim ? { início: txt(inicio), fim: fim ? txt(fim) : "ativa" } : undefined,
+    });
+  return true;
 }
 
 /** Uma meta por (frente, vigência): cadastrar de novo na mesma data
