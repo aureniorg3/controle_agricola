@@ -1,7 +1,8 @@
 "use client";
 
 import { IconMais } from "@/components/icons";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import { PerfilUsuario, UsuarioPublico } from "@/lib/types";
 import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIS } from "@/lib/permissoes";
 import { fmtDateBR } from "@/lib/format";
@@ -34,6 +35,19 @@ export default function UsuariosClient({
   const [novoAberto, setNovoAberto] = useState(false);
   const [editando, setEditando] = useState<UsuarioPublico | null>(null);
   const [erroGeral, setErroGeral] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
+  const [selecionado, setSelecionado] = useState("");
+
+  const semAcento = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const nomeCompleto = (u: UsuarioPublico) => `${u.nome} ${u.sobrenome}`.trim();
+  const porNome = useMemo(() => [...usuarios].sort((a, b) => nomeCompleto(a).localeCompare(nomeCompleto(b), "pt-BR")), [usuarios]);
+  // busca por nome, usuário ou e-mail (sem acento) e/ou um usuário escolhido na lista
+  const visiveis = useMemo(() => {
+    const termo = semAcento(busca.trim());
+    return porNome.filter(
+      (u) => (!selecionado || u.id === selecionado) && (!termo || semAcento(`${nomeCompleto(u)} ${u.usuario} ${u.email}`).includes(termo))
+    );
+  }, [porNome, busca, selecionado]);
 
   async function refetch() {
     const res = await fetch("/api/usuarios");
@@ -104,6 +118,44 @@ export default function UsuariosClient({
           </div>
         )}
 
+        <div className="mb-3 flex flex-wrap items-end gap-2.5 rounded-xl2 border border-line bg-card px-4 py-3 shadow-card">
+          <label className="flex flex-col gap-1 text-[11.5px] text-muted">
+            Procurar
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Nome, usuário ou e-mail…"
+              className="w-64 rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11.5px] text-muted">
+            Usuário
+            <select
+              value={selecionado}
+              onChange={(e) => setSelecionado(e.target.value)}
+              className="w-64 rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
+            >
+              <option value="">Todos os usuários</option>
+              {porNome.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {nomeCompleto(u)}
+                  {u.ativo ? "" : " (desativado)"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <BotaoLimparFiltros
+            ativo={!!busca || !!selecionado}
+            onLimpar={() => {
+              setBusca("");
+              setSelecionado("");
+            }}
+          />
+          <span className="ml-auto pb-1.5 text-[12px] text-muted">
+            {visiveis.length} de {usuarios.length} usuário(s)
+          </span>
+        </div>
+
         <div className="overflow-x-auto rounded-xl2 border border-line bg-card shadow-card">
           <table className="w-full min-w-[720px] text-[12.5px]">
             <thead>
@@ -118,7 +170,14 @@ export default function UsuariosClient({
               </tr>
             </thead>
             <tbody>
-              {usuarios.map((u) => (
+              {visiveis.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-6 text-center text-muted">
+                    Nenhum usuário encontrado.
+                  </td>
+                </tr>
+              )}
+              {visiveis.map((u) => (
                 <tr key={u.id} className="border-b border-line last:border-0">
                   <td className="px-4 py-1.5 font-medium text-ink">
                     {u.nome} {u.sobrenome}
