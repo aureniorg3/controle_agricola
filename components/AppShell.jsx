@@ -29,7 +29,7 @@ function SemAcesso() {
 }
 
 /**
- * Estrutura do sistema: barra superior azul CRV (menu, busca de telas, tema, usuário, logo), menu lateral claro
+ * Estrutura do sistema: barra superior azul CRV (menu, busca de telas, tema, usuário, logo), menu lateral no mesmo azul
  * (recolhível; gaveta no celular) e a tela ao lado. Também guarda as telas visitadas nesta aba, para o Voltar da
  * barra de comandos de cada tela.
  */

@@ -367,7 +367,7 @@ app/
 components/
   AppShell.jsx                   estrutura: barra superior, menu lateral, busca de telas (Ctrl K)
   BarraSuperior.jsx              barra azul CRV: menu, busca, tema, usuário/sair, logo
-  MenuLateral.jsx                menu lateral claro, recolhível (ícones + lista ao lado)
+  MenuLateral.jsx                menu lateral no azul CRV, recolhível (ícones + lista ao lado)
   PaletaComandos.jsx             busca de telas (Ctrl K) com as abertas por último
   pagina.jsx                     blocos das telas: CabecalhoPagina (barra de comandos +
                                   trilha + título), Comando, CorpoPagina, BarraFiltros,

@@ -381,3 +381,19 @@ th[data-ordem="desc"]::after {
 .print-hide.overflow-x-auto::-webkit-scrollbar {
   height: 4px;
 }
+
+/* Menu lateral e barra superior no azul CRV (MenuLateral, BarraSuperior): rolagem e contorno de foco claros sobre o azul */
+.menu-crv::-webkit-scrollbar-thumb,
+.menu-crv ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+.menu-crv::-webkit-scrollbar-thumb:hover,
+.menu-crv ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+.menu-crv a:focus-visible,
+.menu-crv button:focus-visible,
+.barra-crv a:focus-visible,
+.barra-crv button:focus-visible {
+  outline-color: rgba(255, 255, 255, 0.85);
+}

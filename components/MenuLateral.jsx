@@ -20,10 +20,17 @@ const inicioAtivo = (pathname) => pathname === "/painel" || pathname === "/";
 /** Recuo do texto por nível: o 1º nível tem ícone; os de baixo alinham com o texto do pai. */
 const RECUO = [12, 40, 52, 64];
 
+/* cores do menu sobre o azul CRV (#23396B): texto branco, item da tela atual com fundo um tom acima e filete verde */
+const ITEM_ATIVO = "bg-white/[0.13] font-semibold text-white";
+const ITEM_NORMAL = "text-white/85 hover:bg-white/[0.08] hover:text-white";
+const ICONE_ATIVO = "text-[#5FD39A]";
+const ICONE_NORMAL = "text-white/70";
+const FILETE = "bg-[#3FBF83]";
+
 /**
- * Menu lateral claro (no modelo dos sistemas corporativos): seções com os módulos, grupos que abrem e fecham, item
- * da tela atual marcado com o filete verde CRV. Recolhido, vira uma coluna de ícones; clicar num grupo abre a lista
- * dele ao lado. Na gaveta do celular aparece sempre aberto, com o botão de fechar.
+ * Menu lateral no azul padrão da CRV (o mesmo da barra superior), com texto branco: seções com os módulos, grupos
+ * que abrem e fecham, item da tela atual marcado com o filete verde. Recolhido, vira uma coluna de ícones; clicar
+ * num grupo abre a lista dele ao lado. Na gaveta do celular aparece sempre aberto, com o botão de fechar.
  */
 export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavigate, onAlternar, onFechar }) {
   const pathname = usePathname();
@@ -65,22 +72,20 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
     const contem = !ativo && temFilhos && !aberto && contemAtivo(item, pathname);
     const Icon = depth === 0 && !noFlyout ? item.icon : undefined;
     const tamanho = depth === 0 && !noFlyout ? "h-9 text-[13.5px]" : depth <= 1 ? "h-8 text-[13px]" : "h-8 text-[12.5px]";
-    const cor = ativo
-      ? "bg-[#E6F1EA] font-semibold text-navy-900 dark:bg-white/[0.08] dark:text-white"
-      : `${contem ? "font-semibold" : ""} text-ink hover:bg-hover`;
+    const cor = ativo ? ITEM_ATIVO : `${contem ? "font-semibold" : ""} ${ITEM_NORMAL}`;
     const recuo = noFlyout ? 12 + depth * 12 : RECUO[Math.min(depth, RECUO.length - 1)];
     const conteudo = (
       <>
-        {ativo && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r bg-crv-verde" aria-hidden="true" />}
+        {ativo && <span className={`absolute inset-y-1.5 left-0 w-[3px] rounded-r ${FILETE}`} aria-hidden="true" />}
         {Icon && (
-          <span className={`flex w-[18px] flex-shrink-0 justify-center ${ativo || contem ? "text-crv-verde" : "text-navy-900"}`}>
+          <span className={`flex w-[18px] flex-shrink-0 justify-center ${ativo || contem ? ICONE_ATIVO : ICONE_NORMAL}`}>
             <Icon size={18} />
           </span>
         )}
         <span className="min-w-0 flex-1 truncate">{item.label}</span>
         {item.badge ? <span className="rounded-full bg-alert-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{item.badge}</span> : null}
         {temFilhos && !noFlyout && (
-          <span className={`flex-shrink-0 text-muted transition-transform duration-150 ${aberto ? "rotate-90" : ""}`}>
+          <span className={`flex-shrink-0 text-white/50 transition-transform duration-150 ${aberto ? "rotate-90" : ""}`}>
             <IconSetaDireita size={14} />
           </span>
         )}
@@ -94,7 +99,7 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
             {conteudo}
           </Link>
         ) : noFlyout ? (
-          <div className="flex h-7 items-center truncate pr-2 text-[11.5px] font-semibold text-muted" style={{ paddingLeft: recuo }}>
+          <div className="flex h-7 items-center truncate pr-2 text-[11.5px] font-semibold text-white/60" style={{ paddingLeft: recuo }}>
             {item.label}
           </div>
         ) : (
@@ -120,9 +125,9 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
     const ativo = contemAtivo(item, pathname);
     const temFilhos = !!item.children?.length;
     const cls = `relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg ${
-      ativo ? "bg-[#E6F1EA] text-crv-verde dark:bg-white/[0.08]" : flyout?.chave === chave ? "bg-hover text-navy-900" : "text-navy-900 hover:bg-hover"
+      ativo ? `bg-white/[0.13] ${ICONE_ATIVO}` : flyout?.chave === chave ? "bg-white/[0.08] text-white" : `${ICONE_NORMAL} hover:bg-white/[0.08] hover:text-white`
     }`;
-    const marca = ativo && <span className="absolute inset-y-2 -left-2 w-[3px] rounded-r bg-crv-verde" aria-hidden="true" />;
+    const marca = ativo && <span className={`absolute inset-y-2 -left-2 w-[3px] rounded-r ${FILETE}`} aria-hidden="true" />;
     if (!temFilhos && item.href) {
       return (
         <Link key={chave} href={item.href} onClick={onNavigate} title={item.label} aria-label={item.label} className={cls}>
@@ -152,9 +157,9 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
   const largura = recolhido ? "w-14" : gaveta ? "w-[284px]" : "w-[256px]";
 
   return (
-    <aside className={`flex h-full flex-shrink-0 flex-col border-r border-line bg-card transition-[width] duration-200 ${largura}`}>
+    <aside className={`menu-crv flex h-full flex-shrink-0 flex-col bg-navy-900 text-white transition-[width] duration-200 ${largura}`}>
       {gaveta && (
-        <div className="flex h-12 flex-shrink-0 items-center gap-2 border-b-[3px] border-crv-verde bg-navy-900 pl-4 pr-2 text-white">
+        <div className="flex h-[51px] flex-shrink-0 items-center gap-2 border-b-[3px] border-crv-verde pl-4 pr-2">
           <span className="flex-1 font-display text-[19px] font-semibold">Controle Agrícola</span>
           <button type="button" onClick={onFechar} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/10" aria-label="Fechar menu">
             <IconFechar size={18} />
@@ -162,7 +167,7 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
         </div>
       )}
 
-      <nav className={`flex-1 overflow-y-auto overflow-x-hidden py-2 ${recolhido ? "px-2" : "px-2"}`} aria-label="Menu do sistema">
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2" aria-label="Menu do sistema">
         {recolhido ? (
           <Link
             href="/painel"
@@ -170,10 +175,10 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
             title={ITEM_INICIO.label}
             aria-label={ITEM_INICIO.label}
             className={`relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg ${
-              inicioAtivo(pathname) ? "bg-[#E6F1EA] text-crv-verde dark:bg-white/[0.08]" : "text-navy-900 hover:bg-hover"
+              inicioAtivo(pathname) ? `bg-white/[0.13] ${ICONE_ATIVO}` : `${ICONE_NORMAL} hover:bg-white/[0.08] hover:text-white`
             }`}
           >
-            {inicioAtivo(pathname) && <span className="absolute inset-y-2 -left-2 w-[3px] rounded-r bg-crv-verde" aria-hidden="true" />}
+            {inicioAtivo(pathname) && <span className={`absolute inset-y-2 -left-2 w-[3px] rounded-r ${FILETE}`} aria-hidden="true" />}
             <IconInicio size={20} />
           </Link>
         ) : (
@@ -181,12 +186,10 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
             href="/painel"
             onClick={onNavigate}
             aria-current={inicioAtivo(pathname) ? "page" : undefined}
-            className={`relative flex h-9 items-center gap-2.5 rounded-lg pl-3 pr-2 text-[13.5px] ${
-              inicioAtivo(pathname) ? "bg-[#E6F1EA] font-semibold text-navy-900 dark:bg-white/[0.08] dark:text-white" : "text-ink hover:bg-hover"
-            }`}
+            className={`relative flex h-9 items-center gap-2.5 rounded-lg pl-3 pr-2 text-[13.5px] ${inicioAtivo(pathname) ? ITEM_ATIVO : ITEM_NORMAL}`}
           >
-            {inicioAtivo(pathname) && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r bg-crv-verde" aria-hidden="true" />}
-            <span className={`flex w-[18px] justify-center ${inicioAtivo(pathname) ? "text-crv-verde" : "text-navy-900"}`}>
+            {inicioAtivo(pathname) && <span className={`absolute inset-y-1.5 left-0 w-[3px] rounded-r ${FILETE}`} aria-hidden="true" />}
+            <span className={`flex w-[18px] justify-center ${inicioAtivo(pathname) ? ICONE_ATIVO : ICONE_NORMAL}`}>
               <IconInicio size={18} />
             </span>
             {ITEM_INICIO.label}
@@ -194,8 +197,8 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
         )}
 
         {secoes.map((secao) => (
-          <div key={secao.title} className={recolhido ? "mt-1.5 border-t border-line pt-1.5" : "mt-3"}>
-            {!recolhido && <div className="px-3 pb-1 text-[11.5px] font-semibold text-muted">{secao.title}</div>}
+          <div key={secao.title} className={recolhido ? "mt-1.5 border-t border-white/10 pt-1.5" : "mt-3"}>
+            {!recolhido && <div className="px-3 pb-1 text-[11.5px] font-semibold text-white/60">{secao.title}</div>}
             <div className="flex flex-col gap-0.5">
               {secao.items.map((item) => (recolhido ? icone(item, `${secao.title}/${item.label}`) : linha(item, 0, `${secao.title}/${item.label}`)))}
             </div>
@@ -204,13 +207,13 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
       </nav>
 
       {!gaveta && (
-        <div className="flex-shrink-0 border-t border-line p-2">
+        <div className="flex-shrink-0 border-t border-white/10 p-2">
           <button
             type="button"
             onClick={onAlternar}
             title={recolhido ? "Expandir menu" : "Recolher menu"}
             aria-label={recolhido ? "Expandir menu" : "Recolher menu"}
-            className={`flex h-9 w-full items-center gap-2.5 rounded-lg text-[13px] text-muted hover:bg-hover hover:text-ink ${recolhido ? "justify-center" : "pl-3"}`}
+            className={`flex h-9 w-full items-center gap-2.5 rounded-lg text-[13px] text-white/65 hover:bg-white/[0.08] hover:text-white ${recolhido ? "justify-center" : "pl-3"}`}
           >
             {recolhido ? <IconExpandir size={18} /> : <IconRecolher size={18} />}
             {!recolhido && "Recolher menu"}
@@ -221,11 +224,11 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
       {flyout && (
         <div
           ref={flyoutRef}
-          className="fixed z-50 w-[272px] overflow-y-auto rounded-xl2 border border-line bg-card py-2 shadow-pop"
+          className="menu-crv fixed z-50 w-[272px] overflow-y-auto rounded-xl2 border border-white/10 bg-navy-900 py-2 text-white shadow-pop"
           style={{ top: flyout.top, left: flyout.left, maxHeight: `calc(100vh - ${flyout.top + 8}px)` }}
           role="menu"
         >
-          <div className="px-3 pb-1.5 font-display text-[16px] font-semibold text-ink">{flyout.item.label}</div>
+          <div className="px-3 pb-1.5 font-display text-[16px] font-semibold text-white">{flyout.item.label}</div>
           <div className="flex flex-col gap-0.5 px-1.5">{flyout.item.children.map((c) => linha(c, 0, `${flyout.chave}/${c.label}`, true))}</div>
         </div>
       )}
