@@ -25,7 +25,7 @@ import {
   startOfMonth,
   startOfWeekMonday,
   totaisResumoDetalhado,
-  deltaTchPct,
+  deltaProjetadoPct,
   fmtDeltaPct,
   type TotaisResumoDetalhado,
 } from "@/lib/period";
@@ -1382,9 +1382,9 @@ export default function OrdensCorteClient({
                 <tr className="text-center text-[10.5px] font-semibold text-white">
                   <th className="bg-navy-900 px-3 py-0.5" colSpan={4} />
                   <th className="border-l border-white/30 bg-navy-700 px-2.5 py-0.5" colSpan={3}>Estimado</th>
-                  <th className="border-l border-white/30 bg-good-600 px-2.5 py-0.5" colSpan={4}>Realizado</th>
+                  <th className="border-l border-white/30 bg-good-600 px-2.5 py-0.5" colSpan={3}>Realizado</th>
                   <th className="border-l border-white/30 bg-[#B8652B] px-2.5 py-0.5" colSpan={3}>A colher</th>
-                  <th className="border-l border-white/30 bg-navy-950 px-2.5 py-0.5">Projetado</th>
+                  <th className="border-l border-white/30 bg-navy-950 px-2.5 py-0.5" colSpan={2}>Projetado</th>
                 </tr>
                 <tr className="border-b border-line bg-navy-900 text-left text-white">
                   <th className="px-3 py-1 align-bottom font-semibold">Frente</th>
@@ -1398,16 +1398,16 @@ export default function OrdensCorteClient({
                     "Área Colhida (ha)",
                     "Produção Acum. (t)",
                     "TCH Parcial (t/ha)",
-                    "Δ% TCH × Est.",
                     "Área a Colher (ha)",
                     "TCH (t/ha)",
                     "Ton (t)",
                     "Ton Projetada (t)",
+                    "Δ% Projetada × Est.",
                   ].map((t, i) => (
                     <th
                       key={t}
-                      className={`px-2 py-1 text-right align-bottom text-[10.5px] font-semibold leading-tight ${[0, 3, 7, 10].includes(i) ? "border-l border-white/30" : ""} ${i === 10 ? "pr-3" : ""}`}
-                      title={i === 6 ? "Variação do TCH parcial (cana entregue ÷ área colhida) sobre o TCH estimado: positivo é ganho, negativo é perda" : undefined}
+                      className={`px-2 py-1 text-right align-bottom text-[10.5px] font-semibold leading-tight ${[0, 3, 6, 9].includes(i) ? "border-l border-white/30" : ""} ${i === 10 ? "pr-3" : ""}`}
+                      title={i === 10 ? "Produção total projetada da ordem (entregue + a colher, sobre a área toda) sobre a produção estimada: positivo é ganho, negativo é perda" : undefined}
                     >
                       {t}
                     </th>
@@ -1491,21 +1491,21 @@ function CelulasResumoDetalhado({ v, total, tchEstimadoNoAColher }: { v: TotaisR
       <td className={`${bloco} ${cor("text-ink")}`}>{n(v.areaColhidaHa, fmtHa)}</td>
       <td className={`${base} ${cor("text-ink")}`}>{n(v.producaoTotalT, fmtT)}</td>
       <td className={`${base} font-medium ${cor("text-good-600")}`}>{n(v.tchRealParcial, fmtTch)}</td>
-      {(() => {
-        const d = deltaTchPct(v);
-        return (
-          <td className={`${base} font-semibold ${d === null ? cor("text-muted") : cor(d >= 0 ? "text-good-600" : "text-alert-600")}`}>
-            {d === null ? "–" : `${d >= 0 ? "▲" : "▼"} ${fmtDeltaPct(d)}`}
-          </td>
-        );
-      })()}
       <td className={`${bloco} ${cor("text-ink")}`}>{n(v.areaAColherHa, fmtHa)}</td>
       <td className={`${base} ${cor("text-ink")}`} title={tchEstimadoNoAColher ? "Sem TCH parcial: usa o TCH estimado" : undefined}>
         {n(v.tchAColher, fmtTch)}
         {tchEstimadoNoAColher ? "*" : ""}
       </td>
       <td className={`${base} ${cor("text-ink")}`}>{n(v.tonAColher, fmtT)}</td>
-      <td className={`${bloco} pr-3 font-semibold ${cor("text-navy-900")}`}>{n(v.tonProjetada, fmtT)}</td>
+      <td className={`${bloco} font-semibold ${cor("text-navy-900")}`}>{n(v.tonProjetada, fmtT)}</td>
+      {(() => {
+        const d = deltaProjetadoPct(v);
+        return (
+          <td className={`${base} pr-3 font-semibold ${d === null ? cor("text-muted") : cor(d >= 0 ? "text-good-600" : "text-alert-600")}`}>
+            {d === null ? "–" : `${d >= 0 ? "▲" : "▼"} ${fmtDeltaPct(d)}`}
+          </td>
+        );
+      })()}
     </>
   );
 }

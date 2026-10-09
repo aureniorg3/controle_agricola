@@ -11,7 +11,7 @@ import {
   quinzenaRange,
   startOfMonth,
   startOfWeekMonday,
-  deltaTchPct,
+  deltaProjetadoPct,
   fmtDeltaPct,
 } from "./period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev } from "./format";
@@ -935,19 +935,19 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
     nDet(l.areaColhidaHa, fmtHa),
     nDet(l.producaoTotalT, fmtT),
     nDet(l.tchRealParcial, fmtTch),
-    fmtDeltaPct(deltaTchPct(l)),
     nDet(l.areaAColherHa, fmtHa),
     `${nDet(l.tchAColher, fmtTch)}${estimadoNoAColher ? "*" : ""}`,
     nDet(l.tonAColher, fmtT),
     nDet(l.tonProjetada, fmtT),
+    fmtDeltaPct(deltaProjetadoPct(l)),
   ];
   const BLOCOS_DETALHE: { titulo: string; cor: [number, number, number]; colunas: number }[] = [
     { titulo: "Estimado", cor: [26, 58, 99], colunas: 3 },
-    { titulo: "Realizado", cor: [22, 100, 48], colunas: 4 },
+    { titulo: "Realizado", cor: [22, 100, 48], colunas: 3 },
     { titulo: "A colher", cor: [184, 101, 43], colunas: 3 },
   ];
-  /** coluna do Delta % TCH (verde ganho, vermelho perda) */
-  const COL_DELTA = 10;
+  /** coluna do Delta % da produção projetada sobre a estimada (verde ganho, vermelho perda) */
+  const COL_DELTA = 14;
 
   /** Desenha as frentes `grupos` (com total geral, se pedido) em `d`, na coluna que começa em `x` com `largura`. */
   function desenharDetalhado(
@@ -987,14 +987,14 @@ export async function gerarRelatorioCompletoPdf(dados: DadosRelatorioCompleto): 
         [
           { content: "", colSpan: 4 },
           ...BLOCOS_DETALHE.map((b) => ({ content: b.titulo, colSpan: b.colunas, styles: { halign: "center" as const, fillColor: b.cor } })),
-          { content: "Projetado", styles: { halign: "center" as const, fillColor: [8, 36, 66] as [number, number, number] } },
+          { content: "Projetado", colSpan: 2, styles: { halign: "center" as const, fillColor: [8, 36, 66] as [number, number, number] } },
         ],
         [
           "Frente", "Ordem", "Fazenda", "Descrição Fazenda",
           "Área Total OC (ha)", "TCH Est. (t/ha)", "Ton Est. (t)",
-          "Área Colhida (ha)", "Produção Acum. (t)", "TCH Parcial (t/ha)", "Delta % TCH x Est.",
+          "Área Colhida (ha)", "Produção Acum. (t)", "TCH Parcial (t/ha)",
           "Área a Colher (ha)", "TCH (t/ha)", "Ton (t)",
-          "Ton Projetada (t)",
+          "Ton Projetada (t)", "Delta % Proj. x Est.",
         ],
       ],
       body: corpo,

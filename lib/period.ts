@@ -155,6 +155,8 @@ export interface TotaisResumoDetalhado {
   tonAColher: number;
   /** produção entregue + o que falta colher pelo TCH acima */
   tonProjetada: number;
+  /** a mesma projeção, só das linhas com TCH estimado (base do Δ% sobre a produção estimada) */
+  tonProjetadaComEst: number;
 }
 
 export interface LinhaResumoDetalhado extends TotaisResumoDetalhado {
@@ -167,11 +169,12 @@ export interface LinhaResumoDetalhado extends TotaisResumoDetalhado {
 }
 
 /**
- * Variação da produtividade realizada sobre a estimada: (TCH parcial — cana entregue ÷ área colhida — ÷ TCH estimado − 1)
- * em %; positivo é ganho, negativo é perda. Sem os dois TCHs, null.
+ * Variação da produção total projetada da ordem (entregue + a colher, sobre a área toda) sobre a produção estimada
+ * (área total × TCH estimado): (ton projetada ÷ ton estimada − 1) em %; positivo é ganho, negativo é perda. Nos
+ * totais, só as linhas com TCH estimado entram dos dois lados. Sem estimativa ou sem projeção, null.
  */
-export function deltaTchPct(v: Pick<TotaisResumoDetalhado, "tchEst" | "tchRealParcial">): number | null {
-  return v.tchEst && v.tchEst > 0 && v.tchRealParcial > 0 ? round2((v.tchRealParcial / v.tchEst - 1) * 100) : null;
+export function deltaProjetadoPct(v: Pick<TotaisResumoDetalhado, "tonEst" | "tonProjetadaComEst">): number | null {
+  return v.tonEst > 0 && v.tonProjetadaComEst > 0 ? round2((v.tonProjetadaComEst / v.tonEst - 1) * 100) : null;
 }
 
 /** "+12,3%" / "-8,4%" (uma casa) ou "–". */
@@ -182,7 +185,7 @@ export function fmtDeltaPct(p: number | null): string {
 
 /** Soma linhas do resumo detalhado (TCHs ponderados pela área de cada um). */
 export function totaisResumoDetalhado(linhas: TotaisResumoDetalhado[]): TotaisResumoDetalhado {
-  let areaTotalHa = 0, areaComEst = 0, tonEst = 0, areaColhidaHa = 0, producaoTotalT = 0, areaAColherHa = 0, tonAColher = 0, tonProjetada = 0;
+  let areaTotalHa = 0, areaComEst = 0, tonEst = 0, areaColhidaHa = 0, producaoTotalT = 0, areaAColherHa = 0, tonAColher = 0, tonProjetada = 0, tonProjetadaComEst = 0;
   for (const l of linhas) {
     areaTotalHa += l.areaTotalHa;
     if (l.tchEst !== null) areaComEst += l.areaTotalHa;
@@ -192,6 +195,7 @@ export function totaisResumoDetalhado(linhas: TotaisResumoDetalhado[]): TotaisRe
     areaAColherHa += l.areaAColherHa;
     tonAColher += l.tonAColher;
     tonProjetada += l.tonProjetada;
+    tonProjetadaComEst += l.tonProjetadaComEst;
   }
   return {
     areaTotalHa: round2(areaTotalHa),
@@ -204,6 +208,7 @@ export function totaisResumoDetalhado(linhas: TotaisResumoDetalhado[]): TotaisRe
     tchAColher: areaAColherHa > 0 && tonAColher > 0 ? round2(tonAColher / areaAColherHa) : null,
     tonAColher: round2(tonAColher),
     tonProjetada: round2(tonProjetada),
+    tonProjetadaComEst: round2(tonProjetadaComEst),
   };
 }
 
@@ -257,6 +262,7 @@ export function resumoDetalhadoPorOrdemFazenda(
         tchAColherEstimado: tchAColher !== null && !(tchRealParcial > 0),
         tonAColher,
         tonProjetada: round2(producaoTotalT + tonAColher),
+        tonProjetadaComEst: tchEst !== null ? round2(producaoTotalT + tonAColher) : 0,
       });
     }
   }
