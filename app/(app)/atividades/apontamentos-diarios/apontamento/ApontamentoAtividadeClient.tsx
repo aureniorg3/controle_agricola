@@ -124,6 +124,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   const gravarRef = useRef<HTMLButtonElement>(null);
   const [verificar, setVerificar] = useState(false);
   const [whatsapp, setWhatsapp] = useState(false);
+  /** texto do campo Operação enquanto se digita (null = mostra "código · descrição") */
+  const [opDigitado, setOpDigitado] = useState<string | null>(null);
 
   // lista
   const [de, setDe] = useState(addDays(todayISO(), -6));
@@ -368,11 +370,16 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
     upd({ opCod: cod, opDs: o?.ds ?? "", etapaCod: o?.etapaCod ?? "", tipoAplicacao: o?.tipoDs || o?.tipoCod || form.tipoAplicacao, areas: {}, marcados: {} });
   }
 
-  /** Sem O.S.: o campo de operação aceita "código · descrição" da lista ou o código digitado. */
+  /**
+   * Sem O.S.: o campo de operação aceita "código · descrição" da lista ou o código digitado; a descrição vem do cadastro
+   * Operações (o código vale com ou sem zeros à esquerda). O texto digitado fica como está até sair do campo.
+   */
   function escolherOperacao(v: string) {
+    setOpDigitado(v);
     const cod = v.split("·")[0].trim();
-    const o = opcoes?.operacoes.find((x) => x.cod === cod);
-    upd({ opCod: cod, opDs: o?.ds ?? "", etapaCod: form.etapaCod || o?.etapaCod || "" });
+    const norm = (c: string) => c.trim().replace(/^0+(?=\d)/, "");
+    const o = cod ? opcoes?.operacoes.find((x) => norm(x.cod) === norm(cod)) : undefined;
+    upd({ opCod: o?.cod ?? cod, opDs: o?.ds ?? "", etapaCod: form.etapaCod || o?.etapaCod || "" });
   }
 
   const linhas: Linha[] = useMemo(() => {
@@ -426,6 +433,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   }
 
   function limpar() {
+    setOpDigitado(null);
     setForm(formVazio());
     setOsInfo(null);
     setErroOS(null);
@@ -516,6 +524,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
   }
 
   function editar(a: ApontamentoDiario) {
+    setOpDigitado(null);
     setMsg(null);
     const semOS = !a.os;
     const areas = Object.fromEntries(a.talhoes.map((t) => [chaveTalhao(t.propCod, t.tlh), texto(t.area)]));
@@ -691,7 +700,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                 <label className={ROTULO}>{rot("operacao", "Operação")}</label>
                 {comOS ? (
                   <select data-nav value={form.opCod} onChange={(e) => trocarOperacao(e.target.value)} className={INPUT}>
-                    {osInfo?.operacoes.map((o) => (
+                    {[...(osInfo?.operacoes ?? [])].sort((a, b) => a.cod.localeCompare(b.cod, undefined, { numeric: true })).map((o) => (
                       <option key={o.cod} value={o.cod}>
                         {o.cod} · {o.ds || "sem descrição"}
                       </option>
@@ -702,12 +711,18 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }: { pe
                     <input
                       data-nav
                       list="operacoes-ap"
-                      value={form.opCod ? `${form.opCod}${form.opDs ? ` · ${form.opDs}` : ""}` : ""}
+                      value={opDigitado ?? (form.opCod ? `${form.opCod}${form.opDs ? ` · ${form.opDs}` : ""}` : "")}
                       onChange={(e) => escolherOperacao(e.target.value)}
+                      onBlur={() => setOpDigitado(null)}
                       placeholder="Código ou escolha da lista"
                       className={INPUT}
                       aria-label="Operação"
                     />
+                    {opDigitado !== null && form.opCod && (
+                      <div className={`mt-0.5 truncate text-[11px] ${form.opDs ? "text-good-600" : "text-alert-600"}`}>
+                        {form.opDs ? form.opDs : "Código não encontrado no cadastro Operações"}
+                      </div>
+                    )}
                     <datalist id="operacoes-ap">
                       {opcoes?.operacoes.map((o) => (
                         <option key={o.cod} value={`${o.cod} · ${o.ds}`} />

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { SESSION_COOKIE_NAME, verificarTokenSessao } from "@/lib/auth";
 import { diagnosticoArmazenamento, getUsuarioPorId } from "@/lib/db";
+import { limparEspacosUmaVez } from "@/lib/db-limpeza";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
@@ -22,6 +23,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const armazenamento = diagnosticoArmazenamento();
+  // limpeza única dos espaços nas pontas dos códigos e textos (roda em segundo plano, uma vez só)
+  if (armazenamento.persistente) void limparEspacosUmaVez();
 
   return (
     <AppShell

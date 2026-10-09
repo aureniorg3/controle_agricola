@@ -583,7 +583,7 @@ export async function opcoesApontamento(): Promise<OpcoesApontamento> {
   const operacoes = [
     ...[...cadOps.values()].map((o) => ({ cod: o.cod, ds: o.nm, etapaCod: daOrigem.get(codigoOperacao(o.cod))?.etapa ?? "" })),
     ...ops.rows.filter((r) => !cadOps.has(codigoOperacao(r.cod))).map((r) => ({ cod: r.cod, ds: r.ds, etapaCod: r.etapa })),
-  ].sort((a, b) => a.ds.localeCompare(b.ds) || a.cod.localeCompare(b.cod, undefined, { numeric: true }));
+  ].sort((a, b) => a.cod.localeCompare(b.cod, undefined, { numeric: true }) || a.ds.localeCompare(b.ds));
   return {
     operacoes,
     etapas: etapas.rows,
