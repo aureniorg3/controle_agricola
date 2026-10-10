@@ -2,7 +2,6 @@
 
 import { Fragment, useEffect, useState } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
-import BotaoLog from "@/components/BotaoLog";
 import { IconImportar, IconImprimir } from "@/components/icons";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina } from "@/components/pagina";
 import { GRUPOS_PADRAO_ESTOQUE, totaisEstoque } from "@/lib/estoque-insumos";
@@ -102,7 +101,6 @@ export default function EstoqueClient({ perfil, nomeUsuario }) {
             <Comando icone={<IconImprimir size={16} />} onClick={gerarPdf} disabled={!dados?.dt || gerandoPdf || linhas.length === 0}>
               {gerandoPdf ? "Gerando…" : "Gerar PDF"}
             </Comando>
-            <BotaoLog titulo="Log do Estoque Insumos" filtro={{ modulo: "Insumos", entidade: "Estoque Insumos" }} />
           </>
         }
       />

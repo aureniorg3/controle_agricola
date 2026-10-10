@@ -1,11 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import AuditoriaModal, { fmtDataHora } from "@/components/AuditoriaModal";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
-import { IconHistorico } from "@/components/icons";
-import { Comando, Painel } from "@/components/pagina";
-import { fmtDateBR, fmtHa } from "@/lib/format";
+import { Painel } from "@/components/pagina";
+import { fmtDataHora, fmtDateBR, fmtHa } from "@/lib/format";
 import { ratearArea } from "@/lib/rateio";
 
 import { ehUmDe, usarPersistido } from "@/lib/usar-persistido";
@@ -43,7 +41,6 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
   const [filtroOrdem, setFiltroOrdem] = useState("");
   const [de, setDe] = useState("");
   const [ate, setAte] = useState("");
-  const [logAberto, setLogAberto] = useState(null);
 
   const ordem = useMemo(() => ordens.find((o) => o.numero === ordemNum.trim()), [ordens, ordemNum]);
   const opcoes = useMemo(
@@ -272,7 +269,7 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
   }
 
   async function excluirLancamento(l) {
-    if (!window.confirm(`Excluir a área colhida de ${l.area.toLocaleString("pt-BR")} ha do talhão ${l.tlh} em ${fmtDateBR(l.dt)}? Fica registrado no log.`))
+    if (!window.confirm(`Excluir a área colhida de ${l.area.toLocaleString("pt-BR")} ha do talhão ${l.tlh} em ${fmtDateBR(l.dt)}? Fica registrado no Log de Alterações.`))
       return;
     setErro(null);
     const res = await fetch("/api/area-colhida", {
@@ -526,15 +523,7 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
         </div>
       </section>
 
-      <Painel
-        semEspaco
-        titulo="Histórico de lançamentos"
-        acoes={
-          <Comando icone={<IconHistorico size={16} />} onClick={() => setLogAberto({ q: filtroOrdem.trim() ? `Ordem ${filtroOrdem.trim()} ·` : undefined })}>
-            Log de alterações
-          </Comando>
-        }
-      >
+      <Painel semEspaco titulo="Histórico de lançamentos">
         <div className="flex flex-wrap items-end gap-3 border-b border-line px-4 py-3">
           <div>
             <label className={ROTULO}>Ordem</label>
@@ -681,14 +670,6 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
           </table>
         </div>
       </Painel>
-
-      {logAberto && (
-        <AuditoriaModal
-          titulo="Log da área colhida"
-          filtro={{ modulo: "Colheita", entidade: "Área colhida", q: logAberto.q }}
-          onFechar={() => setLogAberto(null)}
-        />
-      )}
     </div>
   );
 }

@@ -2,7 +2,6 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
-import BotaoLog from "@/components/BotaoLog";
 import { IconAjustes, IconImprimir, IconSetaDireita, IconSetaEsquerda } from "@/components/icons";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
 import { GRUPO_OUTRAS } from "@/lib/dashboard-atividades";
@@ -77,7 +76,6 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }) {
                 Grupos das operações
               </Comando>
             )}
-            <BotaoLog titulo="Log dos Grupos de Operações" filtro={{ modulo: "Cadastros", entidade: "Cadastro de Grupos de Operações" }} />
           </>
         }
       />
@@ -371,7 +369,7 @@ function GruposModal({ onFechar, onAlterado }) {
               <a href="/configuracoes/cadastros/grupos-operacoes" className="font-medium text-brand-700 underline-offset-2 hover:underline">
                 Grupos de Operações
               </a>
-              ; vale na hora e fica no log. Só operações do cadastro Operações podem ter grupo.
+              ; vale na hora e fica no Log de Alterações. Só operações do cadastro Operações podem ter grupo.
             </p>
           </div>
           <button

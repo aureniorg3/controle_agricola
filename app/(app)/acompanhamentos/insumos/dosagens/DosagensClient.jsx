@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import BotaoLog from "@/components/BotaoLog";
 import { BarraFiltros, CabecalhoPagina, CorpoPagina, Pagina } from "@/components/pagina";
 import { validarDosagem } from "@/lib/dosagens";
 import { podeEditar } from "@/lib/permissoes";
@@ -184,7 +183,7 @@ export default function DosagensClient({ perfil }) {
   }
 
   async function excluir(d) {
-    if (!window.confirm(`Excluir a dosagem de ${d.ds || d.cod}? A exclusão fica registrada no log.`)) return;
+    if (!window.confirm(`Excluir a dosagem de ${d.ds || d.cod}? A exclusão fica registrada no Log de Alterações.`)) return;
     setErro(null);
     try {
       const res = await fetch("/api/insumos/dosagens", {
@@ -220,7 +219,6 @@ export default function DosagensClient({ perfil }) {
       <CabecalhoPagina
         titulo="Dosagens"
         categoria="Acompanhamentos · Insumos"
-        comandos={<BotaoLog titulo="Log das Dosagens" filtro={{ modulo: "Insumos", entidade: "Dosagem" }} />}
       />
 
       <CorpoPagina>
@@ -441,7 +439,7 @@ export default function DosagensClient({ perfil }) {
         </div>
         <p className="mt-2 text-[11.5px] text-muted">
           {lista.length > 0 ? `${filtradas.length} de ${lista.length} insumo(s) com dosagem. ` : ""}
-          Enter na dosagem salva a linha; o que for alterado fica no log.
+          Enter na dosagem salva a linha; o que for alterado fica no Log de Alterações (Configurações).
         </p>
       </CorpoPagina>
     </Pagina>

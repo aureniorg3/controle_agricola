@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import BotaoLog from "@/components/BotaoLog";
 import { CabecalhoPagina, CorpoPagina, Pagina, Painel } from "@/components/pagina";
 import { telasDoMenu } from "@/lib/menu";
 import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIS } from "@/lib/permissoes";
@@ -121,7 +120,6 @@ export default function ParametrosUsuariosClient({ usuariosIniciais, idLogado })
         <CabecalhoPagina
           titulo="Usuários"
           categoria="Configurações · Parâmetros"
-          comandos={<BotaoLog titulo="Log dos Parâmetros" filtro={{ modulo: "Parâmetros" }} />}
         />
 
         <CorpoPagina>

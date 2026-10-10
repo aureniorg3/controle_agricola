@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import BotaoLog from "@/components/BotaoLog";
 import { CabecalhoPagina, CorpoPagina, Pagina, Painel } from "@/components/pagina";
 import { CAMPOS_APONTAMENTO, REGRAS_PADRAO } from "@/lib/atividades";
 
@@ -39,7 +38,6 @@ export default function ParametrosApontamentoClient({ regrasIniciais }) {
       <CabecalhoPagina
         titulo="Apontamento Diário"
         categoria="Parâmetros"
-        comandos={<BotaoLog titulo="Log dos parâmetros do Apontamento Diário" filtro={{ modulo: "Parâmetros", entidade: "Apontamento Diário" }} />}
       />
 
       <CorpoPagina>

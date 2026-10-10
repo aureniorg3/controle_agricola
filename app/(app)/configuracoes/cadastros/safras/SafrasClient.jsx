@@ -3,10 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Campo } from "@/components/ui";
-import BotaoLog from "@/components/BotaoLog";
-import { fmtDataHora } from "@/components/AuditoriaModal";
 import { CabecalhoPagina, CorpoPagina, Pagina, Painel, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
-import { fmtDateBR } from "@/lib/format";
+import { fmtDataHora, fmtDateBR } from "@/lib/format";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 import { escolherSafraVigente } from "@/lib/safra-cadastro";
 
@@ -101,7 +99,6 @@ export default function SafrasClient({ safrasIniciais, perfil }) {
         titulo="Safras"
         categoria="Configurações · Cadastros"
         info={!podeGravar && <Selo>Somente leitura</Selo>}
-        comandos={<BotaoLog titulo="Log do cadastro de safras" filtro={{ modulo: "Configurações", entidade: "Cadastro de Safras" }} />}
       />
 
       <CorpoPagina>

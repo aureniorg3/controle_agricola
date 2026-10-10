@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import BotaoLog from "@/components/BotaoLog";
 import { IconMais } from "@/components/icons";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina } from "@/components/pagina";
 import { fmtDateBR, todayISO } from "@/lib/format";
@@ -221,7 +220,7 @@ export default function EmprestimosClient({ perfil }) {
   }
 
   async function excluir(e) {
-    if (!window.confirm(`Excluir o empréstimo #${e.id} (${e.fornNm})? A exclusão fica registrada no log.`)) return;
+    if (!window.confirm(`Excluir o empréstimo #${e.id} (${e.fornNm})? A exclusão fica registrada no Log de Alterações.`)) return;
     try {
       await chamar("DELETE", { id: e.id });
       setAberto(null);
@@ -317,7 +316,6 @@ export default function EmprestimosClient({ perfil }) {
                 Novo empréstimo
               </Comando>
             )}
-            <BotaoLog titulo="Log de Empréstimos de Insumos" filtro={{ modulo: "Insumos" }} />
           </>
         }
       />

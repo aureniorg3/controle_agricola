@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import BotaoLog from "@/components/BotaoLog";
 import { IconImportar, IconImprimir } from "@/components/icons";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
 import { fmtDateBR } from "@/lib/format";
@@ -220,7 +219,6 @@ export default function SaldoClient({ perfil, nomeUsuario }) {
             <Comando icone={<IconImprimir size={16} />} onClick={imprimir} disabled={gerando || !dados || matriz.grupos.length === 0}>
               {gerando ? "Gerando…" : "Imprimir / PDF"}
             </Comando>
-            <BotaoLog titulo="Log do Saldo de Insumos" filtro={{ modulo: "Insumos", entidade: "Saldo de insumos" }} />
           </>
         }
       />

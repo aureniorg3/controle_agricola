@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import BotaoLog from "@/components/BotaoLog";
 import ImportarWhatsappModal from "./ImportarWhatsappModal";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import { IconAtualizar, IconBusca, IconImportar } from "@/components/icons";
@@ -553,7 +552,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
 
   async function excluir(a) {
     const onde = a.os ? `O.S. ${a.os}` : "sem O.S.";
-    if (!window.confirm(`Excluir o boletim nº ${a.boletim ?? a.id} (${onde}, ${fmtDateBR(a.dt)})? A exclusão fica no log.`)) return;
+    if (!window.confirm(`Excluir o boletim nº ${a.boletim ?? a.id} (${onde}, ${fmtDateBR(a.dt)})? A exclusão fica no Log de Alterações.`)) return;
     const res = await fetch("/api/atividades/apontamentos", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -624,7 +623,6 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                 Verificar O.S.
               </Comando>
             )}
-            <BotaoLog titulo="Log dos Apontamentos Diários" filtro={{ modulo: "Atividades" }} />
           </>
         }
       />

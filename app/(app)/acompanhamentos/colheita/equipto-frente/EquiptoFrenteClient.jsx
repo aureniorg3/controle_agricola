@@ -4,10 +4,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Campo } from "@/components/ui";
 import { frenteDoEquipamento } from "@/lib/conferencia";
-import BotaoLog from "@/components/BotaoLog";
-import { fmtDataHora } from "@/components/AuditoriaModal";
 import { CabecalhoPagina, CorpoPagina, Pagina, Painel, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
-import { fmtDateBR, todayISO } from "@/lib/format";
+import { fmtDataHora, fmtDateBR, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 
 import { ehTexto, usarPersistido } from "@/lib/usar-persistido";
@@ -113,7 +111,6 @@ export default function EquiptoFrenteClient({ lancamentosIniciais, frentes, nome
         titulo="Equipto Frente"
         categoria="Acompanhamentos · Colheita"
         info={!podeGravar && <Selo>Somente leitura</Selo>}
-        comandos={<BotaoLog titulo="Log do Equipto Frente" filtro={{ modulo: "Colheita", entidade: "Equipto Frente" }} />}
       />
 
       <CorpoPagina>

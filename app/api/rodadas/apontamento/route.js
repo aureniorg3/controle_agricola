@@ -6,7 +6,6 @@ import {
   excluirBoletim,
   gravarBoletim,
   listarCodigos,
-  listarLogBoletins,
   obterBoletim,
   proximoBoletim,
   responsavelDaRegiao,
@@ -33,10 +32,6 @@ export async function GET(req) {
     const b = await obterBoletim(n);
     if (!b) return NextResponse.json({ error: `Boletim ${n} não encontrado.` }, { status: 404 });
     return NextResponse.json({ boletim: b });
-  }
-  if (req.nextUrl.searchParams.get("log") === "1") {
-    const n = Number(req.nextUrl.searchParams.get("bol"));
-    return NextResponse.json({ log: await listarLogBoletins(Number.isInteger(n) && n > 0 ? n : undefined) });
   }
   const lista = req.nextUrl.searchParams.get("lista");
   if (lista) {

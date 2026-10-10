@@ -3,11 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Campo, ModalShell } from "@/components/ui";
-import BotaoLog from "@/components/BotaoLog";
-import { fmtDataHora } from "@/components/AuditoriaModal";
 import { IconImportar } from "@/components/icons";
 import { CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
-import { fmtDateBR, fmtT, todayISO } from "@/lib/format";
+import { fmtDataHora, fmtDateBR, fmtT, todayISO } from "@/lib/format";
 import { metaDoDia } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -123,8 +121,6 @@ export default function MetasClient({ metasIniciais, frentes, perfil }) {
                 Importar
               </Comando>
             )}
-            <BotaoLog titulo="Log das metas" rotulo="Log das metas" filtro={{ modulo: "Colheita", entidade: "Meta" }} />
-            <BotaoLog titulo="Log da atividade das frentes" rotulo="Log da atividade" filtro={{ modulo: "Colheita", entidade: "Atividade da frente" }} />
           </>
         }
       />

@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconBusca, IconHistorico } from "@/components/icons";
-import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Pagina, Selo } from "@/components/pagina";
+import { IconBusca } from "@/components/icons";
+import { BarraFiltros, CabecalhoPagina, CorpoPagina, Pagina, Selo } from "@/components/pagina";
 import { fmtDateBR, fmtHa, todayISO } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
 
@@ -33,12 +33,6 @@ const TITULO_CAMPO = {
 };
 
 /** Resultado de uma consulta de código: nm = descrição; null = não cadastrado; vazio = o cadastro ainda não tem itens. */
-/** "2026-10-05T08:41:20" -> "05/10/2026 08:41:20" */
-function fmtDataHora(iso) {
-  const [d, h] = iso.split("T");
-  return `${fmtDateBR(d)} ${h ?? ""}`.trim();
-}
-
 /** Cor sugerida pela descrição do nível/prioridade (verde = baixo, âmbar = médio, vermelho = alto). */
 function corPorDescricao(nm) {
   const t = nm.toLowerCase();
@@ -82,7 +76,6 @@ export default function ApontamentoClient({ perfil }) {
   const [buscaBol, setBuscaBol] = useState("");
   const [editando, setEditando] = useState(null);
   const [importadoVisto, setImportadoVisto] = useState(null);
-  const [logAberto, setLogAberto] = useState(null);
 
   const carregarBoletim = useCallback(async () => {
     const res = await fetch("/api/rodadas/apontamento", { cache: "no-store" });
@@ -326,7 +319,7 @@ export default function ApontamentoClient({ perfil }) {
   }
 
   async function excluirBoletimAberto(bol) {
-    if (!window.confirm(`Excluir o boletim ${bol}? A exclusão fica registrada no log com data, hora e usuário.`)) return;
+    if (!window.confirm(`Excluir o boletim ${bol}? A exclusão fica registrada no Log de Alterações, com data, hora e usuário.`)) return;
     setErro(null);
     const res = await fetch("/api/rodadas/apontamento", {
       method: "DELETE",
@@ -398,7 +391,7 @@ export default function ApontamentoClient({ perfil }) {
       if (!res.ok) throw new Error(j.error ?? "Não foi possível gravar o boletim.");
       if (editando) {
         sairDoBoletim();
-        setAviso(`Boletim ${j.bol} alterado (semana ${j.sem}). A alteração ficou registrada no log.`);
+        setAviso(`Boletim ${j.bol} alterado (semana ${j.sem}). A alteração ficou registrada no Log de Alterações.`);
         await carregarBoletim();
         setTimeout(() => focar(0), 50);
       } else {
@@ -512,11 +505,6 @@ export default function ApontamentoClient({ perfil }) {
         titulo="Apontamento"
         categoria="Rodadas de Campo"
         info={!podeGravar && <Selo>Somente leitura</Selo>}
-        comandos={
-          <Comando icone={<IconHistorico size={16} />} onClick={() => setLogAberto({})}>
-            Log de alterações
-          </Comando>
-        }
       />
 
       <CorpoPagina>
@@ -555,9 +543,6 @@ export default function ApontamentoClient({ perfil }) {
             <span className="font-semibold">
               Editando o boletim {editando.bol} · lançado por {editando.usr || "—"} em {fmtDateBR(dt)}.
             </span>
-            <button type="button" onClick={() => setLogAberto({ bol: editando.bol })} className="ml-auto font-semibold underline">
-              Ver log deste boletim
-            </button>
           </div>
         )}
         {importadoVisto && (
@@ -575,13 +560,6 @@ export default function ApontamentoClient({ perfil }) {
                 className="rounded-md border border-alert-500/50 bg-card px-3 py-1.5 text-[12.5px] font-semibold text-alert-700 hover:bg-alert-50 disabled:opacity-50"
               >
                 Excluir boletim
-              </button>
-              <button
-                type="button"
-                onClick={() => setLogAberto({ bol: importadoVisto.bol })}
-                className="rounded-md border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-surface"
-              >
-                Ver log
               </button>
               <button
                 type="button"
@@ -882,8 +860,6 @@ export default function ApontamentoClient({ perfil }) {
         </div>
       </CorpoPagina>
 
-      {logAberto && <LogModal bol={logAberto.bol} onFechar={() => setLogAberto(null)} />}
-
       {seletor && (
         <Seletor
           titulo={TITULO_CAMPO[seletor]}
@@ -893,69 +869,6 @@ export default function ApontamentoClient({ perfil }) {
         />
       )}
     </Pagina>
-  );
-}
-
-/** Log de inclusões, alterações e exclusões: data, hora e usuário de cada ação. */
-function LogModal({ bol, onFechar }) {
-  const [linhas, setLinhas] = useState(null);
-  const [erro, setErro] = useState(null);
-
-  useEffect(() => {
-    fetch(`/api/rodadas/apontamento?log=1${bol ? `&bol=${bol}` : ""}`, { cache: "no-store" })
-      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
-      .then(({ ok, j }) => (ok ? setLinhas(j.log) : setErro(j.error ?? "Não foi possível carregar o log.")))
-      .catch(() => setErro("Não foi possível carregar o log."));
-  }, [bol]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-3">
-      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col rounded-xl2 bg-card p-4 shadow-pop md:p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-[15px] font-bold text-ink">{bol ? `Log do boletim ${bol}` : "Log de alterações dos boletins (últimos 200)"}</h3>
-          <button type="button" onClick={onFechar} aria-label="Fechar" className="px-1 text-[20px] leading-none text-muted">
-            ×
-          </button>
-        </div>
-        <div className="min-h-[120px] flex-1 overflow-auto rounded-md border border-line">
-          {erro ? (
-            <p className="px-3 py-4 text-[12.5px] text-alert-600">{erro}</p>
-          ) : linhas === null ? (
-            <p className="px-3 py-4 text-[12.5px] text-muted">Carregando…</p>
-          ) : linhas.length === 0 ? (
-            <p className="px-3 py-4 text-[12.5px] text-muted">Nenhum registro no log.</p>
-          ) : (
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="border-b border-line bg-navy-900 text-left text-white">
-                  <th className="whitespace-nowrap px-3 py-2 font-semibold">Data e hora</th>
-                  <th className="px-3 py-2 font-semibold">Ação</th>
-                  <th className="px-3 py-2 font-semibold">Usuário</th>
-                  <th className="px-3 py-2 text-right font-semibold">Boletim</th>
-                  <th className="px-3 py-2 font-semibold">Detalhes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linhas.map((l, i) => (
-                  <tr key={l.id} className={`border-b border-line/60 align-top ${i % 2 === 1 ? "bg-surface" : "bg-card"}`}>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-ink">{fmtDataHora(l.em)}</td>
-                    <td className="whitespace-nowrap px-3 py-1.5 font-semibold text-ink">{l.acao}</td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-ink">{l.usuario}</td>
-                    <td className="px-3 py-1.5 text-right tabular text-ink">{l.bol}</td>
-                    <td className="min-w-[260px] px-3 py-1.5 text-muted">{l.resumo}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-        <div className="mt-3 flex justify-end">
-          <button type="button" onClick={onFechar} className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white">
-            Fechar
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

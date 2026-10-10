@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { createContext, useContext } from "react";
+import { Children, createContext, Fragment, isValidElement, useContext } from "react";
 import { caminhoDaTela } from "@/lib/menu";
 import { IconSetaEsquerda } from "./icons";
 
@@ -46,7 +46,8 @@ export function CabecalhoPagina({ titulo, categoria, comandos, info, abas, child
   const { anterior, voltar } = useContext(ContextoVoltar);
   const local = caminhoDaTela(pathname ?? "/");
   const trilha = local && (local.secao || local.grupos.length) ? [local.secao, ...local.grupos].filter(Boolean) : categoria ? [categoria] : [];
-  const temBarra = !!anterior || !!comandos;
+  const temComandos = temConteudo(comandos);
+  const temBarra = !!anterior || temComandos;
   return (
     <div className="flex-shrink-0">
       {temBarra && (
@@ -65,7 +66,7 @@ export function CabecalhoPagina({ titulo, categoria, comandos, info, abas, child
                 </span>
                 <span className="hidden sm:inline">Voltar</span>
               </button>
-              {comandos && <SeparadorComandos />}
+              {temComandos && <SeparadorComandos />}
             </>
           )}
           {comandos}
@@ -82,6 +83,14 @@ export function CabecalhoPagina({ titulo, categoria, comandos, info, abas, child
       {children}
     </div>
   );
+}
+
+/** O nó desenha alguma coisa? (um fragmento só com condições falsas não desenha nada) */
+function temConteudo(no) {
+  if (no === null || no === undefined || no === false || no === true || no === "") return false;
+  if (Array.isArray(no)) return no.some(temConteudo);
+  if (isValidElement(no) && no.type === Fragment) return Children.toArray(no.props.children).some(temConteudo);
+  return true;
 }
 
 /** Classes de um comando da barra (para `<label>` de envio de arquivo e outros elementos que não são `<Comando>`). */

@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Campo, ModalShell } from "@/components/ui";
-import BotaoLog from "@/components/BotaoLog";
-import { fmtDataHora } from "@/components/AuditoriaModal";
+import { fmtDataHora } from "@/lib/format";
 import { IconEditar, IconImportar, IconMais } from "@/components/icons";
 import { Abas, CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, Selo } from "@/components/pagina";
 import { CADASTROS_SPEC, specPorNomeArquivo, specPorSlug } from "@/lib/cadastros-spec";
@@ -152,7 +151,6 @@ export default function CadastroClient({ slug, perfil, categoria = "Configura√ß√
                 {spec.ajuste.rotulo}
               </Comando>
             )}
-            <BotaoLog titulo={`Log do cadastro de ${spec.titulo}`} filtro={{ modulo: "Cadastros", entidade: `Cadastro de ${spec.titulo}` }} />
           </>
         }
         abas={
