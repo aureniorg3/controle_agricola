@@ -48,7 +48,7 @@ export default function BarraSuperior({ usuario, onMenu, onBuscar }) {
   }
 
   return (
-    <header className="barra-crv print-hide relative z-40 flex h-[54px] flex-shrink-0 items-center gap-1 border-b-[3px] border-crv-verde bg-navy-900 pl-1.5 pr-2 text-white md:pr-3">
+    <header className="barra-crv print-hide relative z-40 flex h-[60px] flex-shrink-0 items-center gap-1 border-b-[3px] border-crv-verde bg-navy-900 pl-1.5 pr-2 text-white md:pr-3">
       <button
         type="button"
         onClick={onMenu}
@@ -140,7 +140,7 @@ export default function BarraSuperior({ usuario, onMenu, onBuscar }) {
 
       <span className="mx-1.5 hidden h-6 w-px bg-white/20 sm:block" aria-hidden="true" />
       <Link href="/painel" className="hidden flex-shrink-0 sm:block" aria-label="CRV Industrial · ir para o Início">
-        <img src="/logo-crv-branca-pdf.png" alt="CRV Industrial" className="h-[30px] w-auto" />
+        <img src="/logo-crv-branca-pdf.png" alt="CRV Industrial" className="h-[33px] w-auto" />
       </Link>
     </header>
   );

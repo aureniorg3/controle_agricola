@@ -159,7 +159,7 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
   return (
     <aside className={`menu-crv flex h-full flex-shrink-0 flex-col bg-navy-900 text-white transition-[width] duration-200 ${largura}`}>
       {gaveta && (
-        <div className="flex h-[54px] flex-shrink-0 items-center gap-2 border-b-[3px] border-crv-verde pl-4 pr-2">
+        <div className="flex h-[60px] flex-shrink-0 items-center gap-2 border-b-[3px] border-crv-verde pl-4 pr-2">
           <span className="flex-1 font-display text-[19px] font-semibold">Controle Agrícola</span>
           <button type="button" onClick={onFechar} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/10" aria-label="Fechar menu">
             <IconFechar size={18} />
