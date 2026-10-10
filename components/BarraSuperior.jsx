@@ -48,7 +48,7 @@ export default function BarraSuperior({ usuario, onMenu, onBuscar }) {
   }
 
   return (
-    <header className="barra-crv print-hide relative z-40 flex h-[51px] flex-shrink-0 items-center gap-1 border-b-[3px] border-crv-verde bg-navy-900 pl-1.5 pr-2 text-white md:pr-3">
+    <header className="barra-crv print-hide relative z-40 flex h-[54px] flex-shrink-0 items-center gap-1 border-b-[3px] border-crv-verde bg-navy-900 pl-1.5 pr-2 text-white md:pr-3">
       <button
         type="button"
         onClick={onMenu}
