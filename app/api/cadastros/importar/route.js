@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { auditar } from "@/lib/auditar";
 import { getPool, sincronizarDescricaoFazendas, upsertCadastroLote, usuarioDaRequisicao } from "@/lib/db";
+import { sincronizarGruposOperacoes } from "@/lib/db-dashboard-atividades";
 import { specPorSlug } from "@/lib/cadastros-spec";
 import { lerCadastro, lerCadastroGrande } from "@/lib/cadastros-import";
-import { resolverReferencias } from "@/lib/cadastros-ref";
+import { resolverReferencias, separarNomesRepetidos } from "@/lib/cadastros-ref";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 export const runtime = "nodejs";
@@ -65,20 +66,41 @@ export async function POST(req) {
         continue;
       }
       // colunas que apontam para outro cadastro (ex.: Região) são conferidas; linhas com código inexistente ficam de fora
+      // (as `refLivre`, como o Tipo em Operações, não são conferidas)
       const avisos = [...lido.avisos];
       let itens = lido.itens;
-      if (spec.colunas.some((c) => c.ref)) {
-        const validos = [];
+      if (spec.colunas.some((c) => c.ref && !c.refLivre)) {
+        const validos = new Map();
         const recusados = [];
+        let juntadas = 0;
         for (const it of itens) {
           const erroRef = await resolverReferencias(spec, it.dados);
-          if (erroRef) recusados.push(`${it.cod}: ${erroRef}`);
-          else validos.push(it);
+          if (erroRef) {
+            recusados.push(`${it.cod}: ${erroRef}`);
+            continue;
+          }
+          // código e nome refeitos com a referência já resolvida: a operação como está no cadastro Operações ("045" → "45")
+          // e o nome do grupo do Grupo Op. Dashboard, não o texto/código digitado na planilha
+          const cod = spec.codigo(it.dados) || it.cod;
+          if (validos.has(cod)) juntadas++;
+          validos.set(cod, { ...it, cod, nm: spec.nome(it.dados) });
         }
         if (recusados.length > 0) {
           avisos.push(`${recusados.length} linha(s) não importada(s): ${recusados.slice(0, 5).join(" | ")}${recusados.length > 5 ? "…" : ""}`);
         }
-        itens = validos;
+        if (juntadas > 0) avisos.push(`${juntadas} linha(s) com o mesmo código depois de conferido no cadastro de origem — valeu a última de cada.`);
+        itens = [...validos.values()];
+      }
+      // nome que já está em outro código (ex.: o mesmo grupo com outra grafia no Grupo Op. Dashboard)
+      const nomes = await separarNomesRepetidos(spec, itens);
+      if (nomes.recusados.length > 0) {
+        avisos.push(
+          `${nomes.recusados.length} linha(s) não importada(s): ${nomes.recusados
+            .slice(0, 5)
+            .map((r) => `${r.cod}: ${r.erro}`)
+            .join(" | ")}${nomes.recusados.length > 5 ? "…" : ""}`,
+        );
+        itens = nomes.validos;
       }
       const { novos, atualizados } = await upsertCadastroLote(spec.slug, itens, usuario.nome);
       await auditar(getPool(), {
@@ -89,6 +111,7 @@ export async function POST(req) {
         acao: "importacao",
         depois: { lidos: itens.length, novos, atualizados, ajuste: ajustar && spec.ajuste ? spec.ajuste.rotulo : undefined },
       });
+      if (spec.slug === "grupos-dashboard") await sincronizarGruposOperacoes();
       if (spec.slug === "fazendas") {
         const sinc = await sincronizarDescricaoFazendas();
         const total = sinc.reduce((a, x) => a + x.linhas, 0);

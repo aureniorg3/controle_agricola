@@ -125,7 +125,7 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
       body: JSON.stringify({ cod: i.cod }),
     });
     if (res.ok) carregar();
-    else window.alert("Não foi possível excluir.");
+    else window.alert((await res.json().catch(() => ({}))).error ?? "Não foi possível excluir.");
   }
 
   return (
@@ -442,7 +442,12 @@ function EditarModal({ spec, aba, novo, item, onFechar, onSalvo }) {
                   ))}
                 </ul>
               )}
-              {c.ref && <p className="mt-0.5 text-[11px] text-muted">Código do cadastro de {c.ref === "regiao" ? "Região" : c.ref}; a descrição vem de lá.</p>}
+              {c.ref && (
+                <p className="mt-0.5 text-[11px] text-muted">
+                  Código do cadastro {specPorSlug(c.ref)?.titulo ?? c.ref}
+                  {c.aceitaNome ? " (ou o nome)" : ""}; a descrição vem de lá.
+                </p>
+              )}
             </div>
           ))}
         </div>

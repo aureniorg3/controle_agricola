@@ -22,7 +22,8 @@ export default async function CadastroPage({ params }) {
     // Classificação de Operações, Tipos de Despesa, Operações e Tipo Aplicação: carga dos relatórios exportados do sistema
     if (CADASTROS_COM_CARGA_EXPORTADA.includes(slug)) await carregarCadastrosExportados();
     // Grupos de Operações: os grupos do Dashboard de Atividades (a operação vem do cadastro Operações)
-    if (slug === "grupos-operacoes") await prepararGruposOperacoes();
+    // e o Grupo Op. Dashboard (os grupos digitados como texto passam para lá uma vez)
+    if (slug === "grupos-operacoes" || slug === "grupos-dashboard") await prepararGruposOperacoes();
     // Material e Insumos: dados de aplicação dos insumos (arquivo t_ins.xls), uma vez
     if (slug === "materiais-insumos") await carregarComplementoInsumos();
     const usuario = await usuarioAtual();

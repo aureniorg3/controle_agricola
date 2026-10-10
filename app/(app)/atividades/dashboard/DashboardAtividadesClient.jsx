@@ -316,13 +316,12 @@ function Vazio({ texto }) {
   );
 }
 
-/** Ajuste do grupo de cada operação (vale para o dashboard inteiro; cada alteração vai para o log). */
+/** Ajuste do grupo de cada operação (vale para o dashboard inteiro; cada alteração vai para o log). Os grupos vêm do cadastro Grupo Op. Dashboard. */
 function GruposModal({ onFechar, onAlterado }) {
   const [lista, setLista] = useState(null);
   const [busca, setBusca] = useState("");
   const [salvando, setSalvando] = useState(null);
   const [erro, setErro] = useState(null);
-  const [novo, setNovo] = useState(null);
 
   useEffect(() => {
     fetch("/api/atividades/dashboard/grupos", { cache: "no-store" })
@@ -343,7 +342,6 @@ function GruposModal({ onFechar, onAlterado }) {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
       setLista(j);
-      setNovo(null);
       onAlterado();
     } catch (e) {
       setErro(e instanceof Error && e.message ? e.message : "Não foi possível salvar o grupo.");
@@ -354,7 +352,7 @@ function GruposModal({ onFechar, onAlterado }) {
 
   const termo = busca.trim().toLowerCase();
   const ops = useMemo(
-    () => (lista?.operacoes ?? []).filter((o) => !termo || `${o.cod} ${o.ds} ${o.classificacao} ${o.grupo}`.toLowerCase().includes(termo)),
+    () => (lista?.operacoes ?? []).filter((o) => !termo || `${o.cod} ${o.ds} ${o.classificacao} ${o.grupoNome}`.toLowerCase().includes(termo)),
     [lista, termo],
   );
 
@@ -369,7 +367,12 @@ function GruposModal({ onFechar, onAlterado }) {
               <a href="/configuracoes/cadastros/grupos-operacoes" className="font-medium text-brand-700 underline-offset-2 hover:underline">
                 Grupos de Operações
               </a>
-              ; vale na hora e fica no Log de Alterações. Só operações do cadastro Operações podem ter grupo.
+              ; vale na hora e fica no Log de Alterações. Só operações do cadastro Operações podem ter grupo. Os grupos (nome e ordem no
+              dashboard) são os do cadastro{" "}
+              <a href="/configuracoes/cadastros/grupos-dashboard" className="font-medium text-brand-700 underline-offset-2 hover:underline">
+                Grupo Op. Dashboard
+              </a>
+              .
             </p>
           </div>
           <button
@@ -410,42 +413,19 @@ function GruposModal({ onFechar, onAlterado }) {
                     <td className="py-1">
                       {!o.noCadastro ? (
                         <span className="text-[11.5px] text-alert-600">Fora do cadastro Operações</span>
-                      ) : novo?.cod === o.cod ? (
-                        <form
-                          className="flex items-center gap-1.5"
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            if (novo.nome.trim()) salvar(o.cod, novo.nome);
-                          }}
-                        >
-                          <input
-                            autoFocus
-                            value={novo.nome}
-                            onChange={(e) => setNovo({ cod: o.cod, nome: e.target.value })}
-                            placeholder="Nome do novo grupo"
-                            className={`${FILTRO} w-48 py-1`}
-                          />
-                          <button type="submit" className="rounded-md bg-navy-900 px-2.5 py-1 text-[12px] font-medium text-white hover:bg-navy-800">
-                            Salvar
-                          </button>
-                          <button type="button" onClick={() => setNovo(null)} className="px-1.5 text-[12px] text-muted hover:text-ink">
-                            Cancelar
-                          </button>
-                        </form>
                       ) : (
                         <select
                           value={o.grupo}
                           disabled={salvando === o.cod}
-                          onChange={(e) => (e.target.value === "__novo" ? setNovo({ cod: o.cod, nome: "" }) : salvar(o.cod, e.target.value))}
-                          className={`${FILTRO} w-full py-1 ${o.grupo === GRUPO_OUTRAS ? "text-muted" : ""}`}
+                          onChange={(e) => salvar(o.cod, e.target.value)}
+                          className={`${FILTRO} w-full py-1 ${o.grupo === "" ? "text-muted" : ""}`}
                         >
                           {lista.grupos.map((g) => (
-                            <option key={g} value={g}>
-                              {g}
+                            <option key={g.cod} value={g.cod}>
+                              {g.nome}
                             </option>
                           ))}
-                          <option value={GRUPO_OUTRAS}>{GRUPO_OUTRAS}</option>
-                          <option value="__novo">+ Novo grupo…</option>
+                          <option value="">{GRUPO_OUTRAS}</option>
                         </select>
                       )}
                     </td>

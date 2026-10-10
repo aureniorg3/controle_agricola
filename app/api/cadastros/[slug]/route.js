@@ -10,8 +10,9 @@ import {
   usuarioDaRequisicao,
 } from "@/lib/db";
 import { specPorSlug } from "@/lib/cadastros-spec";
-import { atualizarReferenciasDaLista, resolverReferencias } from "@/lib/cadastros-ref";
+import { atualizarReferenciasDaLista, resolverReferencias, separarNomesRepetidos } from "@/lib/cadastros-ref";
 import { filtroDaAba, FILTROS_ABA } from "@/lib/cadastros-abas";
+import { operacoesDoGrupo, sincronizarGruposOperacoes } from "@/lib/db-dashboard-atividades";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 const TAMANHO_PAGINA = 50;
@@ -64,6 +65,9 @@ export async function POST(req, ctx) {
   if (!cod || cod === "|" || spec.chaves.some((k) => String(dados[k] ?? "").trim() === "")) {
     return NextResponse.json({ error: "Preencha o(s) campo(s) de código." }, { status: 400 });
   }
+  // nome que já está em outro código (ex.: o mesmo grupo com outra grafia no Grupo Op. Dashboard)
+  const [nomeRecusado] = (await separarNomesRepetidos(spec, [{ cod, nm: spec.nome(dados) }])).recusados;
+  if (nomeRecusado) return NextResponse.json({ error: `${spec.titulo}: ${nomeRecusado.erro}` }, { status: 400 });
   const anterior = (await listarCadastro(slug, cod, 1, 50)).itens.find((i) => i.cod === cod);
   if (!anterior && !podeIncluirCadastro(usuario.perfil)) {
     return NextResponse.json(
@@ -82,6 +86,7 @@ export async function POST(req, ctx) {
     depois: dados,
   });
   if (slug === "fazendas") await sincronizarDescricaoFazendas();
+  if (slug === "grupos-dashboard") await sincronizarGruposOperacoes();
   return NextResponse.json({ ok: true, cod });
 }
 
@@ -107,6 +112,8 @@ export async function PATCH(req, ctx) {
   const erroRef = await resolverReferencias(spec, dados);
   if (erroRef) return NextResponse.json({ error: erroRef }, { status: 400 });
   const nm = spec.nome({ ...existente.dados, ...dados });
+  const [nomeRecusado] = (await separarNomesRepetidos(spec, [{ cod, nm }])).recusados;
+  if (nomeRecusado) return NextResponse.json({ error: `${spec.titulo}: ${nomeRecusado.erro}` }, { status: 400 });
   await atualizarItemCadastro(slug, cod, nm, dados, usuario.nome);
   await auditar(getPool(), {
     usuario: usuario.nome,
@@ -118,6 +125,7 @@ export async function PATCH(req, ctx) {
     depois: { ...existente.dados, ...dados },
   });
   if (slug === "fazendas") await sincronizarDescricaoFazendas();
+  if (slug === "grupos-dashboard") await sincronizarGruposOperacoes();
   return NextResponse.json({ ok: true });
 }
 
@@ -131,7 +139,22 @@ export async function DELETE(req, ctx) {
   const body = await req.json().catch(() => null);
   const cod = typeof body?.cod === "string" ? body.cod : "";
   if (!cod) return NextResponse.json({ error: "Informe o item." }, { status: 400 });
-  const removido = (await listarCadastro(slug, cod, 1, 50)).itens.find((i) => i.cod === cod);
+  // grupo do dashboard em uso por alguma operação (Grupos de Operações) não sai
+  if (slug === "grupos-dashboard") {
+    const usos = await operacoesDoGrupo(cod);
+    if (usos.length > 0) {
+      return NextResponse.json(
+        {
+          error: `O grupo está em uso em ${usos.length} operação(ões) de Grupos de Operações (${usos.slice(0, 8).join(", ")}${usos.length > 8 ? "…" : ""}). Troque o grupo dessas operações antes de excluí-lo.`,
+        },
+        { status: 400 },
+      );
+    }
+  }
+  // o item pelo código exato (a busca da lista pode trazer outros 50 antes dele)
+  const linha = (await getPool().query("SELECT nm, dds FROM cad_itm WHERE cad = $1 AND cod = $2", [slug, cod])).rows[0];
+  if (!linha) return NextResponse.json({ error: "Item não encontrado (já pode ter sido excluído)." }, { status: 404 });
+  const removido = { nm: linha.nm, dados: linha.dds };
   await excluirItemCadastro(slug, cod);
   await auditar(getPool(), {
     usuario: usuario.nome,
