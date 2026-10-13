@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auditar } from "@/lib/auditar";
 import { getPool, sincronizarDescricaoFazendas, upsertCadastroLote, usuarioDaRequisicao } from "@/lib/db";
 import { sincronizarGruposOperacoes } from "@/lib/db-dashboard-atividades";
-import { specPorSlug } from "@/lib/cadastros-spec";
+import { specPorSlug, temValidacao, validarDadosCadastro } from "@/lib/cadastros-spec";
 import { lerCadastro, lerCadastroGrande } from "@/lib/cadastros-import";
 import { resolverReferencias, separarNomesRepetidos } from "@/lib/cadastros-ref";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
@@ -69,6 +69,21 @@ export async function POST(req) {
       // (as `refLivre`, como o Tipo em Operações, não são conferidas)
       const avisos = [...lido.avisos];
       let itens = lido.itens;
+      // lista fixa, números e regra própria do cadastro (ex.: faixas da Ocupação): linha que não passa fica de fora
+      if (temValidacao(spec)) {
+        const recusados = [];
+        itens = itens.flatMap((it) => {
+          const c = validarDadosCadastro(spec, it.dados);
+          if (c.erro) {
+            recusados.push(`${it.cod}: ${c.erro}`);
+            return [];
+          }
+          return [{ ...it, dados: c.dados }];
+        });
+        if (recusados.length > 0) {
+          avisos.push(`${recusados.length} linha(s) não importada(s): ${recusados.slice(0, 5).join(" | ")}${recusados.length > 5 ? "…" : ""}`);
+        }
+      }
       if (spec.colunas.some((c) => c.ref && !c.refLivre)) {
         const validos = new Map();
         const recusados = [];

@@ -15,7 +15,9 @@ export async function GET(req) {
   const os = req.nextUrl.searchParams.get("os");
   if (os === null) return NextResponse.json(await resumoBaseOS());
   const excluir = Number(req.nextUrl.searchParams.get("excluir"));
-  const r = await consultarOS(os, Number.isInteger(excluir) && excluir > 0 ? excluir : undefined);
+  // a área dos talhões vem da base Fazenda e Talhões da safra da data do apontamento
+  const dt = req.nextUrl.searchParams.get("dt") ?? undefined;
+  const r = await consultarOS(os, Number.isInteger(excluir) && excluir > 0 ? excluir : undefined, dt);
   if (!r)
     return NextResponse.json(
       { error: `O.S. ${os} não encontrada. Importe o Relatório de Ordens de Serviço atualizado em Ordem de Serviço Agr. › Ordens de Serviço.` },

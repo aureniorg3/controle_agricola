@@ -173,6 +173,50 @@ create table if not exists eqp_frt (
   unique (eqp, vig)
 );
 
+-- Base Fazenda e Talhões (Planejamento Agrícola): "Relatório de Talhões I" de cada
+-- safra, uma linha por fazenda × talhão × parte (a Área Talhão se repete em cada
+-- parte). Reimportar uma safra substitui todas as linhas dela. É a base de áreas
+-- dos apontamentos. Criada também em código (lib/db-talhoes.js).
+create table if not exists tlh_saf (
+  saf integer not null,
+  emp text not null default '',
+  prop_cod text not null,
+  prop_nm text not null default '',
+  bloco text not null default '',
+  tlh text not null,
+  letra text not null default '',
+  parte integer not null,
+  variedade text not null default '',
+  estagio integer,
+  ambiente text not null default '',
+  plantio date,
+  ult_corte date,
+  area_tlh numeric,
+  area_parte numeric,
+  finalidade text not null default '',
+  produtividade numeric,
+  prod_total numeric,
+  dist numeric,
+  esp numeric,
+  tipo_corte text not null default '',
+  primary key (saf, prop_cod, tlh, letra, parte)
+);
+create index if not exists idx_tlh_saf_faz on tlh_saf(prop_cod, tlh);
+
+-- Última importação de cada safra da base Fazenda e Talhões.
+create table if not exists tlh_saf_imp (
+  saf integer primary key,
+  emp text not null default '',
+  arquivo text not null default '',
+  fazendas integer not null default 0,
+  talhoes integer not null default 0,
+  partes integer not null default 0,
+  area_tlh numeric,
+  area_parte numeric,
+  atu_em timestamptz not null default now(),
+  atu_usr text not null default ''
+);
+
 -- Histórico de safras: relatório "Rendimentos e Estimativas de Talhões" de cada
 -- safra, uma linha por talhão (um talhão pode repetir com áreas parciais).
 -- Reimportar uma safra substitui todas as linhas dela.

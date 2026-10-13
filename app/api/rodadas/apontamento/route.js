@@ -40,7 +40,8 @@ export async function GET(req) {
   }
   const tlhFaz = req.nextUrl.searchParams.get("talhoes_faz");
   if (tlhFaz !== null) {
-    return NextResponse.json({ talhoes: await talhoesDaFazenda(tlhFaz) });
+    // `dt` (opcional): a área vem da base Fazenda e Talhões da safra dessa data
+    return NextResponse.json({ talhoes: await talhoesDaFazenda(tlhFaz, req.nextUrl.searchParams.get("dt") ?? undefined) });
   }
   const regResp = req.nextUrl.searchParams.get("resp_regiao");
   if (regResp !== null) {

@@ -1,11 +1,9 @@
-import PlaceholderPage from "@/components/PlaceholderPage";
+import { usuarioAtual } from "@/lib/db";
+import FazendasTalhoesClient from "./FazendasTalhoesClient";
 
-export default function Page() {
-  return (
-    <PlaceholderPage
-      categoria="Agricultura"
-      titulo="Fazenda e Talhões"
-      descricao="Cadastro de fazendas, áreas de produção e a ficha completa de cada talhão."
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const usuario = await usuarioAtual();
+  return <FazendasTalhoesClient perfil={usuario?.perfil ?? "leitura"} />;
 }

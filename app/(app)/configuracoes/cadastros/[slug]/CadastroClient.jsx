@@ -63,7 +63,7 @@ export default function CadastroClient({ slug, perfil, categoria = "Configura√ß√
       const dados = {};
       for (const c of colunas.filter(editavel)) {
         const v = (linha.valores[c.chave] ?? "").trim();
-        dados[c.chave] = v !== "" && /^-?\d+([.,]\d+)?$/.test(v) && c.alinhar === "direita" ? Number(v.replace(",", ".")) : v;
+        dados[c.chave] = v !== "" && /^-?\d+([.,]\d+)?$/.test(v) && c.alinhar === "direita" && !c.numero ? Number(v.replace(",", ".")) : v;
       }
       const res = await fetch(`/api/cadastros/${slug}`, {
         method: "PATCH",
@@ -222,7 +222,24 @@ export default function CadastroClient({ slug, perfil, categoria = "Configura√ß√
                     <tr key={i.cod} className={`border-b border-line last:border-0 ${emEdicao ? "bg-[#2E5FA8]/[0.06]" : ""}`}>
                       {colunas.map((c) => (
                         <td key={c.chave} className={`px-3 py-1.5 text-ink ${ALINHAR[c.alinhar ?? "esquerda"]}`}>
-                          {emEdicao && editavel(c) ? (
+                          {emEdicao && editavel(c) && c.opcoes ? (
+                            <select
+                              value={linha.valores[c.chave] ?? ""}
+                              onChange={(e) => setLinha((l) => (l ? { ...l, valores: { ...l.valores, [c.chave]: e.target.value } } : l))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") salvarLinha();
+                                if (e.key === "Escape") setLinha(null);
+                              }}
+                              className="w-full min-w-[120px] rounded border border-brand-600/50 bg-card px-1 py-0.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
+                            >
+                              <option value="" />
+                              {c.opcoes.map((o) => (
+                                <option key={o} value={o}>
+                                  {o}
+                                </option>
+                              ))}
+                            </select>
+                          ) : emEdicao && editavel(c) ? (
                             <input
                               value={linha.valores[c.chave] ?? ""}
                               onChange={(e) => setLinha((l) => (l ? { ...l, valores: { ...l.valores, [c.chave]: e.target.value } } : l))}
@@ -385,7 +402,7 @@ function EditarModal({ spec, aba, novo, item, onFechar, onSalvo }) {
       const dados = {};
       for (const c of colunasForm) {
         const v = valores[c.chave].trim();
-        dados[c.chave] = v !== "" && /^-?\d+([.,]\d+)?$/.test(v) && c.alinhar === "direita" ? Number(v.replace(",", ".")) : v;
+        dados[c.chave] = v !== "" && /^-?\d+([.,]\d+)?$/.test(v) && c.alinhar === "direita" && !c.numero ? Number(v.replace(",", ".")) : v;
       }
       const res = await fetch(`/api/cadastros/${spec.slug}`, {
         method: novo ? "POST" : "PATCH",
@@ -409,6 +426,21 @@ function EditarModal({ spec, aba, novo, item, onFechar, onSalvo }) {
           {colunasForm.map((c) => (
             <div key={c.chave} className="relative">
               <Campo label={c.rotulo}>
+                {c.opcoes ? (
+                  <select
+                    value={valores[c.chave]}
+                    onChange={(e) => setValores((v) => ({ ...v, [c.chave]: e.target.value }))}
+                    disabled={!novo && spec.chaves.includes(c.chave)}
+                    className={`${INPUT} disabled:bg-surface disabled:text-muted`}
+                  >
+                    <option value="">Escolha‚Ä¶</option>
+                    {c.opcoes.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
                 <input
                   value={valores[c.chave]}
                   onChange={(e) => {
@@ -421,6 +453,7 @@ function EditarModal({ spec, aba, novo, item, onFechar, onSalvo }) {
                   disabled={!novo && spec.chaves.includes(c.chave)}
                   className={`${INPUT} disabled:bg-surface disabled:text-muted`}
                 />
+                )}
               </Campo>
               {c.ref && sugestoes?.chave === c.chave && sugestoes.itens.length > 0 && (
                 <ul className="absolute left-0 right-0 z-10 mt-1 max-h-48 overflow-y-auto rounded-md border border-line bg-card shadow-pop">

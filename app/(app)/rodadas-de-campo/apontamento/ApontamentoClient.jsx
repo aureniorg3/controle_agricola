@@ -787,7 +787,7 @@ export default function ApontamentoClient({ perfil }) {
             {talhoes.length === 0 ? (
               <p className="text-[12.5px] text-muted">
                 {faz.trim()
-                  ? "Nenhum talhão encontrado para esta fazenda. Importe o cadastro de talhões da safra (Histórico de Safras) para listá-los aqui."
+                  ? "Nenhum talhão encontrado para esta fazenda. Importe o Relatório de Talhões da safra em Planejamento Agrícola › Fazenda e Talhões para listá-los aqui."
                   : "Informe a fazenda para listar os talhões."}
               </p>
             ) : (
@@ -797,6 +797,7 @@ export default function ApontamentoClient({ perfil }) {
                   return (
                     <label
                       key={t.tlh}
+                      title={t.producao === false ? t.ocupacao : undefined}
                       className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-[12.5px] ${
                         on ? "border-brand-600 bg-brand-50 text-brand-800" : "border-line bg-card text-ink hover:bg-surface"
                       }`}

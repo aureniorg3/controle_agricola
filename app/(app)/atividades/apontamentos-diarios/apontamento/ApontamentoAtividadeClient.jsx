@@ -7,6 +7,7 @@ import { CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, rolarCorpoParaOT
 import { camposFaltando, chaveTalhao, ratearArea, REGRAS_PADRAO, round2 } from "@/lib/atividades";
 
 import { fmtDateBR, todayISO } from "@/lib/format";
+import { normTlh } from "@/lib/ocupacao";
 import { addDays } from "@/lib/period";
 
 import { podeEditar } from "@/lib/permissoes";
@@ -27,6 +28,9 @@ const corStatus = (s) => (/encerr/i.test(s) ? "bg-surface text-muted" : /liber/i
 
 let seqLinha = 0;
 const novaChave = () => `l${++seqLinha}`;
+
+/** o talhão digitado na lista da fazenda (base Fazenda e Talhões): "01" = "1" */
+const talhaoDaFazenda = (f, tlh) => (f && String(tlh ?? "").trim() ? f.talhoes.find((t) => normTlh(t.tlh) === normTlh(tlh)) : undefined);
 
 /** Linha da tabela de talhões quando não há O.S. (fazenda e talhão digitados). */
 const linhaVazia = (faz = "", fazNm = "") => ({ key: novaChave(), faz, fazNm, tlh: "", areaTlh: null, valor: "", marcado: true });
@@ -153,6 +157,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   /** Busca a O.S. na base: traz operações, talhões e a área já apontada; aplica os padrões da operação. */
   async function buscarOS(os, manter, excluirId) {
     const c = os.trim();
+    seqOS.current++;
     setErroOS(null);
     if (!c) {
       setOsInfo(null);
@@ -160,7 +165,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     }
     setBuscandoOS(true);
     try {
-      const p = new URLSearchParams({ os: c });
+      const p = new URLSearchParams({ os: c, dt: manter?.dt || form.dt });
       if (excluirId) p.set("excluir", String(excluirId));
       const res = await fetch(`/api/atividades/os?${p}`, { cache: "no-store" });
       const json = await res.json();
@@ -191,37 +196,118 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     }
   }
 
-  /** Consulta a fazenda no Cadastro de Fazenda (com os talhões) e guarda para as linhas da tabela. */
-  async function consultarFazenda(cod) {
-    const c = cod.trim();
-    if (!c || c in fazendas) return fazendas[c] ?? null;
+  /**
+   * A fazenda no Cadastro de Fazenda, com os talhões e a área de cada um na base Fazenda e Talhões da safra da data
+   * `dt`. null = fora do cadastro; undefined = não deu para consultar (rede).
+   */
+  async function buscarFazenda(c, dt) {
     try {
       const r1 = await fetch(`/api/rodadas/apontamento?cad=fazendas&cod=${encodeURIComponent(c)}`, { cache: "no-store" });
       const j1 = await r1.json();
-      if (!r1.ok || !j1.item) {
-        setFazendas((m) => ({ ...m, [c]: null }));
-        return null;
-      }
-      const r2 = await fetch(`/api/rodadas/apontamento?talhoes_faz=${encodeURIComponent(j1.item.cod)}`, { cache: "no-store" });
+      if (!r1.ok || !j1.item) return null;
+      const p = new URLSearchParams({ talhoes_faz: j1.item.cod });
+      if (dt) p.set("dt", dt);
+      const r2 = await fetch(`/api/rodadas/apontamento?${p}`, { cache: "no-store" });
       const j2 = await r2.json();
-      const f = { nm: String(j1.item.nm), talhoes: r2.ok ? (j2.talhoes ?? []) : [] };
-      setFazendas((m) => ({ ...m, [c]: f }));
-      return f;
+      // a data fica junto: a área dos talhões é a da safra dessa data
+      return { nm: String(j1.item.nm), talhoes: r2.ok ? (j2.talhoes ?? []) : [], dt };
     } catch {
-      return null;
+      return undefined;
     }
   }
+
+  /** Consulta a fazenda (com os talhões da safra da data do apontamento) e guarda para as linhas da tabela. */
+  async function consultarFazenda(cod) {
+    const c = cod.trim();
+    const guardada = fazendas[c];
+    // fora do cadastro vale para qualquer data; os talhões, só para a data em que foram consultados
+    if (!c || guardada === null || (guardada && guardada.dt === form.dt)) return guardada ?? null;
+    const f = await buscarFazenda(c, form.dt);
+    if (f === undefined) return null;
+    setFazendas((m) => ({ ...m, [c]: f }));
+    return f;
+  }
+
+  // consultas que demoram: só vale a resposta da última (troca de data, outra O.S., edição)
+  const seqAreas = useRef(0);
+  const seqOS = useRef(0);
+
+  /** Sem O.S.: consulta de novo as fazendas da tabela na safra da data `dt` e refaz a área do talhão de cada linha. */
+  async function atualizarAreasDasLinhas(dt, livres) {
+    const seq = ++seqAreas.current;
+    const codigos = Array.from(new Set(livres.map((l) => l.faz.trim()).filter(Boolean)));
+    const novas = {};
+    for (const c of codigos) {
+      const f = await buscarFazenda(c, dt);
+      if (f !== undefined) novas[c] = f;
+    }
+    if (seq !== seqAreas.current) return;
+    // as fazendas consultadas em outra data saem do que está guardado; as consultadas nesta data durante a espera ficam
+    setFazendas((m) => ({ ...Object.fromEntries(Object.entries(m).filter(([, f]) => f === null || f?.dt === dt)), ...novas }));
+    setForm((x) =>
+      x.dt !== dt
+        ? x
+        : {
+            ...x,
+            livres: x.livres.map((l) => {
+              const f = novas[l.faz.trim()];
+              return f ? { ...l, fazNm: f.nm, areaTlh: talhaoDaFazenda(f, l.tlh)?.area ?? null } : l;
+            }),
+          },
+    );
+  }
+
+  /** Com O.S.: as áreas dos talhões da O.S. na safra da data `dt` (o que já foi digitado fica como está). */
+  async function atualizarAreasDaOS(dt, os, id) {
+    const seq = ++seqOS.current;
+    try {
+      const p = new URLSearchParams({ os, dt });
+      if (id) p.set("excluir", String(id));
+      const res = await fetch(`/api/atividades/os?${p}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const info = await res.json();
+      // resposta atrasada (outra data, outra O.S., limpar ou editar vieram depois) não vale
+      if (seq !== seqOS.current) return;
+      setOsInfo((atual) => (atual && atual.os === info.os ? info : atual));
+    } catch {
+      /* fica a área da data anterior até a próxima consulta */
+    }
+  }
+
+  // trocou a data: a área dos talhões passa a ser a da safra da nova data (a edição já consulta com a data do apontamento)
+  const dtAnterior = useRef(null);
+  const pularTrocaDeData = useRef(false);
+  useEffect(() => {
+    const anterior = dtAnterior.current;
+    dtAnterior.current = form.dt;
+    if (anterior === null || anterior === form.dt) return;
+    if (pularTrocaDeData.current) {
+      pularTrocaDeData.current = false;
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.dt)) return;
+    if (osInfo && form.os) atualizarAreasDaOS(form.dt, form.os, form.id);
+    else atualizarAreasDasLinhas(form.dt, form.livres);
+    // só a data dispara a troca
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.dt]);
 
   const updLivre = (key, p) => setForm((f) => ({ ...f, livres: f.livres.map((l) => (l.key === key ? { ...l, ...p } : l)) }));
 
   async function sairDaFazenda(l) {
     const f = await consultarFazenda(l.faz);
-    updLivre(l.key, { fazNm: f?.nm ?? "", areaTlh: f?.talhoes.find((t) => t.tlh === l.tlh.trim())?.area ?? null });
+    // o talhão pode ter sido digitado enquanto a fazenda era consultada: vale o que está na linha agora
+    setForm((x) => ({
+      ...x,
+      livres: x.livres.map((y) =>
+        y.key === l.key && y.faz.trim() === l.faz.trim() ? { ...y, fazNm: f?.nm ?? "", areaTlh: talhaoDaFazenda(f, y.tlh)?.area ?? null } : y,
+      ),
+    }));
   }
 
   function trocarTalhao(l, tlh) {
     const f = fazendas[l.faz.trim()];
-    updLivre(l.key, { tlh, areaTlh: f?.talhoes.find((t) => t.tlh === tlh.trim())?.area ?? null });
+    updLivre(l.key, { tlh, areaTlh: talhaoDaFazenda(f, tlh)?.area ?? null });
   }
 
   /** Fim do formulário: foca o botão de gravar (Enter grava); se ainda falta algo, tenta gravar para mostrar o que falta. */
@@ -305,11 +391,17 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     const f = await consultarFazenda(c);
     if (!f) return setMsg({ texto: `A fazenda ${c} não está no Cadastro de Fazenda.`, erro: true });
     if (f.talhoes.length === 0)
-      return setMsg({ texto: `A fazenda ${c} não tem talhões no histórico de safras nem nas ordens de corte; inclua as linhas à mão.`, erro: true });
+      return setMsg({
+        texto: `A fazenda ${c} não tem talhões na base Fazenda e Talhões (nem no histórico de safras ou nas ordens de corte); inclua as linhas à mão.`,
+        erro: true,
+      });
     setForm((x) => {
-      const ja = new Set(x.livres.filter((l) => l.faz.trim() === c).map((l) => l.tlh.trim()));
+      const ja = new Set(x.livres.filter((l) => l.faz.trim() === c).map((l) => normTlh(l.tlh)));
       const vazias = x.livres.filter((l) => l.faz.trim() || l.tlh.trim() || l.valor.trim());
-      const novas = f.talhoes.filter((t) => !ja.has(t.tlh)).map((t) => ({ ...linhaVazia(c, f.nm), tlh: t.tlh, areaTlh: t.area }));
+      // talhões de ocupação (carreador, APP, pátio…) entram desmarcados: não recebem parte da área rateada sem marcar
+      const novas = f.talhoes
+        .filter((t) => !ja.has(normTlh(t.tlh)))
+        .map((t) => ({ ...linhaVazia(c, f.nm), tlh: t.tlh, areaTlh: t.area, marcado: t.producao !== false }));
       const todas = [...vazias, ...novas];
       // sempre sobra linha em branco para continuar lançando
       const sobra = Math.max(1, LINHAS_INICIAIS - todas.length);
@@ -351,6 +443,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
           tlh: t.tlh,
           areaTlh: t.areaTlh,
           areaRec: t.areaRec,
+          naBase: t.naBase !== false,
           ja,
           saldo: Math.max(0, round2(ref - ja)),
           valor: form.areas[k] ?? "",
@@ -366,6 +459,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         tlh: l.tlh.trim(),
         areaTlh: l.areaTlh,
         areaRec: null,
+        naBase: true,
         ja: 0,
         saldo: null,
         valor: l.valor,
@@ -483,7 +577,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       if (!res.ok) throw new Error(json.error ?? "Não foi possível salvar.");
       const onde = comOS ? `na O.S. ${form.os}` : "sem O.S.";
       const acima = Array.isArray(json.acimaDoTalhao) && json.acimaDoTalhao.length > 0
-        ? ` Área acima da do talhão no cadastro em ${json.acimaDoTalhao.join("; ")} — confira quando a base de cadastro for atualizada.`
+        ? ` Área acima da do talhão na base Fazenda e Talhões em ${json.acimaDoTalhao.join("; ")} — confira quando a base for atualizada.`
         : "";
       setMsg({ texto: (form.id ? `Boletim nº ${form.boletim} alterado.` : `Boletim nº ${form.boletim} lançado: ${nf(totalDia)} ha ${onde}.`) + acima, erro: false });
       const dtLancada = form.dt;
@@ -542,10 +636,12 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
           ]
         : linhasIniciais(),
     };
+    // a troca de data da edição não refaz as áreas de novo (a consulta abaixo já usa a data do apontamento)
+    if (novo.dt !== form.dt) pularTrocaDeData.current = true;
     setForm(novo);
     setOsInfo(null);
     setErroOS(null);
-    if (semOS) for (const c of new Set(a.talhoes.map((t) => t.propCod))) consultarFazenda(c);
+    if (semOS) atualizarAreasDasLinhas(novo.dt, novo.livres);
     else buscarOS(a.os, novo, a.id);
     rolarCorpoParaOTopo(false);
   }
@@ -940,7 +1036,12 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                       <th className="w-[120px] px-3 py-1.5 font-medium">Fazenda</th>
                       <th className="px-3 py-1.5 font-medium">Descrição Fazenda</th>
                       <th className="w-[110px] px-3 py-1.5 font-medium">{rot("talhao", "Talhão")}</th>
-                      <th className="px-3 py-1.5 text-right font-medium">Área talhão</th>
+                      <th
+                        className="px-3 py-1.5 text-right font-medium"
+                        title={`Área do talhão na base Fazenda e Talhões${osInfo?.safraArea ? ` (safra ${osInfo.safraArea})` : ""} — Planejamento Agrícola`}
+                      >
+                        Área talhão
+                      </th>
                       {comOS && (
                         <>
                           <th className="px-3 py-1.5 text-right font-medium">Área recomendada</th>
@@ -958,6 +1059,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                       const passaTalhao = l.areaTlh !== null && l.area > l.areaTlh + 0.001;
                       const livre = !comOS ? form.livres.find((x) => x.key === l.k) : null;
                       const cadFaz = livre ? fazendas[livre.faz.trim()] : undefined;
+                      const tlhBase = livre ? talhaoDaFazenda(cadFaz, livre.tlh) : undefined;
                       return (
                         <tr key={l.k} className={`border-t border-line/60 ${rateio && !l.marcado ? "text-muted" : ""}`}>
                           {rateio && (
@@ -989,12 +1091,17 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                               </td>
                               <td className="px-3 py-1 text-muted">
                                 {cadFaz === null ? <span className="text-amber-700">Não está no Cadastro de Fazenda</span> : livre.fazNm}
+                                {tlhBase && tlhBase.producao === false && (
+                                  <span className="ml-2 whitespace-nowrap rounded bg-surface px-1.5 py-0.5 text-[11px] text-muted" title="Ocupação do talhão (cadastro Ocupação)">
+                                    {tlhBase.tlh} · {tlhBase.ocupacao}
+                                  </span>
+                                )}
                               </td>
                               <td className="px-2 py-0.5">
                                 <input
                                   data-nav
                                   data-tlh={livre.key}
-                                  title={cadFaz?.talhoes.length ? `Talhões da fazenda: ${cadFaz.talhoes.map((t) => t.tlh).join(", ")}` : undefined}
+                                  title={cadFaz?.talhoes.length ? `Talhões da fazenda: ${cadFaz.talhoes.map((t) => (t.producao === false ? `${t.tlh} (${t.ocupacao})` : t.tlh)).join(", ")}` : undefined}
                                   value={livre.tlh}
                                   onKeyDown={(e) => enterNoTalhao(e, livre)}
                                   onChange={(e) => trocarTalhao(livre, e.target.value.toUpperCase().slice(0, 12))}
@@ -1011,7 +1118,14 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                               <td className="px-3 py-1 tabular text-ink">{l.tlh}</td>
                             </>
                           )}
-                          <td className="px-3 py-1 text-right tabular">{l.areaTlh !== null ? nf(l.areaTlh) : "—"}</td>
+                          <td className="px-3 py-1 text-right tabular">
+                            {l.areaTlh !== null ? nf(l.areaTlh) : "—"}
+                            {!l.naBase && (
+                              <span className="ml-0.5 text-amber-700" title="Talhão fora da base Fazenda e Talhões: vale a área plantada da O.S.">
+                                *
+                              </span>
+                            )}
+                          </td>
                           {comOS && (
                             <>
                               <td className="px-3 py-1 text-right tabular">{l.areaRec !== null ? nf(l.areaRec) : "—"}</td>
@@ -1031,7 +1145,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                               aria-label={`Área realizada no talhão ${l.tlh}`}
                               title={
                                 passaTalhao
-                                  ? "Passa da área do talhão no cadastro — pode gravar; a base de cadastro é atualizada depois"
+                                  ? "Passa da área do talhão na base Fazenda e Talhões — pode gravar; a base é atualizada e importada depois"
                                   : passaSaldo
                                     ? "Passa do saldo da O.S. neste talhão"
                                     : rateio
@@ -1099,8 +1213,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
             )}
             <p className="mt-2 text-[11.5px] text-muted">
               {comOS
-                ? "Saldo = área recomendada na O.S. (ou a do talhão) menos o que já foi apontado. Área acima do saldo ou da área do talhão fica destacada, mas pode ser gravada (a base de cadastro é atualizada e importada depois)."
-                : `Uma linha por talhão; pode haver mais de uma fazenda no mesmo apontamento${regras.talhao ? "" : " e a área pode ser lançada só com a fazenda, sem talhão"}. Enter na área passa para a linha de baixo já com a fazenda de cima; ${regras.talhao ? "talhão" : "área"} em branco + Enter termina e vai para Lançar. A fazenda tem de estar no Cadastro de Fazenda; os talhões sugeridos vêm do histórico de safras (ou das ordens de corte).`}
+                ? "Área do talhão = base Fazenda e Talhões da safra da data (Planejamento Agrícola); * = talhão fora da base, com a área plantada da O.S. Saldo = área recomendada na O.S. (ou a do talhão) menos o que já foi apontado. Área acima do saldo ou da área do talhão fica destacada, mas pode ser gravada (a base é atualizada e importada depois)."
+                : `Uma linha por talhão; pode haver mais de uma fazenda no mesmo apontamento${regras.talhao ? "" : " e a área pode ser lançada só com a fazenda, sem talhão"}. Enter na área passa para a linha de baixo já com a fazenda de cima; ${regras.talhao ? "talhão" : "área"} em branco + Enter termina e vai para Lançar. A fazenda tem de estar no Cadastro de Fazenda; os talhões e a área de cada um vêm da base Fazenda e Talhões da safra da data (Planejamento Agrícola).`}
               {" Digitando a área realizada no dia, ela é rateada entre os talhões marcados, proporcional à área de cada um."}
             </p>
 

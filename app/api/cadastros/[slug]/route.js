@@ -9,7 +9,7 @@ import {
   upsertCadastroLote,
   usuarioDaRequisicao,
 } from "@/lib/db";
-import { specPorSlug } from "@/lib/cadastros-spec";
+import { specPorSlug, validarDadosCadastro } from "@/lib/cadastros-spec";
 import { atualizarReferenciasDaLista, resolverReferencias, separarNomesRepetidos } from "@/lib/cadastros-ref";
 import { filtroDaAba, FILTROS_ABA } from "@/lib/cadastros-abas";
 import { operacoesDoGrupo, sincronizarGruposOperacoes } from "@/lib/db-dashboard-atividades";
@@ -56,8 +56,11 @@ export async function POST(req, ctx) {
   const spec = specPorSlug(slug);
   if (!spec) return NextResponse.json({ error: "Cadastro desconhecido." }, { status: 404 });
   const body = await req.json().catch(() => null);
-  const dados = dadosDoCorpo(body?.dados);
-  if (!dados) return NextResponse.json({ error: "Requisição inválida." }, { status: 400 });
+  const lido = dadosDoCorpo(body?.dados);
+  if (!lido) return NextResponse.json({ error: "Requisição inválida." }, { status: 400 });
+  const conferido = validarDadosCadastro(spec, lido);
+  if (conferido.erro) return NextResponse.json({ error: conferido.erro }, { status: 400 });
+  const dados = conferido.dados;
 
   const erroRef = await resolverReferencias(spec, dados);
   if (erroRef) return NextResponse.json({ error: erroRef }, { status: 400 });
@@ -109,6 +112,10 @@ export async function PATCH(req, ctx) {
   const atual = await listarCadastro(slug, cod, 1, 50);
   const existente = atual.itens.find((i) => i.cod === cod);
   if (!existente) return NextResponse.json({ error: "Item não encontrado." }, { status: 404 });
+  // a conferência vale para o item inteiro (o que já existe + o que mudou); grava os campos alterados já normalizados
+  const conferido = validarDadosCadastro(spec, { ...existente.dados, ...dados });
+  if (conferido.erro) return NextResponse.json({ error: conferido.erro }, { status: 400 });
+  for (const k of Object.keys(dados)) dados[k] = conferido.dados[k];
   const erroRef = await resolverReferencias(spec, dados);
   if (erroRef) return NextResponse.json({ error: erroRef }, { status: 400 });
   const nm = spec.nome({ ...existente.dados, ...dados });
