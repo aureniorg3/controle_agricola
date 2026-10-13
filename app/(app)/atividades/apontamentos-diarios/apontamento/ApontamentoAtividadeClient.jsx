@@ -1325,8 +1325,11 @@ function ImportarBaseOS({ onFechar, onConcluido }) {
       const res = await fetch("/api/atividades/os", { method: "POST", body: f });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Não foi possível importar.");
+      const semOp = json.osSemOperacao
+        ? ` ${json.osSemOperacao} O.S. vieram sem a operação no arquivo — para essas, a operação e as áreas são buscadas na base de Ordem de Serviço Agr.`
+        : "";
       setFeito(
-        `${json.ordens} O.S. atualizadas (${json.linhas} linhas de talhão × operação)${json.substituidas ? `, ${json.substituidas} já existiam e foram substituídas` : ""}.`,
+        `${json.ordens} O.S. atualizadas (${json.linhas} linhas de talhão × operação)${json.substituidas ? `, ${json.substituidas} já existiam e foram substituídas` : ""}.${semOp}`,
       );
       onConcluido();
     } catch (e) {
@@ -1341,8 +1344,8 @@ function ImportarBaseOS({ onFechar, onConcluido }) {
       <div className="w-full max-w-lg rounded-xl2 bg-card p-5 shadow-pop">
         <h2 className="text-[15px] font-semibold text-ink">Atualizar base de O.S.</h2>
         <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-          Envie o Acompanhamento de O.S. (uma linha por O.S., talhão e operação). As O.S. do arquivo são substituídas pela versão nova; as demais continuam como
-          estão.
+          Envie o Acompanhamento de O.S. ou o Relatório de Ordens de Serviço das Etapas II (em colunas ou agrupado por operação e etapa). As O.S. do arquivo são
+          substituídas pela versão nova; as demais continuam como estão.
         </p>
         {!feito && (
           <input type="file" accept=".xlsx,.xls" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-[13px]" />

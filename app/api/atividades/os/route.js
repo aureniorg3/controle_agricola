@@ -41,5 +41,5 @@ export async function POST(req) {
   const lido = await lerBaseOS(await arquivo.arrayBuffer());
   if (lido.erro) return NextResponse.json({ error: lido.erro }, { status: 400 });
   const r = await importarBaseOS(lido.linhas, usuario.nome);
-  return NextResponse.json({ ok: true, ...r, lidas: lido.lidas });
+  return NextResponse.json({ ok: true, ...r, lidas: lido.lidas, osSemOperacao: lido.osSemOperacao ?? 0 });
 }
