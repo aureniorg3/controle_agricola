@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 
 import {
   addDays,
+  calcAreaAColherHa,
   calcAreaColhidaHa,
   calcProducaoAreaColhida,
   calcAreaTotalHa,
@@ -1732,6 +1733,7 @@ function ClimaRodape({ resp, fazendas, referencia }) {
 function OrdemCard({ ordem, period, referencia, chuva, historico, safraAtual, safrasAnteriores, divergenciaPct, onRemover, onLancarAreaColhida }) {
   const m = calcOrdemMetrics(ordem, period, referencia);
   const areaColhidaHa = calcAreaColhidaHa(ordem);
+  const areaAColherHa = calcAreaAColherHa(ordem);
   // TCH médio realizado (quadro): produção que entrou pela área colhida apontada ÷ essa área
   const tchMedio = calcProducaoAreaColhida(ordem, referencia).tch;
   const progresso = m.areaTotalHa > 0 ? Math.min(100, Math.round((areaColhidaHa / m.areaTotalHa) * 100)) : 0;
@@ -1843,15 +1845,26 @@ function OrdemCard({ ordem, period, referencia, chuva, historico, safraAtual, sa
 
           {/* Painel de resumo */}
           <div className="flex flex-col gap-2.5">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg bg-surface p-2.5 text-right">
-                <div className="text-[10.5px] text-muted">Área da ordem</div>
-                <div className="text-[15px] font-bold tabular text-ink">{fmtHa(m.areaTotalHa)} ha</div>
-              </div>
-              <div className="rounded-lg bg-surface p-2.5 text-right">
-                <div className="text-[10.5px] text-muted">Área colhida</div>
-                <div className="text-[15px] font-bold tabular text-ink">{fmtHa(areaColhidaHa)} ha</div>
-              </div>
+            {/* área da ordem, colhida (apontada) e a colher = área da ordem − área colhida (0 na ordem encerrada) */}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { rotulo: "Área da ordem", valor: m.areaTotalHa, cor: "text-ink" },
+                { rotulo: "Área colhida", valor: areaColhidaHa, cor: "text-[#4A8A36] dark:text-[#7CC46A]" },
+                {
+                  rotulo: "A colher",
+                  valor: areaAColherHa,
+                  cor: "text-[#C76A28] dark:text-[#F0A066]",
+                  title: ordem.status === "Aberta" ? "Área da ordem menos a área colhida apontada" : "Ordem encerrada: não há mais área a colher",
+                },
+              ].map((q) => (
+                <div key={q.rotulo} className="min-w-0 rounded-lg bg-surface px-2 py-2.5 text-right" title={q.title}>
+                  <div className="truncate text-[10.5px] text-muted">{q.rotulo}</div>
+                  <div className={`whitespace-nowrap text-[15px] font-bold tabular ${q.cor}`}>
+                    {fmtHa(q.valor)}
+                    <span className="ml-0.5 text-[11px] font-normal text-muted">ha</span>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div>
