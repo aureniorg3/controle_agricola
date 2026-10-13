@@ -1,9 +1,8 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ImportarWhatsappModal from "./ImportarWhatsappModal";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
-import { IconAtualizar, IconBusca, IconImportar } from "@/components/icons";
+import { IconBusca } from "@/components/icons";
 import { CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, rolarCorpoParaOTopo } from "@/components/pagina";
 import { camposFaltando, chaveTalhao, ratearArea, REGRAS_PADRAO, round2 } from "@/lib/atividades";
 
@@ -73,13 +72,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
 
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState(null);
-  const [importar, setImportar] = useState(false);
   const [base, setBase] = useState(null);
   const osRef = useRef(null);
   const formRef = useRef(null);
   const gravarRef = useRef(null);
   const [verificar, setVerificar] = useState(false);
-  const [whatsapp, setWhatsapp] = useState(false);
   /** texto do campo Operação enquanto se digita (null = mostra "código · descrição") */
   const [opDigitado, setOpDigitado] = useState(null);
 
@@ -597,26 +594,12 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         info={
           base && (
             <span className="hidden sm:block">
-              Base de O.S.: {base.ordens} O.S.{base.ultimaImportacao ? ` · atualizada em ${base.ultimaImportacao}` : ""}
+              Base de O.S. (Ordem de Serviço Agr.): {base.ordens} O.S.{base.ultimaImportacao ? ` · atualizada em ${base.ultimaImportacao}` : ""}
             </span>
           )
         }
         comandos={
           <>
-            {podeGravar && (
-              <Comando icone={<IconAtualizar size={16} />} onClick={() => setImportar(true)}>
-                Atualizar base de O.S.
-              </Comando>
-            )}
-            {podeGravar && (
-              <Comando
-                icone={<IconImportar size={16} />}
-                onClick={() => setWhatsapp(true)}
-                title="Lê a conversa exportada do grupo C.A.P.F.O e importa os apontamentos"
-              >
-                Importar WhatsApp
-              </Comando>
-            )}
             {podeGravar && (
               <Comando
                 icone={<IconBusca size={16} />}
@@ -1295,80 +1278,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
           }}
         />
       )}
-      {whatsapp && <ImportarWhatsappModal onFechar={() => setWhatsapp(false)} onConcluido={() => carregarLista()} />}
-      {importar && (
-        <ImportarBaseOS
-          onFechar={() => setImportar(false)}
-          onConcluido={() => {
-            carregarBase();
-            if (form.os) buscarOS(form.os, form, form.id);
-          }}
-        />
-      )}
     </Pagina>
-  );
-}
-
-function ImportarBaseOS({ onFechar, onConcluido }) {
-  const [arquivo, setArquivo] = useState(null);
-  const [ocupado, setOcupado] = useState(false);
-  const [erro, setErro] = useState(null);
-  const [feito, setFeito] = useState(null);
-
-  async function enviar() {
-    if (!arquivo) return;
-    setOcupado(true);
-    setErro(null);
-    try {
-      const f = new FormData();
-      f.append("arquivo", arquivo);
-      const res = await fetch("/api/atividades/os", { method: "POST", body: f });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Não foi possível importar.");
-      const semOp = json.osSemOperacao
-        ? ` ${json.osSemOperacao} O.S. vieram sem a operação no arquivo — para essas, a operação e as áreas são buscadas na base de Ordem de Serviço Agr.`
-        : "";
-      setFeito(
-        `${json.ordens} O.S. atualizadas (${json.linhas} linhas de talhão × operação)${json.substituidas ? `, ${json.substituidas} já existiam e foram substituídas` : ""}.${semOp}`,
-      );
-      onConcluido();
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : "Não foi possível importar.");
-    } finally {
-      setOcupado(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-xl2 bg-card p-5 shadow-pop">
-        <h2 className="text-[15px] font-semibold text-ink">Atualizar base de O.S.</h2>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-          Envie o Acompanhamento de O.S. ou o Relatório de Ordens de Serviço das Etapas II (em colunas ou agrupado por operação e etapa). As O.S. do arquivo são
-          substituídas pela versão nova; as demais continuam como estão.
-        </p>
-        {!feito && (
-          <input type="file" accept=".xlsx,.xls" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} className="mt-3 block w-full text-[13px]" />
-        )}
-        {feito && <p className="mt-3 rounded-md border border-good-500/40 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">{feito}</p>}
-        {erro && <p className="mt-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className={BOTAO} onClick={onFechar}>
-            {feito ? "Fechar" : "Cancelar"}
-          </button>
-          {!feito && (
-            <button
-              type="button"
-              onClick={enviar}
-              disabled={!arquivo || ocupado}
-              className="rounded-lg bg-navy-900 px-4 py-1.5 text-[12.5px] font-medium text-white disabled:opacity-40"
-            >
-              {ocupado ? "Importando…" : "Importar"}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }
 
