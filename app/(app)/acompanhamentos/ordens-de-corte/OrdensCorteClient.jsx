@@ -28,6 +28,7 @@ import {
 } from "@/lib/period";
 import { fmtDateBR, fmtHa, fmtT, fmtTch, rotuloMesAbrev, todayISO } from "@/lib/format";
 import { gerarRelatorioCompletoPdf } from "@/lib/relatorio-pdf";
+import { sinaleiroTch, variacaoTch } from "@/lib/tch";
 import { Campo, ModalShell } from "@/components/ui";
 import { aplicarAreaColhidaDia, aplicarCorteERateio, HORAS_CORTE, rotuloHoraCorte } from "@/lib/rateio";
 import AreaColhidaTab from "./AreaColhidaTab";
@@ -152,8 +153,8 @@ function TchComparativo({ areaOrdemHa, tchGeralAtual, safraAtual, safrasAnterior
   if (safrasAnteriores.length === 0 && !historico) return null;
   const real = (safra) => historico?.find((h) => h.safra === safra)?.tchReal ?? null;
   const est = historico?.find((h) => h.safra === safraAtual)?.tchEst ?? null;
-  const anterior = safrasAnteriores.length > 0 ? real(safrasAnteriores[0]) : null;
-  const variacao = anterior && anterior > 0 && tchGeralAtual > 0 ? ((tchGeralAtual - anterior) / anterior) * 100 : null;
+  // contra a safra anterior; sem ela, o estimado da safra atual; sem ele, a safra mais antiga
+  const variacao = variacaoTch(tchGeralAtual, historico, safraAtual, safrasAnteriores);
 
   const amarelo = { backgroundColor: "rgb(255, 255, 232)" };
   const linha = "flex items-center justify-between px-3 py-1";
@@ -187,9 +188,19 @@ function TchComparativo({ areaOrdemHa, tchGeralAtual, safraAtual, safrasAnterior
             TCH Médio Realizado
           </span>
           <span className="flex items-center gap-2">
-            {variacao !== null && (
-              <span className={`text-[10.5px] ${variacao >= 0 ? "text-good-600" : "text-alert-600"}`}>
-                {variacao >= 0 ? "▲" : "▼"} {Math.abs(variacao).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%
+            {variacao !== null ? (
+              <span
+                className={`tabular text-[10.5px] ${variacao.pct >= 0 ? "text-good-600" : "text-alert-600"}`}
+                title={`Variação contra o ${variacao.base} (${fmtTch(variacao.valorBase)})`}
+              >
+                {variacao.pct >= 0 ? "▲" : "▼"} {Math.abs(variacao.pct).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%
+              </span>
+            ) : (
+              <span
+                className="text-[10.5px] text-muted"
+                title={tchGeralAtual > 0 ? "Sem TCH de referência (safras anteriores e estimado em branco)" : "Ainda sem entrega de cana"}
+              >
+                –
               </span>
             )}
             <span className="tabular text-ink">{fmtTch(tchGeralAtual)}</span>
@@ -1470,25 +1481,29 @@ function KpiCard({ label, value, unidade, sub, icon, tone, aviso }) {
   );
 }
 
-/** Selo de produtividade por faixa de TCH — faixas provisórias (precisam ser
- * validadas com a operação); fácil de ajustar depois num só lugar. */
+/** Sinaleiro da produtividade pelo TCH (faixas em lib/tch): a luz acesa diz como está; o nome fica no tooltip. */
+const LUZES = [
+  { luz: "vermelho", cor: "#BE3132" },
+  { luz: "amarelo", cor: "#D9A21B" },
+  { luz: "verde", cor: "#5D9E48" },
+];
 function TchBadge({ tch }) {
-  let label = "Baixo";
-  let classes = "bg-alert-50 text-alert-600";
-  if (tch > 80) {
-    label = "Excelente";
-    classes = "bg-good-50 text-good-600";
-  } else if (tch >= 60) {
-    label = "Bom";
-    classes = "bg-brand-50 text-brand-700";
-  } else if (tch >= 40) {
-    label = "Médio";
-    classes = "bg-amber-50 text-amber-600";
-  }
+  const s = sinaleiroTch(tch);
+  const texto = `${s.nivel} · ${s.faixa}`;
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${classes}`}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      {label}
+    <span
+      role="img"
+      aria-label={`Produtividade: ${texto}`}
+      title={texto}
+      className="inline-flex items-center gap-1 rounded-full border border-line bg-card px-1.5 py-1"
+    >
+      {LUZES.map((l) => (
+        <span
+          key={l.luz}
+          className={`h-2.5 w-2.5 rounded-full ${l.luz === s.luz ? "" : "bg-line"}`}
+          style={l.luz === s.luz ? { backgroundColor: l.cor, boxShadow: `0 0 0 2px ${l.cor}33` } : undefined}
+        />
+      ))}
     </span>
   );
 }
