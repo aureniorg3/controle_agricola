@@ -485,7 +485,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Não foi possível salvar.");
       const onde = comOS ? `na O.S. ${form.os}` : "sem O.S.";
-      setMsg({ texto: form.id ? `Boletim nº ${form.boletim} alterado.` : `Boletim nº ${form.boletim} lançado: ${nf(totalDia)} ha ${onde}.`, erro: false });
+      const acima = Array.isArray(json.acimaDoTalhao) && json.acimaDoTalhao.length > 0
+        ? ` Área acima da do talhão no cadastro em ${json.acimaDoTalhao.join("; ")} — confira quando a base de cadastro for atualizada.`
+        : "";
+      setMsg({ texto: (form.id ? `Boletim nº ${form.boletim} alterado.` : `Boletim nº ${form.boletim} lançado: ${nf(totalDia)} ha ${onde}.`) + acima, erro: false });
       const dtLancada = form.dt;
       limpar();
       setForm((f) => ({ ...f, dt: dtLancada }));
@@ -1041,11 +1044,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                               onKeyDown={(e) => (comOS ? enterNaAreaOS(e, l.k) : enterNaAreaLivre(e, l.k))}
                               onChange={(e) => digitarAreaTalhao(l.k, e.target.value)}
                               inputMode="decimal"
-                              className={`w-full rounded border px-2 py-1 text-right tabular ${passaTalhao ? "border-alert-500 bg-alert-50" : passaSaldo ? "border-amber-500 bg-amber-50" : rateio ? "border-line bg-surface" : "border-line bg-card"}`}
+                              className={`w-full rounded border px-2 py-1 text-right tabular ${passaTalhao || passaSaldo ? "border-amber-500 bg-amber-50" : rateio ? "border-line bg-surface" : "border-line bg-card"}`}
                               aria-label={`Área realizada no talhão ${l.tlh}`}
                               title={
                                 passaTalhao
-                                  ? "Passa da área do talhão"
+                                  ? "Passa da área do talhão no cadastro — pode gravar; a base de cadastro é atualizada depois"
                                   : passaSaldo
                                     ? "Passa do saldo da O.S. neste talhão"
                                     : rateio
@@ -1113,7 +1116,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
             )}
             <p className="mt-2 text-[11.5px] text-muted">
               {comOS
-                ? "Saldo = área recomendada na O.S. (ou a do talhão) menos o que já foi apontado. Área acima do saldo fica destacada, mas pode ser gravada; acima da área do talhão, não."
+                ? "Saldo = área recomendada na O.S. (ou a do talhão) menos o que já foi apontado. Área acima do saldo ou da área do talhão fica destacada, mas pode ser gravada (a base de cadastro é atualizada e importada depois)."
                 : `Uma linha por talhão; pode haver mais de uma fazenda no mesmo apontamento${regras.talhao ? "" : " e a área pode ser lançada só com a fazenda, sem talhão"}. Enter na área passa para a linha de baixo já com a fazenda de cima; ${regras.talhao ? "talhão" : "área"} em branco + Enter termina e vai para Lançar. A fazenda tem de estar no Cadastro de Fazenda; os talhões sugeridos vêm do histórico de safras (ou das ordens de corte).`}
               {" Digitando a área realizada no dia, ela é rateada entre os talhões marcados, proporcional à área de cada um."}
             </p>

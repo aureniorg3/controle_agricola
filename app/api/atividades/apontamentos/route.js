@@ -76,7 +76,7 @@ export async function POST(req) {
   const id = b.id === undefined || b.id === null ? undefined : Number(b.id);
   const r = await salvarApontamento(entrada, usuario.nome, id);
   if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 400 });
-  return NextResponse.json({ ok: true, id: r.id });
+  return NextResponse.json({ ok: true, id: r.id, acimaDoTalhao: r.acimaDoTalhao ?? [] });
 }
 
 export async function DELETE(req) {
