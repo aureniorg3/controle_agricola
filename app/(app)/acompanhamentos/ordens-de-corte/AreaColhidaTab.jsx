@@ -7,6 +7,7 @@ import { fmtDataHora, fmtDateBR, fmtHa } from "@/lib/format";
 import { ratearArea } from "@/lib/rateio";
 
 import { ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import LeitorPlanejamento from "./LeitorPlanejamento";
 
 const INPUT = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface";
 const ROTULO = "mb-1 block text-[11.5px] font-semibold text-muted";
@@ -21,6 +22,7 @@ const numero = (v) => Number(v.replace(/\./g, "").replace(",", "."));
  */
 export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeGravar, onSalvo }) {
   const raiz = useRef(null);
+  const formManual = useRef(null);
   const [dt, setDt] = useState(referencia);
   const [ordemNum, setOrdemNum] = useState(ordemInicial ?? "");
   // valores = área do DIA por talhão (é o que se grava); no modo acumulado, o que se digita é o total até a data
@@ -290,12 +292,20 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
     if (l.boletim) setBoletim(String(l.boletim));
     setAviso(null);
     setErro(null);
-    raiz.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    formManual.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
     <div ref={raiz} onKeyDown={aoTeclar} className="space-y-4">
-      <section className="caixa-form">
+      {/* mensagem "Planejamento Ordem de Cortes" do WhatsApp: confere e lança várias ordens de uma vez */}
+      <LeitorPlanejamento
+        podeGravar={podeGravar}
+        onLancado={async () => {
+          await onSalvo();
+          await carregarHistorico();
+        }}
+      />
+      <section ref={formManual} className="caixa-form">
         <div className="caixa-form-topo">
           <div>
             <h2 className="caixa-form-titulo">Apontamento da área colhida</h2>
