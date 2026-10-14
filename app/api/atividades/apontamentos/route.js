@@ -31,6 +31,14 @@ export async function GET(req) {
   const p = req.nextUrl.searchParams;
   if (p.get("proximo") !== null) return NextResponse.json({ boletim: await proximoBoletimAtividade() });
   if (p.get("opcoes") !== null) return NextResponse.json(await opcoesApontamento());
+  // `?bol=` o boletim pelo número (em qualquer data), para abrir na tela
+  if (p.get("bol") !== null) {
+    const n = Number(p.get("bol"));
+    if (!Number.isInteger(n) || n <= 0) return NextResponse.json({ error: "Informe o número do boletim." }, { status: 400 });
+    const [a] = await listarApontamentos({ boletim: n });
+    if (!a) return NextResponse.json({ error: `O boletim nº ${n} não está lançado.` }, { status: 404 });
+    return NextResponse.json({ apontamento: a });
+  }
   const de = p.get("de") ?? "";
   const ate = p.get("ate") ?? "";
   if (!ISO.test(de) || !ISO.test(ate) || de > ate) return NextResponse.json({ error: "Informe um período válido." }, { status: 400 });

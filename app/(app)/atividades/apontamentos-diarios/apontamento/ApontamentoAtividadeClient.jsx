@@ -78,6 +78,14 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   const [msg, setMsg] = useState(null);
   const [base, setBase] = useState(null);
   const osRef = useRef(null);
+  /** O.S. carregada no boletim aberto para edição (redigitar a mesma O.S. não mexe nos talhões de baixo) */
+  const osDoBoletim = useRef("");
+  /** como o boletim foi aberto (O.S., áreas e marcações), para voltar a ele depois de trocar a O.S. por engano */
+  const boletimAberto = useRef(null);
+  /** último nº de boletim procurado pelo campo do topo (a saída do campo logo depois do Enter não procura de novo) */
+  const boletimProcurado = useRef("");
+  /** só vale a resposta da última busca de boletim pelo número (fechar ou abrir outro descarta a anterior) */
+  const seqBoletim = useRef(0);
   const formRef = useRef(null);
   const gravarRef = useRef(null);
   const [verificar, setVerificar] = useState(false);
@@ -177,6 +185,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       if (!res.ok) throw new Error(json.error ?? "O.S. não encontrada.");
       const info = json;
       setOsInfo(info);
+      if (excluirId) osDoBoletim.current = info.os;
       const primeira =
         manter?.opCod && info.operacoes.some((o) => o.cod === manter.opCod) ? info.operacoes.find((o) => o.cod === manter.opCod) : info.operacoes[0];
       setForm((f) => ({
@@ -188,10 +197,13 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         tipoAplicacao: manter?.tipoAplicacao ?? (primeira?.tipoDs || primeira?.tipoCod || f.tipoAplicacao),
         solicitante: manter?.solicitante ?? (f.solicitante || info.resp),
         areas: manter?.areas ?? {},
-        // na edição de um rateio, só os talhões do apontamento ficam marcados
-        marcados: manter?.marcados
-          ? Object.fromEntries((primeira?.talhoes ?? []).map((t) => [chaveTalhao(t.propCod, t.tlh), !!manter.marcados[chaveTalhao(t.propCod, t.tlh)]]))
-          : {},
+        // na edição de um rateio, só os talhões do apontamento ficam marcados; redigitando a mesma O.S., as marcações
+        // ficam como estão (vazio = todos marcados)
+        marcados: manter?.manterMarcados
+          ? (manter.marcados ?? {})
+          : manter?.marcados && Object.keys(manter.marcados).length > 0
+            ? Object.fromEntries((primeira?.talhoes ?? []).map((t) => [chaveTalhao(t.propCod, t.tlh), !!manter.marcados[chaveTalhao(t.propCod, t.tlh)]]))
+            : {},
       }));
     } catch (e) {
       setOsInfo(null);
@@ -507,6 +519,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
 
   function limpar() {
     setOpDigitado(null);
+    osDoBoletim.current = "";
+    boletimAberto.current = null;
+    boletimProcurado.current = "";
+    seqBoletim.current++;
     setForm(formVazio());
     setOsInfo(null);
     setErroOS(null);
@@ -603,6 +619,9 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   function editar(a) {
     setOpDigitado(null);
     setMsg(null);
+    osDoBoletim.current = a.os ?? "";
+    boletimProcurado.current = a.boletim ? String(a.boletim) : "";
+    seqBoletim.current++;
     const semOS = !a.os;
     const areas = Object.fromEntries(a.talhoes.map((t) => [chaveTalhao(t.propCod, t.tlh), texto(t.area)]));
     const marcados = Object.fromEntries(a.talhoes.map((t) => [chaveTalhao(t.propCod, t.tlh), true]));
@@ -642,6 +661,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
           ]
         : linhasIniciais(),
     };
+    boletimAberto.current = { os: a.os ?? "", areas, marcados, modoArea: novo.modoArea, volume: novo.volume };
     // a troca de data da edição não refaz as áreas de novo (a consulta abaixo já usa a data do apontamento)
     if (novo.dt !== form.dt) pularTrocaDeData.current = true;
     setForm(novo);
@@ -651,6 +671,77 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     else buscarOS(a.os, novo, a.id);
     setDetalhe(null);
     setFormAberto(true);
+  }
+
+  /** O formulário tem algo digitado (que se perde ao abrir outro boletim)? */
+  const formTemDados = () =>
+    !!(
+      form.os ||
+      form.opCod ||
+      form.solicitante.trim() ||
+      form.livres.some((l) => l.faz.trim() || l.valor.trim()) ||
+      Object.values(form.areas).some((v) => String(v ?? "").trim())
+    );
+
+  /**
+   * Nº de boletim digitado no topo: se ele já está lançado, abre o boletim (cabeçalho, O.S., talhões e áreas) para
+   * conferir ou editar. Nº que ainda não existe fica como o número do boletim novo. Devolve se abriu.
+   */
+  async function abrirBoletimPeloNumero(forcar = false) {
+    const n = form.boletim.trim();
+    if (!n || (!forcar && n === boletimProcurado.current)) return false;
+    boletimProcurado.current = n;
+    const seq = ++seqBoletim.current;
+    try {
+      const res = await fetch(`/api/atividades/apontamentos?bol=${encodeURIComponent(n)}`, { cache: "no-store" });
+      if (seq !== seqBoletim.current) return false;
+      if (!res.ok) {
+        // falha de rede ou sessão: a próxima saída do campo tenta de novo
+        if (res.status !== 404) boletimProcurado.current = "";
+        return false;
+      }
+      const { apontamento: a } = await res.json();
+      if (seq !== seqBoletim.current || !a || a.id === form.id) return false;
+      const onde = `${a.os ? `O.S. ${a.os}` : "sem O.S."}, ${fmtDateBR(a.dt)}`;
+      if ((form.id || formTemDados()) && !window.confirm(`O boletim nº ${n} já está lançado (${onde}). Abrir para conferir ou editar? O que foi digitado aqui e não foi gravado se perde.`)) {
+        return false;
+      }
+      editar(a);
+      setMsg({ texto: `Boletim nº ${n} (${onde}) aberto para edição.`, erro: false });
+      return true;
+    } catch {
+      boletimProcurado.current = "";
+      return false;
+    }
+  }
+
+  /**
+   * Busca a O.S. digitada. No boletim já lançado, a mesma O.S. não mexe nos talhões e áreas de baixo nem no cabeçalho
+   * (solicitante, etapa, tipo de aplicação, operação); outra O.S. traz os talhões dela, mas o cabeçalho continua o do boletim.
+   */
+  function buscarOSDoCampo() {
+    if (!form.os || osInfo) return;
+    if (!form.id) return buscarOS(form.os);
+    const semZeros = (s) => String(s ?? "").replace(/^0+(?=\d)/, "");
+    // campo do cabeçalho em branco vem da O.S. (solicitante = responsável; etapa e tipo = os da operação); o preenchido fica
+    const vazioVemDaOS = (v) => (String(v ?? "").trim() ? v : undefined);
+    const cabecalho = {
+      dt: form.dt,
+      opCod: form.opCod,
+      solicitante: vazioVemDaOS(form.solicitante),
+      etapaCod: vazioVemDaOS(form.etapaCod),
+      tipoAplicacao: vazioVemDaOS(form.tipoAplicacao),
+    };
+    // a mesma O.S. que está carregada: talhões, áreas e marcações ficam como estão
+    if (semZeros(form.os) === semZeros(osDoBoletim.current)) return buscarOS(form.os, { ...form, ...cabecalho, manterMarcados: true }, form.id);
+    // de volta à O.S. com que o boletim foi aberto (depois de trocar por engano): voltam as áreas e marcações dele
+    const orig = boletimAberto.current;
+    if (orig && semZeros(form.os) === semZeros(orig.os)) {
+      upd({ modoArea: orig.modoArea, volume: orig.volume });
+      return buscarOS(form.os, { ...cabecalho, areas: orig.areas, marcados: orig.marcados }, form.id);
+    }
+    // outra O.S.: os talhões dela, com o cabeçalho do boletim
+    buscarOS(form.os, cabecalho, form.id);
   }
 
   /** Novo apontamento: formulário limpo na janela. */
@@ -842,8 +933,17 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                   <input
                     value={form.boletim}
                     onChange={(e) => upd({ boletim: e.target.value.replace(/\D/g, "").slice(0, 9) })}
+                    onBlur={() => abrirBoletimPeloNumero()}
+                    onKeyDown={async (e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      // boletim já lançado abre para edição; número novo segue para a O.S. (o Enter procura sempre de novo)
+                      if (!(await abrirBoletimPeloNumero(true))) osRef.current?.focus();
+                    }}
                     inputMode="numeric"
-                    aria-label="Número do boletim"
+                    aria-label="Número do boletim (digite um já lançado e tecle Enter para abrir)"
+                    title="Digite o número de um boletim já lançado e tecle Enter para abrir"
                   />
                 </label>
                 <button
@@ -874,11 +974,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                     if (osInfo) setOsInfo(null);
                     setErroOS(null);
                   }}
-                  onBlur={() => form.os && !osInfo && buscarOS(form.os)}
+                  onBlur={() => buscarOSDoCampo()}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      if (form.os && !osInfo) buscarOS(form.os);
+                      buscarOSDoCampo();
                       focarProximo(e.currentTarget);
                     }
                   }}
