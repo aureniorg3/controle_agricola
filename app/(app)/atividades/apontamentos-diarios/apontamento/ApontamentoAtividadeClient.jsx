@@ -46,6 +46,7 @@ const formVazio = () => ({
   opCod: "",
   opDs: "",
   solicitante: "",
+  apontador: "",
   etapaCod: "",
   tipoAplicacao: "",
   numEquipamentos: "",
@@ -86,6 +87,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   const boletimProcurado = useRef("");
   /** só vale a resposta da última busca de boletim pelo número (fechar ou abrir outro descarta a anterior) */
   const seqBoletim = useRef(0);
+  /** responsável da última O.S. buscada, quando o Solicitante veio dela (outra O.S. troca; o digitado fica) */
+  const respDaOS = useRef("");
   const formRef = useRef(null);
   const gravarRef = useRef(null);
   const [verificar, setVerificar] = useState(false);
@@ -186,6 +189,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       const info = json;
       setOsInfo(info);
       if (excluirId) osDoBoletim.current = info.os;
+      // Solicitante em branco ou que veio da O.S. anterior: o responsável desta; o digitado (ou o do boletim) fica
+      const respAnterior = respDaOS.current;
+      respDaOS.current = manter?.solicitante === undefined ? info.resp || "" : "";
+      const doUsuario = (s) => !!String(s ?? "").trim() && s !== respAnterior;
       const primeira =
         manter?.opCod && info.operacoes.some((o) => o.cod === manter.opCod) ? info.operacoes.find((o) => o.cod === manter.opCod) : info.operacoes[0];
       setForm((f) => ({
@@ -195,7 +202,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         opDs: primeira?.ds ?? "",
         etapaCod: manter?.etapaCod ?? primeira?.etapaCod ?? "",
         tipoAplicacao: manter?.tipoAplicacao ?? (primeira?.tipoDs || primeira?.tipoCod || f.tipoAplicacao),
-        solicitante: manter?.solicitante ?? (f.solicitante || info.resp),
+        solicitante: manter?.solicitante ?? (doUsuario(f.solicitante) ? f.solicitante : info.resp || ""),
         areas: manter?.areas ?? {},
         // na edição de um rateio, só os talhões do apontamento ficam marcados; redigitando a mesma O.S., as marcações
         // ficam como estão (vazio = todos marcados)
@@ -523,6 +530,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     boletimAberto.current = null;
     boletimProcurado.current = "";
     seqBoletim.current++;
+    respDaOS.current = "";
     setForm(formVazio());
     setOsInfo(null);
     setErroOS(null);
@@ -541,6 +549,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       {
         opCod: form.opCod,
         solicitante: form.solicitante,
+        apontador: form.apontador,
         etapaCod: form.etapaCod,
         tipoAplicacao: form.tipoAplicacao,
         eqp: form.eqp,
@@ -580,6 +589,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
           opCod: form.opCod,
           opDs: form.opDs,
           solicitante: form.solicitante,
+          apontador: form.apontador,
           etapaCod: form.etapaCod,
           tipoAplicacao: form.tipoAplicacao,
           numEquipamentos: Number(form.numEquipamentos || 0),
@@ -622,6 +632,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     osDoBoletim.current = a.os ?? "";
     boletimProcurado.current = a.boletim ? String(a.boletim) : "";
     seqBoletim.current++;
+    respDaOS.current = "";
     const semOS = !a.os;
     const areas = Object.fromEntries(a.talhoes.map((t) => [chaveTalhao(t.propCod, t.tlh), texto(t.area)]));
     const marcados = Object.fromEntries(a.talhoes.map((t) => [chaveTalhao(t.propCod, t.tlh), true]));
@@ -633,6 +644,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       opCod: a.opCod,
       opDs: a.opDs,
       solicitante: a.solicitante,
+      apontador: a.apontador ?? "",
       etapaCod: a.etapaCod,
       tipoAplicacao: a.tipoAplicacao,
       numEquipamentos: String(a.numEquipamentos),
@@ -668,7 +680,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     setOsInfo(null);
     setErroOS(null);
     if (semOS) atualizarAreasDasLinhas(novo.dt, novo.livres);
-    else buscarOS(a.os, novo, a.id);
+    // Solicitante em branco no boletim: vem o responsável da O.S.
+    else buscarOS(a.os, { ...novo, solicitante: String(novo.solicitante ?? "").trim() ? novo.solicitante : undefined }, a.id);
     setDetalhe(null);
     setFormAberto(true);
   }
@@ -728,7 +741,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     const cabecalho = {
       dt: form.dt,
       opCod: form.opCod,
-      solicitante: vazioVemDaOS(form.solicitante),
+      // o que veio da O.S. anterior (não é do boletim nem foi digitado) também é trocado
+      solicitante: form.solicitante === respDaOS.current ? undefined : vazioVemDaOS(form.solicitante),
       etapaCod: vazioVemDaOS(form.etapaCod),
       tipoAplicacao: vazioVemDaOS(form.tipoAplicacao),
     };
@@ -1012,7 +1026,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
             </div>
 
             {/* Operação e recursos: cabeçalho compacto */}
-            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-6">
+            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-8">
               <div className="col-span-2">
                 <label className={ROTULO}>{rot("operacao", "Operação")}</label>
                 {comOS ? (
@@ -1062,6 +1076,24 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                 />
                 <datalist id="solicitantes-ap">
                   {(opcoes?.solicitantes ?? []).map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="col-span-2">
+                <label className={ROTULO} title="Quem passou a informação do campo (no bot do WhatsApp, quem mandou a mensagem)">
+                  {rot("apontador", "Apontador / Informante")}
+                </label>
+                <input
+                  data-nav
+                  list="apontadores-ap"
+                  value={form.apontador}
+                  onChange={(e) => upd({ apontador: e.target.value })}
+                  className={INPUT}
+                  maxLength={80}
+                />
+                <datalist id="apontadores-ap">
+                  {(opcoes?.apontadores ?? []).map((s) => (
                     <option key={s} value={s} />
                   ))}
                 </datalist>
@@ -1517,6 +1549,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                   <th className="px-3 py-1.5 font-medium">Etapa</th>
                   <th className="px-3 py-1.5 font-medium">Tipo de aplicação</th>
                   <th className="px-3 py-1.5 font-medium">Solicitante</th>
+                  <th className="px-3 py-1.5 font-medium">Apontador</th>
                   <th className="px-3 py-1.5 text-right font-medium">Equip.</th>
                   <th className="px-3 py-1.5 text-right font-medium">Pessoas</th>
                   <th className="px-3 py-1.5 text-right font-medium">Área (ha)</th>
@@ -1527,14 +1560,14 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
               <tbody>
                 {carregando && (
                   <tr>
-                    <td colSpan={14} className="px-3 py-6 text-center text-muted">
+                    <td colSpan={15} className="px-3 py-6 text-center text-muted">
                       Carregando…
                     </td>
                   </tr>
                 )}
                 {!carregando && visiveis.length === 0 && (
                   <tr>
-                    <td colSpan={14} className="px-3 py-6 text-center text-muted">
+                    <td colSpan={15} className="px-3 py-6 text-center text-muted">
                       {lista.length === 0 ? "Nenhum apontamento no período." : "Nenhum apontamento neste atalho."}
                       {lista.length === 0 && podeGravar && (
                         <button type="button" className={`${BOTAO} ml-2`} onClick={novo}>
@@ -1576,6 +1609,9 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                         </td>
                         <td className="px-3 py-1.5 text-muted">{a.tipoAplicacao || "—"}</td>
                         <td className="max-w-[160px] truncate px-3 py-1.5">{a.solicitante}</td>
+                        <td className="max-w-[160px] truncate px-3 py-1.5 text-muted" title={a.apontador || undefined}>
+                          {a.apontador || "—"}
+                        </td>
                         <td className="px-3 py-1.5 text-right tabular">{a.numEquipamentos}</td>
                         <td className="px-3 py-1.5 text-right tabular">{a.numPessoas}</td>
                         <td
@@ -1617,7 +1653,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                 })}
                 {visiveis.length > 0 && (
                   <tr className="border-t border-line bg-surface font-semibold">
-                    <td colSpan={11} className="px-3 py-1.5">
+                    <td colSpan={12} className="px-3 py-1.5">
                       {visiveis.length} apontamento(s)
                     </td>
                     <td className="px-3 py-1.5 text-right tabular">{nf(totalVisiveis)}</td>
@@ -1917,6 +1953,7 @@ function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir
             {campo("Etapa", a.etapaDs || a.etapaCod)}
             {campo("Tipo de aplicação", a.tipoAplicacao)}
             {campo("Solicitante", a.solicitante)}
+            {campo("Apontador / Informante", a.apontador)}
             {campo("Equipamento (frota)", a.eqp)}
             {campo("Nº de equipamentos", a.numEquipamentos)}
             {campo("Nº de pessoas", a.numPessoas)}

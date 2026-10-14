@@ -68,6 +68,8 @@ export async function POST(req) {
     modoArea: b.modoArea === "rateio" ? "rateio" : "talhao",
     volume: b.volume === null || b.volume === undefined || b.volume === "" ? null : numero(b.volume),
     solicitante: texto(b.solicitante),
+    // sem o campo (tela aberta antes dele): na edição fica o que estava gravado
+    apontador: b.apontador === undefined ? undefined : texto(b.apontador),
     etapaCod: texto(b.etapaCod),
     tipoAplicacao: texto(b.tipoAplicacao),
     numEquipamentos: inteiro(b.numEquipamentos),
