@@ -71,7 +71,8 @@ export async function POST(req) {
   const validos = itens.filter(Boolean);
   try {
     const res = validos.length ? await sincronizarDoBot(validos) : [];
-    return NextResponse.json({ itens: res, recusados: ruins });
+    // v: versão do contrato (3 = talhões encaixados na O.S.); o app de lá só marca como enviado com a versão que espera
+    return NextResponse.json({ v: 3, itens: res, recusados: ruins });
   } catch (err) {
     console.error("[integracao/whatsapp]", err);
     return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
