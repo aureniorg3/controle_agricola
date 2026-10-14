@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
 import {
+  conferirApontamento,
   excluirApontamento,
   listarApontamentos,
   opcoesApontamento,
@@ -100,6 +101,13 @@ export async function PATCH(req) {
   }
   const b = await req.json().catch(() => null);
   const id = Number(b?.id);
+  // apontamento do WhatsApp conferido: passa a ser de quem conferiu (o bot não regrava mais)
+  if (b?.conferir === true) {
+    if (!Number.isInteger(id)) return NextResponse.json({ error: "Informe o apontamento." }, { status: 400 });
+    const r = await conferirApontamento(id, usuario.nome);
+    if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 404 });
+    return NextResponse.json(r);
+  }
   const os = typeof b?.os === "string" ? b.os.replace(/\D/g, "") : "";
   if (!Number.isInteger(id) || !os) return NextResponse.json({ error: "Informe o apontamento e a O.S." }, { status: 400 });
   const r = await vincularOS(id, os, usuario.nome);

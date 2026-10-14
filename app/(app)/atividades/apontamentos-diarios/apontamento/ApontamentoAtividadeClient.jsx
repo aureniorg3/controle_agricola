@@ -2,8 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
-import { IconBusca } from "@/components/icons";
-import { CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, rolarCorpoParaOTopo } from "@/components/pagina";
+import { IconAlerta, IconBusca, IconMais } from "@/components/icons";
+import { CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
 import { camposFaltando, chaveTalhao, ratearArea, REGRAS_PADRAO, round2 } from "@/lib/atividades";
 
 import { fmtDateBR, todayISO } from "@/lib/format";
@@ -98,7 +98,12 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   }
   const [lista, setLista] = useState([]);
   const [carregando, setCarregando] = useState(true);
-  const [aberto, setAberto] = useState(null);
+  // janelas: formulário (novo/edição), detalhe de um apontamento e confirmação (excluir, descartar)
+  const [formAberto, setFormAberto] = useState(false);
+  const [detalhe, setDetalhe] = useState(null);
+  const [confirmar, setConfirmar] = useState(null);
+  /** atalho da lista: todos | conferir (do WhatsApp, a conferir) | whatsapp | semOS */
+  const [rapido, setRapido] = useState("todos");
 
   const upd = (p) => setForm((f) => ({ ...f, ...p }));
   // campos obrigatórios (Parâmetros › Apontamento Diário): marcados com * na tela
@@ -581,6 +586,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         : "";
       setMsg({ texto: (form.id ? `Boletim nº ${form.boletim} alterado.` : `Boletim nº ${form.boletim} lançado: ${nf(totalDia)} ha ${onde}.`) + acima, erro: false });
       const dtLancada = form.dt;
+      if (form.id) setFormAberto(false);
       limpar();
       setForm((f) => ({ ...f, dt: dtLancada }));
       if (dtLancada < de || dtLancada > ate) {
@@ -643,12 +649,61 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     setErroOS(null);
     if (semOS) atualizarAreasDasLinhas(novo.dt, novo.livres);
     else buscarOS(a.os, novo, a.id);
-    rolarCorpoParaOTopo(false);
+    setDetalhe(null);
+    setFormAberto(true);
   }
 
-  async function excluir(a) {
+  /** Novo apontamento: formulário limpo na janela. */
+  function novo() {
+    setMsg(null);
+    limpar();
+    setFormAberto(true);
+  }
+
+  /** Fechar a janela do formulário: com algo digitado, pergunta antes de descartar. */
+  function fecharForm() {
+    const fechar = () => {
+      setFormAberto(false);
+      limpar();
+    };
+    const digitado = form.os || totalDia > 0 || form.livres.some((l) => l.faz || l.tlh);
+    if (!digitado) return fechar();
+    setConfirmar({
+      titulo: form.id ? "Cancelar a edição?" : "Descartar o apontamento?",
+      texto: form.id ? "As alterações feitas não serão gravadas." : "O que foi digitado será perdido.",
+      botao: "Descartar",
+      perigo: true,
+      acao: fechar,
+    });
+  }
+
+  /** Apontamento do WhatsApp conferido: o bot não mexe mais nele. */
+  async function conferir(a) {
+    const res = await fetch("/api/atividades/apontamentos", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: a.id, conferir: true }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return setMsg({ texto: json.error ?? "Não foi possível marcar como conferido.", erro: true });
+    setMsg({ texto: `Boletim nº ${a.boletim ?? a.id} conferido.`, erro: false });
+    setDetalhe((d) => (d && d.id === a.id ? { ...d, aConferir: false, atuUsr: nomeUsuario || "você" } : d));
+    carregarLista();
+  }
+
+  function excluir(a) {
     const onde = a.os ? `O.S. ${a.os}` : "sem O.S.";
-    if (!window.confirm(`Excluir o boletim nº ${a.boletim ?? a.id} (${onde}, ${fmtDateBR(a.dt)})? A exclusão fica no Log de Alterações.`)) return;
+    setConfirmar({
+      titulo: `Excluir o boletim nº ${a.boletim ?? a.id}?`,
+      texto: `${onde} · ${fmtDateBR(a.dt)} · ${nf(a.areaTotal)} ha. A exclusão fica no Log de Alterações.`,
+      botao: "Excluir",
+      perigo: true,
+      acao: () => excluirDeVez(a),
+    });
+  }
+
+  async function excluirDeVez(a) {
+    setDetalhe(null);
     const res = await fetch("/api/atividades/apontamentos", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -661,14 +716,18 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     carregarLista();
   }
 
+  // F2: com a janela fechada abre um apontamento novo; aberta, grava
   const salvarRef = useRef(salvar);
-  salvarRef.current = salvar;
+  salvarRef.current = () => (formAberto ? salvar() : podeGravar && novo());
+  // Esc fecha a janela de cima (confirmação, detalhe ou formulário)
+  const escRef = useRef(null);
+  escRef.current = () => (confirmar ? setConfirmar(null) : detalhe ? setDetalhe(null) : formAberto ? fecharForm() : null);
   useEffect(() => {
     const tecla = (e) => {
       if (e.key === "F2") {
         e.preventDefault();
         salvarRef.current();
-      }
+      } else if (e.key === "Escape") escRef.current();
     };
     window.addEventListener("keydown", tecla);
     return () => window.removeEventListener("keydown", tecla);
@@ -678,6 +737,18 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   const vazaoCalculada = numero(form.volCalda) > 0 && totalDia > 0 ? round2(numero(form.volCalda) / totalDia) : null;
 
   const totalLista = round2(lista.reduce((a, x) => a + x.areaTotal, 0));
+  const qtdConferir = lista.filter((a) => a.aConferir).length;
+  const qtdSemOS = lista.filter((a) => !a.os).length;
+  // atalho escolhido nos cartões / botões acima da lista
+  const visiveis =
+    rapido === "conferir"
+      ? lista.filter((a) => a.aConferir)
+      : rapido === "whatsapp"
+        ? lista.filter((a) => a.orig === "whatsapp")
+        : rapido === "semOS"
+          ? lista.filter((a) => !a.os)
+          : lista;
+  const totalVisiveis = round2(visiveis.reduce((a, x) => a + x.areaTotal, 0));
   const marcadosQtd = linhas.filter((l) => l.marcado && (comOS || (l.propCod && l.tlh))).length;
   const somaPeso = round2(linhas.filter((l) => l.marcado).reduce((a, l) => a + (l.areaRec ?? l.areaTlh ?? 0), 0));
   const podeSalvar = !salvando && !!form.boletim && totalDia > 0 && (!comOS || !!op);
@@ -697,6 +768,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         comandos={
           <>
             {podeGravar && (
+              <Comando primario icone={<IconMais size={16} />} onClick={novo} title="Novo apontamento (F2)">
+                Novo apontamento
+              </Comando>
+            )}
+            {podeGravar && (
               <Comando
                 icone={<IconBusca size={16} />}
                 onClick={() => setVerificar(true)}
@@ -710,30 +786,76 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       />
 
       <CorpoPagina className="space-y-5">
-        {msg && (
-          <p
-            className={`rounded-md border px-3 py-2 text-[13px] ${msg.erro ? "border-alert-500/40 bg-alert-50 text-alert-700" : "border-good-500/40 bg-good-50 text-good-700"}`}
-          >
-            {msg.texto}
-          </p>
-        )}
+        {msg && !formAberto && <Aviso msg={msg} onFechar={() => setMsg(null)} />}
 
-        {podeGravar && (
-          <section className="caixa-form" ref={formRef} onKeyDown={aoTeclarNoForm}>
+        {/* Resumo do período da lista: os cartões filtram a lista */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[
+            { k: "todos", rotulo: "Apontamentos no período", valor: lista.length, apoio: `${fmtDateBR(de)} a ${fmtDateBR(ate)}`, cor: "azul" },
+            { k: "area", rotulo: "Área apontada", valor: nf(totalLista), unidade: "ha", apoio: "soma dos talhões", cor: "verde" },
+            {
+              k: "conferir",
+              rotulo: "Do WhatsApp a conferir",
+              valor: qtdConferir,
+              apoio: qtdConferir ? "lançados pelo bot · clique para ver" : "nada pendente",
+              cor: qtdConferir ? "laranja" : "cinza",
+            },
+            {
+              k: "semOS",
+              rotulo: "Sem O.S.",
+              valor: qtdSemOS,
+              apoio: qtdSemOS ? "clique para ver · Verificar O.S. procura a O.S." : "todos com O.S.",
+              cor: qtdSemOS ? "amarelo" : "cinza",
+            },
+          ].map((c) => (
+            <button
+              key={c.k}
+              type="button"
+              onClick={() => setRapido(c.k === "area" ? "todos" : rapido === c.k ? "todos" : c.k)}
+              className={`rounded-xl2 text-left transition hover:-translate-y-px focus:outline-none focus-visible:ring-2 focus-visible:ring-navy-500 ${rapido === c.k && c.k !== "todos" ? "ring-2 ring-navy-500" : ""}`}
+              title={c.k === "area" || c.k === "todos" ? "Mostrar todos" : `Mostrar só: ${c.rotulo.toLowerCase()}`}
+            >
+              <Indicador rotulo={c.rotulo} valor={c.valor} unidade={c.unidade} apoio={c.apoio} cor={c.cor} />
+            </button>
+          ))}
+        </div>
+
+        {podeGravar && formAberto && (
+          <div
+            className="fixed inset-0 z-40 overflow-y-auto bg-navy-950/50 px-3 py-4 sm:px-6 sm:py-8"
+            role="dialog"
+            aria-modal="true"
+            aria-label={form.id ? "Editar apontamento" : "Novo apontamento"}
+            onMouseDown={(e) => e.target === e.currentTarget && fecharForm()}
+          >
+          <div className="mx-auto max-w-6xl space-y-3">
+          {msg && <Aviso msg={msg} onFechar={() => setMsg(null)} />}
+          <section className="caixa-form shadow-pop" ref={formRef} onKeyDown={aoTeclarNoForm}>
             <div className="caixa-form-topo">
               <div>
-                <div className="caixa-form-titulo">{form.id ? "Editando o apontamento" : "Novo apontamento"}</div>
-                {nomeUsuario && <div className="text-[11.5px] text-muted">Lançado por {nomeUsuario}</div>}
+                <div className="caixa-form-titulo">{form.id ? `Editando o boletim nº ${form.boletim || "—"}` : "Novo apontamento"}</div>
+                {nomeUsuario && <div className="text-[11.5px] text-muted">{form.id ? "Alterado" : "Lançado"} por {nomeUsuario} · F2 grava · Esc fecha</div>}
               </div>
-              <label className="campo-boletim">
-                Boletim nº
-                <input
-                  value={form.boletim}
-                  onChange={(e) => upd({ boletim: e.target.value.replace(/\D/g, "").slice(0, 9) })}
-                  inputMode="numeric"
-                  aria-label="Número do boletim"
-                />
-              </label>
+              <div className="flex items-center gap-2">
+                <label className="campo-boletim">
+                  Boletim nº
+                  <input
+                    value={form.boletim}
+                    onChange={(e) => upd({ boletim: e.target.value.replace(/\D/g, "").slice(0, 9) })}
+                    inputMode="numeric"
+                    aria-label="Número do boletim"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={fecharForm}
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-[20px] leading-none text-muted hover:bg-surface"
+                  aria-label="Fechar"
+                  title="Fechar (Esc)"
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             {/* Identificação */}
@@ -1219,9 +1341,12 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
             </p>
 
             <div className="mt-4 flex flex-wrap justify-end gap-2">
-              {(form.id || form.os || form.livres.some((l) => l.faz || l.tlh)) && (
+              <button type="button" onClick={fecharForm} className={BOTAO}>
+                {form.id ? "Cancelar edição" : "Fechar"}
+              </button>
+              {!form.id && (form.os || form.livres.some((l) => l.faz || l.tlh)) && (
                 <button type="button" onClick={limpar} className={BOTAO}>
-                  {form.id ? "Cancelar edição" : "Limpar"}
+                  Limpar
                 </button>
               )}
               <button
@@ -1235,6 +1360,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
               </button>
             </div>
           </section>
+          </div>
+          </div>
         )}
 
         {/* Lançados */}
@@ -1257,7 +1384,26 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
               <input value={filtroOS} onChange={(e) => setFiltroOS(e.target.value.replace(/\D/g, ""))} className={INPUT} placeholder="Todas" />
             </div>
             <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
+            <div className="ml-auto flex flex-wrap gap-1.5" role="group" aria-label="Mostrar">
+              {[
+                ["todos", `Todos (${lista.length})`],
+                ["conferir", `A conferir (${qtdConferir})`],
+                ["whatsapp", `Do WhatsApp (${lista.filter((a) => a.orig === "whatsapp").length})`],
+                ["semOS", `Sem O.S. (${qtdSemOS})`],
+              ].map(([k, t]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setRapido(k)}
+                  aria-pressed={rapido === k}
+                  className={`rounded-full border px-3 py-1 text-[12px] font-medium ${rapido === k ? "border-navy-900 bg-navy-900 text-white" : "border-line bg-card text-navy-800 hover:bg-surface"}`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
           </div>
+          <p className="mb-2 text-[11.5px] text-muted">Clique numa linha para ver o apontamento inteiro (talhões, calda, mensagem do WhatsApp).</p>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1100px] text-[12.5px]">
               <thead>
@@ -1286,25 +1432,37 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                     </td>
                   </tr>
                 )}
-                {!carregando && lista.length === 0 && (
+                {!carregando && visiveis.length === 0 && (
                   <tr>
                     <td colSpan={14} className="px-3 py-6 text-center text-muted">
-                      Nenhum apontamento no período.
+                      {lista.length === 0 ? "Nenhum apontamento no período." : "Nenhum apontamento neste atalho."}
+                      {lista.length === 0 && podeGravar && (
+                        <button type="button" className={`${BOTAO} ml-2`} onClick={novo}>
+                          Lançar um apontamento
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )}
-                {lista.map((a) => {
+                {visiveis.map((a) => {
                   const codigos = Array.from(new Set(a.talhoes.map((t) => t.propCod)));
                   const nomes = Array.from(new Set(a.talhoes.map((t) => t.propNm).filter(Boolean)));
                   return (
                     <Fragment key={a.id}>
-                      <tr className={`border-t border-line/60 ${form.id === a.id ? "bg-[#2E5FA8]/[0.08]" : ""}`}>
-                        <td className="px-3 py-1.5 tabular font-medium text-ink">{a.boletim ?? "—"}</td>
+                      <tr
+                        className={`cursor-pointer border-t border-line/60 hover:bg-surface/70 ${a.aConferir ? "bg-amber-50/40" : ""}`}
+                        onClick={() => setDetalhe(a)}
+                        title="Ver o apontamento"
+                      >
+                        <td className="px-3 py-1.5 tabular font-medium text-ink">
+                          <span className="flex items-center gap-1.5">
+                            {a.boletim ?? "—"}
+                            {a.orig === "whatsapp" && <SeloOrigem a={a} />}
+                          </span>
+                        </td>
                         <td className="px-3 py-1.5 tabular">{fmtDateBR(a.dt)}</td>
                         <td className="px-3 py-1.5 tabular font-medium text-ink">
-                          <button type="button" className="hover:underline" onClick={() => setAberto(aberto === a.id ? null : a.id)} title="Ver talhões">
-                            {a.os || <span className="font-normal text-muted">Sem O.S.</span>}
-                          </button>
+                          {a.os || <span className="font-normal text-amber-700">Sem O.S.</span>}
                         </td>
                         <td className="px-3 py-1.5 tabular">{codigos.join(", ")}</td>
                         <td className="max-w-[220px] truncate px-3 py-1.5" title={nomes.join(" / ")}>
@@ -1331,9 +1489,14 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                           {a.usr}
                           {a.atuUsr ? <div>alterado por {a.atuUsr}</div> : null}
                         </td>
-                        <td className="px-2 py-1 text-right">
+                        <td className="px-2 py-1 text-right" onClick={(e) => e.stopPropagation()}>
                           {podeGravar && (
                             <span className="flex justify-end gap-1.5">
+                              {a.aConferir && (
+                                <button type="button" className={`${BOTAO} text-good-600`} onClick={() => conferir(a)} title="Confere e tira da lista do WhatsApp a conferir">
+                                  Conferido
+                                </button>
+                              )}
                               <button type="button" className={BOTAO} onClick={() => editar(a)}>
                                 Editar
                               </button>
@@ -1349,30 +1512,15 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                           )}
                         </td>
                       </tr>
-                      {aberto === a.id && (
-                        <tr className="bg-surface/60">
-                          <td colSpan={14} className="px-4 py-2 text-[12px] text-muted">
-                            {a.eqp && `Equipamento ${a.eqp} · `}
-                            {a.vazaoRec !== null && `Vazão recomendada ${nf(a.vazaoRec)} L/ha · `}
-                            {a.volCalda !== null && `Calda ${nf(a.volCalda)} L · `}
-                            {a.vazaoUti !== null && `Vazão utilizada ${nf(a.vazaoUti)} L/ha${a.vazaoAuto ? " (calculada)" : ""} · `}
-                            {a.modoArea === "rateio" && `Área de ${nf(a.volume ?? a.areaTotal)} ha rateada · `}
-                            {a.insumos.length > 0 &&
-                              `Insumos: ${a.insumos.map((i) => `${i.cod} ${i.ds}${i.qtd !== null ? ` ${nf(i.qtd)} ${i.um}` : ""}`).join(", ")} · `}
-                            {a.talhoes.map((t) => `Fazenda ${t.propCod} talhão ${t.tlh}: ${nf(t.area)} ha`).join(" · ")}
-                            {a.obs ? ` · Obs.: ${a.obs}` : ""}
-                          </td>
-                        </tr>
-                      )}
                     </Fragment>
                   );
                 })}
-                {lista.length > 0 && (
+                {visiveis.length > 0 && (
                   <tr className="border-t border-line bg-surface font-semibold">
                     <td colSpan={11} className="px-3 py-1.5">
-                      {lista.length} apontamento(s)
+                      {visiveis.length} apontamento(s)
                     </td>
-                    <td className="px-3 py-1.5 text-right tabular">{nf(totalLista)}</td>
+                    <td className="px-3 py-1.5 text-right tabular">{nf(totalVisiveis)}</td>
                     <td colSpan={2} />
                   </tr>
                 )}
@@ -1382,6 +1530,27 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         </Painel>
       </CorpoPagina>
 
+      {detalhe && (
+        <DetalheModal
+          a={detalhe}
+          podeGravar={podeGravar}
+          onFechar={() => setDetalhe(null)}
+          onEditar={() => editar(detalhe)}
+          onExcluir={() => excluir(detalhe)}
+          onConferir={() => conferir(detalhe)}
+        />
+      )}
+      {confirmar && (
+        <ConfirmarModal
+          {...confirmar}
+          onCancelar={() => setConfirmar(null)}
+          onConfirmar={() => {
+            const acao = confirmar.acao;
+            setConfirmar(null);
+            acao();
+          }}
+        />
+      )}
       {verificar && (
         <VerificarOSModal
           de={de}
@@ -1540,6 +1709,222 @@ function VerificarOSModal({ de, ate, onFechar }) {
             Fechar
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Mensagem de sucesso/erro com botão para fechar. */
+function Aviso({ msg, onFechar }) {
+  return (
+    <div
+      role={msg.erro ? "alert" : "status"}
+      className={`flex items-start gap-2 rounded-md border px-3 py-2 text-[13px] ${msg.erro ? "border-alert-500/40 bg-alert-50 text-alert-600" : "border-good-500/40 bg-good-50 text-good-600"}`}
+    >
+      <span className="min-w-0 flex-1">{msg.texto}</span>
+      <button type="button" onClick={onFechar} aria-label="Fechar a mensagem" className="px-1 leading-none opacity-70 hover:opacity-100">
+        ×
+      </button>
+    </div>
+  );
+}
+
+/** Selo da origem WhatsApp na lista: laranja enquanto o apontamento do bot não foi conferido. */
+function SeloOrigem({ a }) {
+  return a.aConferir ? (
+    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800" title="Lançado pelo bot do WhatsApp; ainda não conferido">
+      WhatsApp · a conferir
+    </span>
+  ) : (
+    <span className="rounded-full bg-good-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-good-600" title="Veio do WhatsApp">
+      WhatsApp
+    </span>
+  );
+}
+
+/** Janela de confirmação (excluir, descartar o que foi digitado). */
+function ConfirmarModal({ titulo, texto, botao = "Confirmar", perigo = false, onConfirmar, onCancelar }) {
+  const ok = useRef(null);
+  useEffect(() => ok.current?.focus(), []);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-navy-950/50 px-4" onMouseDown={(e) => e.target === e.currentTarget && onCancelar()}>
+      <div role="alertdialog" aria-modal="true" aria-label={titulo} className="w-full max-w-md rounded-xl2 bg-card p-5 shadow-pop">
+        <h2 className="text-[15px] font-semibold text-ink">{titulo}</h2>
+        {texto && <p className="mt-1.5 text-[13px] text-muted">{texto}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" className={BOTAO} onClick={onCancelar}>
+            Voltar
+          </button>
+          <button
+            ref={ok}
+            type="button"
+            onClick={onConfirmar}
+            className={`rounded-lg px-4 py-1.5 text-[12.5px] font-medium text-white ${perigo ? "bg-alert-600 hover:bg-alert-500" : "bg-navy-900 hover:bg-navy-800"}`}
+          >
+            {botao}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Um apontamento inteiro: dados, talhões, insumos, observação e a mensagem do WhatsApp de onde veio. */
+function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir }) {
+  const [verMsg, setVerMsg] = useState(a.aConferir);
+  const campo = (rotulo, valor) => (
+    <div className="min-w-0">
+      <div className="text-[11px] font-medium text-muted">{rotulo}</div>
+      <div className="truncate text-[13px] text-ink" title={typeof valor === "string" ? valor : undefined}>
+        {valor === null || valor === undefined || valor === "" ? "—" : valor}
+      </div>
+    </div>
+  );
+  const fazendas = Array.from(new Set(a.talhoes.map((t) => t.propCod)));
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-navy-950/50 px-3 py-6" onMouseDown={(e) => e.target === e.currentTarget && onFechar()}>
+      <div role="dialog" aria-modal="true" aria-label={`Boletim ${a.boletim ?? a.id}`} className="w-full max-w-3xl rounded-xl2 bg-card shadow-pop">
+        <header className="flex items-start gap-3 border-b border-line px-5 py-3.5">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-[16px] font-semibold text-ink">Boletim nº {a.boletim ?? "—"}</h2>
+              {a.orig === "whatsapp" && <SeloOrigem a={a} />}
+              {!a.os && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800">Sem O.S.</span>}
+            </div>
+            <div className="mt-0.5 text-[12.5px] text-muted">
+              {fmtDateBR(a.dt)} · {a.os ? `O.S. ${a.os}` : "sem O.S."} · {a.opCod} {a.opDs}
+            </div>
+          </div>
+          <button type="button" onClick={onFechar} aria-label="Fechar" title="Fechar (Esc)" className="flex h-8 w-8 items-center justify-center rounded-md text-[20px] leading-none text-muted hover:bg-surface">
+            ×
+          </button>
+        </header>
+
+        <div className="space-y-4 px-5 py-4">
+          {a.aConferir && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
+              <IconAlerta size={16} />
+              <span>
+                Lançado pelo bot a partir da mensagem do WhatsApp. Confira com a mensagem abaixo; ao editar ou marcar como conferido, o bot não altera mais este
+                apontamento.
+              </span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+            {campo("Área apontada", `${nf(a.areaTotal)} ha${a.modoArea === "rateio" ? " (rateada)" : ""}`)}
+            {campo("Fazenda(s)", fazendas.join(", "))}
+            {campo("Etapa", a.etapaDs || a.etapaCod)}
+            {campo("Tipo de aplicação", a.tipoAplicacao)}
+            {campo("Solicitante", a.solicitante)}
+            {campo("Equipamento (frota)", a.eqp)}
+            {campo("Nº de equipamentos", a.numEquipamentos)}
+            {campo("Nº de pessoas", a.numPessoas)}
+            {campo("Vazão recomendada", a.vazaoRec !== null ? `${nf(a.vazaoRec)} L/ha` : null)}
+            {campo("Calda gasta", a.volCalda !== null ? `${nf(a.volCalda, 0)} L` : null)}
+            {campo("Vazão utilizada", a.vazaoUti !== null ? `${nf(a.vazaoUti)} L/ha${a.vazaoAuto ? " (calculada)" : ""}` : null)}
+            {campo("Lançado por", `${a.usr}${a.criEm ? ` · ${a.criEm}` : ""}`)}
+          </div>
+
+          <div>
+            <div className="mb-1.5 text-[12px] font-semibold text-ink">Talhões</div>
+            {a.talhoes.length === 0 ? (
+              <p className="rounded-md border border-line bg-surface px-3 py-2 text-[12.5px] text-muted">Nenhum talhão com área.</p>
+            ) : (
+              <div className="overflow-hidden rounded-lg border border-line">
+                <table className="w-full text-[12.5px]">
+                  <thead className="bg-surface text-left text-muted">
+                    <tr>
+                      <th className="px-3 py-1.5 font-medium">Fazenda</th>
+                      <th className="px-3 py-1.5 font-medium">Talhão</th>
+                      <th className="px-3 py-1.5 text-right font-medium">Área do talhão</th>
+                      <th className="px-3 py-1.5 text-right font-medium">Área apontada</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {a.talhoes.map((t, i) => (
+                      <tr key={i} className="border-t border-line/60">
+                        <td className="px-3 py-1.5">
+                          {t.propCod}
+                          {t.propNm && <span className="text-muted"> · {t.propNm}</span>}
+                        </td>
+                        <td className="px-3 py-1.5 tabular">{t.tlh || <span className="text-muted">sem talhão</span>}</td>
+                        <td className="px-3 py-1.5 text-right tabular text-muted">{t.areaTlh !== null ? nf(t.areaTlh) : "—"}</td>
+                        <td className="px-3 py-1.5 text-right tabular font-medium">{nf(t.area)}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t border-line bg-surface font-semibold">
+                      <td className="px-3 py-1.5" colSpan={3}>
+                        Total
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular">{nf(a.areaTotal)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {a.insumos.length > 0 && (
+            <div>
+              <div className="mb-1.5 text-[12px] font-semibold text-ink">Insumos</div>
+              <ul className="space-y-0.5 text-[12.5px]">
+                {a.insumos.map((i, k) => (
+                  <li key={k}>
+                    {i.cod} {i.ds}
+                    {i.qtd !== null && <span className="text-muted"> · {nf(i.qtd)} {i.um}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {a.obs && (
+            <div>
+              <div className="mb-1 text-[12px] font-semibold text-ink">Observação</div>
+              <p className="whitespace-pre-wrap text-[12.5px] text-ink">{a.obs}</p>
+            </div>
+          )}
+
+          {a.origMsg && (
+            <div>
+              <button type="button" onClick={() => setVerMsg(!verMsg)} className="text-[12px] font-semibold text-navy-800 hover:underline" aria-expanded={verMsg}>
+                {verMsg ? "▾" : "▸"} Mensagem original do WhatsApp
+              </button>
+              {verMsg && (
+                <pre className="mt-1.5 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface px-3 py-2 font-sans text-[12.5px] text-ink">
+                  {a.origMsg}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+
+        <footer className="flex flex-wrap items-center gap-2 border-t border-line px-5 py-3">
+          {a.atuUsr && (
+            <span className="text-[11.5px] text-muted">
+              Alterado por {a.atuUsr}
+              {a.atuEm ? ` · ${a.atuEm}` : ""}
+            </span>
+          )}
+          <div className="ml-auto flex flex-wrap gap-2">
+            {podeGravar && (
+              <button type="button" className={`${BOTAO} text-alert-600`} onClick={onExcluir}>
+                Excluir
+              </button>
+            )}
+            {podeGravar && a.aConferir && (
+              <button type="button" className={`${BOTAO} text-good-600`} onClick={onConferir}>
+                Marcar como conferido
+              </button>
+            )}
+            {podeGravar && (
+              <button type="button" className="rounded-lg bg-navy-900 px-4 py-1.5 text-[12.5px] font-medium text-white hover:bg-navy-800" onClick={onEditar}>
+                Editar
+              </button>
+            )}
+          </div>
+        </footer>
       </div>
     </div>
   );
