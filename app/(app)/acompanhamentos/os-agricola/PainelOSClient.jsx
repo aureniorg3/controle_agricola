@@ -184,7 +184,14 @@ export default function PainelOSClient({ perfil }) {
             </Secao>
 
             <Secao titulo="Por operação" subtitulo="Operações agrícolas das O.S. (uma O.S. pode ter mais de uma)">
-              <TabelaGrupo linhas={d.porOperacao} rotulo="Operação" mostrarCodigo limite={15} />
+              <TabelaGrupo
+                linhas={d.porOperacao}
+                rotulo="Operação"
+                mostrarCodigo
+                limite={15}
+                filtro={(l) => ({ op: [l.chave] })}
+                setF={(p) => setF({ ...f, ...p })}
+              />
             </Secao>
 
             <Secao titulo="Por etapa">
@@ -193,7 +200,8 @@ export default function PainelOSClient({ perfil }) {
 
             <p className="text-[11.5px] text-muted">
               Em aberto = posição Aberta ou Liberada. Área = área recomendada total dos talhões da O.S. Previsão vencida = O.S. em aberto com a previsão final
-              anterior a hoje. Período e safra filtram pela data e pela safra da O.S.
+              anterior a hoje. Período e safra filtram pela data e pela safra da O.S. Operação e fazenda trazem só as O.S. com as operações e as
+              fazendas escolhidas, e a área conta só os talhões delas.
             </p>
           </div>
         )}

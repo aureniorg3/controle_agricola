@@ -397,3 +397,118 @@ th[data-ordem="desc"]::after {
 .barra-crv button:focus-visible {
   outline-color: rgba(255, 255, 255, 0.85);
 }
+
+/* ------------------------------------------------------------------
+   Barras do topo no celular em pé e em tela baixa (aparelho deitado): a barra azul fica mais baixa, o cabeçalho
+   da tela vira uma linha só (Voltar, título e comandos rolando para o lado) e os dois saem de cena ao rolar o
+   conteúdo para baixo, ou ficam recolhidos pelo botão da barra azul (o AppShell põe data-barras="ocultas" na raiz).
+   A mesma condição está em MEDIA_COMPACTA (components/AppShell.jsx). No computador nada disso vale.
+   ------------------------------------------------------------------ */
+@media screen and (max-width: 767px), screen and (max-height: 500px) {
+  .barra-crv {
+    --altura-barra: 48px;
+    height: 48px;
+  }
+  .barra-crv .barra-crv-nome {
+    font-size: 18px;
+  }
+  /* tela bem estreita: o nome do sistema cede espaço aos botões */
+  .barra-crv .barra-crv-marca {
+    flex-shrink: 1;
+    overflow: hidden;
+  }
+  .barra-crv .alternar-barras {
+    display: flex;
+  }
+  /* alça das barras recolhidas (AppShell), no canto da tela: o contorno de foco fica por dentro, claro sobre o azul */
+  .alca-barras:focus-visible {
+    outline-color: rgba(255, 255, 255, 0.85);
+    outline-offset: -5px;
+  }
+
+  /* sair de cena: sobe a própria altura (a margem negativa puxa a tela junto) e só no fim fica invisível, fora do
+     alcance do Tab e do leitor de tela; a altura do cabeçalho da tela vem medida em --altura-barra (pagina.jsx) */
+  .barra-ocultavel {
+    transition: margin-top 0.22s ease, visibility 0s;
+  }
+  .app-shell-root[data-barras="ocultas"] .barra-ocultavel {
+    margin-top: calc(-1 * var(--altura-barra, 0px));
+    visibility: hidden;
+    transition: margin-top 0.22s ease, visibility 0s linear 0.22s;
+  }
+
+  /* cabeçalho da tela numa linha só (CabecalhoPagina); com a classe do cabeçalho na frente para valer sobre os sm:/md:
+     das telas, que o Tailwind põe no fim do arquivo */
+  .cab-pagina {
+    padding-bottom: 6px;
+  }
+  .cab-pagina .cab-barra {
+    display: flex;
+    overflow: hidden;
+  }
+  .cab-pagina .cab-voltar-texto,
+  .cab-pagina .cab-trilha {
+    display: none;
+  }
+  .cab-pagina .cab-titulo-compacto,
+  .cab-pagina .cab-sep {
+    display: block;
+  }
+  .cab-pagina .cab-comandos {
+    display: flex;
+    flex: 1 1 0%;
+    min-width: 0;
+    align-items: center;
+    gap: 0.125rem;
+    overflow-x: auto;
+    /* folga para o contorno de foco dos comandos (a caixa que rola corta o que passa da borda), sem mudar a altura da
+       barra nem o lugar dos botões; ao chegar num comando pelo Tab, a rolagem deixa folga na ponta */
+    margin: -4px;
+    padding: 4px;
+    scroll-padding-inline: 6px;
+  }
+  .cab-pagina .cab-comandos::-webkit-scrollbar,
+  .cab-pagina .cab-info::-webkit-scrollbar {
+    height: 3px;
+  }
+  /* o título grande sai da vista, mas continua para o leitor de tela (o da barra é só visual), também com as barras
+     fora de cena: o visibility: hidden do cabeçalho não chega nele */
+  .cab-pagina .cab-h1 {
+    visibility: visible;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+  /* o info vira uma linha fina embaixo da barra, rolando para o lado (sem nada à vista, não ocupa altura) */
+  .cab-pagina .cab-titulo {
+    display: block;
+    padding: 0 1rem;
+  }
+  .cab-pagina .cab-info {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: 0;
+  }
+  .cab-pagina .cab-info > * {
+    flex-shrink: 0;
+    margin-top: 6px;
+  }
+  .cab-pagina .cab-abas {
+    margin: 6px 0 0;
+    padding: 0 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barra-ocultavel,
+  .app-shell-root[data-barras="ocultas"] .barra-ocultavel {
+    transition: none !important;
+  }
+}

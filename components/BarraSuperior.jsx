@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { IconBusca, IconMenu, IconSair } from "@/components/icons";
+import { IconBusca, IconMenu, IconSair, IconSetaBaixo } from "@/components/icons";
 import { PERFIL_LABEL } from "@/lib/permissoes";
 
 import TemaToggle from "./TemaToggle";
@@ -18,8 +18,10 @@ function iniciais(nome) {
 /**
  * Barra superior azul CRV com o filete verde: botão do menu, nome do sistema, busca de telas (Ctrl K), tema, menu do
  * usuário e, à direita, o logo branco da CRV (padrão visual CRV: logo sempre branco e do lado direito).
+ * No celular e em tela baixa ela fica mais baixa (48px), sai de cena ao rolar o conteúdo para baixo e ganha o botão
+ * que recolhe as barras do topo (`onRecolher`); o AppShell cuida de mostrar e esconder.
  */
-export default function BarraSuperior({ usuario, onMenu, onBuscar }) {
+export default function BarraSuperior({ usuario, onMenu, onBuscar, onRecolher }) {
   const router = useRouter();
   const [menuAberto, setMenuAberto] = useState(false);
   const [saindo, setSaindo] = useState(false);
@@ -48,7 +50,10 @@ export default function BarraSuperior({ usuario, onMenu, onBuscar }) {
   }
 
   return (
-    <header className="barra-crv print-hide relative z-40 flex h-[60px] flex-shrink-0 items-center gap-1 border-b-[3px] border-crv-verde bg-navy-900 pl-1.5 pr-2 text-white md:pr-3">
+    <header
+      data-barra-ocultavel=""
+      className="barra-crv barra-ocultavel print-hide relative z-40 flex h-[60px] flex-shrink-0 items-center gap-1 border-b-[3px] border-crv-verde bg-navy-900 pl-1.5 pr-2 text-white md:pr-3"
+    >
       <button
         type="button"
         onClick={onMenu}
@@ -60,10 +65,10 @@ export default function BarraSuperior({ usuario, onMenu, onBuscar }) {
       </button>
       <Link
         href="/painel"
-        className="flex min-w-0 flex-shrink-0 items-baseline gap-2.5 rounded-lg px-1.5 py-1 hover:bg-white/[0.06]"
+        className="barra-crv-marca flex min-w-0 flex-shrink-0 items-baseline gap-2.5 rounded-lg px-1.5 py-1 hover:bg-white/[0.06]"
         aria-label="Controle Agrícola · ir para o Início"
       >
-        <span className="whitespace-nowrap font-display text-[20px] font-semibold leading-none tracking-[0.01em]">Controle Agrícola</span>
+        <span className="barra-crv-nome whitespace-nowrap font-display text-[20px] font-semibold leading-none tracking-[0.01em]">Controle Agrícola</span>
         <span className="hidden whitespace-nowrap text-[12px] text-white/65 lg:inline">Unidade Capinópolis-MG</span>
       </Link>
 
@@ -137,6 +142,19 @@ export default function BarraSuperior({ usuario, onMenu, onBuscar }) {
           )}
         </div>
       )}
+
+      {/* só no celular e em tela baixa (globals.css): recolhe a barra azul e o cabeçalho da tela; a alça no topo traz de volta */}
+      <button
+        id="botao-recolher-barras"
+        type="button"
+        onClick={onRecolher}
+        className="alternar-barras hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"
+        aria-expanded="true"
+        aria-label="Recolher as barras do topo"
+        title="Recolher as barras do topo"
+      >
+        <IconSetaBaixo size={18} className="rotate-180" />
+      </button>
 
       <span className="mx-1.5 hidden h-6 w-px bg-white/20 sm:block" aria-hidden="true" />
       <Link href="/painel" className="hidden flex-shrink-0 sm:block" aria-label="CRV Industrial · ir para o Início">

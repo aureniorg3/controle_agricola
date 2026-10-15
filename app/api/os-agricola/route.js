@@ -8,10 +8,15 @@ export const dynamic = "force-dynamic";
 
 const TAMANHO = 100;
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
+// operações e fazendas do filtro: códigos curtos (letras, dígitos, espaço, . _ / -), no máximo LIMITE_LISTA por filtro
+// (o mesmo limite da tela)
+const CODIGO = /^[\p{L}\p{N} ._\/-]{1,30}$/u;
+const LIMITE_LISTA = 300;
 
 /**
  * `?opcoes=1` listas dos filtros; `?painel=1` o Dashboard; `?talhoes=1&emp=&os=` os talhões de uma O.S.;
- * sem esses, a lista de O.S. paginada (`pg`) ou inteira (`todos=1`, para exportar).
+ * sem esses, a lista de O.S. paginada (`pg`) ou inteira (`todos=1`, para exportar). Operação e fazenda aceitam
+ * vários códigos: `op=14330,14340&faz=9411,9001` (ou o parâmetro repetido).
  */
 export async function GET(req) {
   const usuario = await usuarioDaRequisicao(req);
@@ -21,13 +26,18 @@ export async function GET(req) {
   if (p.get("talhoes") === "1") return NextResponse.json({ talhoes: await talhoesDaOS(p.get("emp") ?? "", p.get("os") ?? "") });
 
   const s = (k) => (p.get(k) ?? "").trim() || undefined;
+  const codigos = (k) => {
+    const v = [...new Set(p.getAll(k).flatMap((x) => x.split(",")).map((x) => x.trim()))].filter((x) => CODIGO.test(x));
+    return v.length ? v.slice(0, LIMITE_LISTA) : undefined;
+  };
   const f = {
     de: DATA.test(p.get("de") ?? "") ? p.get("de") : undefined,
     ate: DATA.test(p.get("ate") ?? "") ? p.get("ate") : undefined,
     safra: s("safra"),
     resp: s("resp"),
     etapa: s("etapa"),
-    op: s("op"),
+    op: codigos("op"),
+    faz: codigos("faz"),
     posicao: ["A", "L", "E", "aberto"].includes(p.get("posicao") ?? "") ? p.get("posicao") : undefined,
     q: s("q"),
   };

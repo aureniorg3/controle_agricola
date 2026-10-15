@@ -7,9 +7,11 @@ import {
   IconCompartilhar,
   IconCopiar,
   IconEditar,
+  IconExcluir,
   IconFechar,
   IconMais,
   IconSalvar,
+  IconSetaBaixo,
   IconSetaDireita,
   IconTalhao,
 } from "@/components/icons";
@@ -17,7 +19,7 @@ import { Aviso, JanelaConfirmar } from "@/components/janela";
 import { CabecalhoPagina, CorpoPagina, Pagina, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
 import { round2 } from "@/lib/atividades";
 import { fmtDateBR, todayISO } from "@/lib/format";
-import { lerNumero as lerNumeroComMilhar } from "@/lib/lancamento-mobile";
+import { lerNumero as lerNumeroComMilhar, listaDeBoletins } from "@/lib/lancamento-mobile";
 import { normFaz, normTlh } from "@/lib/ocupacao";
 import { addDays } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
@@ -27,15 +29,17 @@ import { ehBooleano, usarPersistido } from "@/lib/usar-persistido";
  * Lançamento Mobile: o apontamento diário feito no campo, pelo celular, em quatro passos —
  *   1. quem está lançando (matrícula ou código, lembrada no aparelho);
  *   2. as O.S. em aberto dessa pessoa, com o que falta fazer em cada operação e o último apontamento;
- *   3. os talhões realizados (da O.S. ou incluídos de fora dela), com a área de cada um;
- *   4. os dados do serviço.
+ *   3. os talhões realizados (da O.S. ou incluídos de fora dela), com a área de cada um — com "Adicionar outra O.S.",
+ *      o mesmo lançamento leva várias O.S./operações, cada uma num bloco com os talhões e o status dela;
+ *   4. os dados do serviço (o cabeçalho, o mesmo para todas as O.S. do lançamento).
  * Ao gravar mostra o texto padrão para copiar e mandar no grupo do WhatsApp; a última linha do texto (a marca do
- * boletim) faz o bot reconhecer que o apontamento já está no sistema. A tela Apontamento continua sendo a de
- * lançamento na plataforma: aqui só se lança, e só se edita o que foi lançado por esta tela.
+ * boletim, ou dos boletins: um por O.S.) faz o bot reconhecer que o apontamento já está no sistema. A tela Apontamento
+ * continua sendo a de lançamento na plataforma: aqui só se lança, e só se edita o que foi lançado por esta tela.
  */
 
 const API = "/api/atividades/lancamento-mobile";
 const STATUS_PADRAO = ["MANTER ABERTA", "CONCLUÍDA", "NÃO CONCLUÍDA"];
+const STATUS_INICIAL = "MANTER ABERTA";
 const CHAVE_RASCUNHO = "ca_ui:lancMobile.rascunho";
 const PASSOS = [
   { n: 1, rotulo: "Quem" },
@@ -44,7 +48,10 @@ const PASSOS = [
   { n: 4, rotulo: "Dados" },
 ];
 const PERIODOS_MEUS = [7, 15, 30];
+/** Máximo de O.S./operações num lançamento (o servidor recusa mais). */
+const MAX_ORDENS = 20;
 
+// cabeçalho do lançamento: o mesmo para todas as O.S. dele
 const SERVICO_VAZIO = {
   atividade: "",
   solicitante: "",
@@ -57,13 +64,30 @@ const SERVICO_VAZIO = {
   vazaoRec: "",
   volCalda: "",
   unCalda: "L",
-  statusOS: "MANTER ABERTA",
   obs: "",
   modelo: "",
 };
-// marcas: área digitada de cada talhão da O.S. marcado ("propCod|tlh" → texto); extras: talhões de fora da O.S.;
-// pendentes: talhões do boletim aberto para edição, encaixados quando os talhões da O.S. chegam
-const LANC_VAZIO = { id: null, boletim: null, os: "", opCod: "", marcas: {}, extras: [], pendentes: null, servico: SERVICO_VAZIO };
+// uma O.S./operação do lançamento (um apontamento, com o seu boletim). chave: identifica o bloco na tela; id e boletim:
+// o apontamento gravado (edição); marcas: área digitada de cada talhão da O.S. marcado ("propCod|tlh" → texto);
+// extras: talhões de fora da O.S.; pendentes: talhões do boletim aberto para edição, encaixados quando os talhões da
+// O.S. chegam; gravados: os talhões do boletim como estão gravados (para a O.S. tirada e posta de novo); statusOS: o
+// status informado da O.S.
+const ORDEM_VAZIA = {
+  chave: "",
+  id: null,
+  boletim: null,
+  os: "",
+  opCod: "",
+  statusOS: STATUS_INICIAL,
+  marcas: {},
+  extras: [],
+  pendentes: null,
+  gravados: null,
+};
+// id, ids e boletins: o lançamento aberto para editar (id = o primeiro apontamento dele; ids = todos, que o "Já apontado"
+// não conta: a gravação reescreve ou exclui cada um); removidas: as O.S. dele (com o apontamento) tiradas nesta edição,
+// que voltam com o boletim e os talhões se forem acrescentadas de novo
+const LANC_VAZIO = { id: null, ids: [], boletins: [], ordens: [], removidas: [], servico: SERVICO_VAZIO };
 
 // campos e botões para o dedo: 16px no campo (o iPhone não dá zoom) e altura de 44–48px
 const CAMPO = "h-12 w-full rounded-lg border border-line bg-card px-3 text-[16px] text-ink placeholder:text-muted/70 disabled:opacity-60";
@@ -105,6 +129,36 @@ const mesmaMatricula = (a, b) => String(a ?? "").trim().replace(/^0+(?=\d)/, "")
 /** opções sem repetidas e sem vazias (chave das listas de sugestão) */
 const unicos = (l) => Array.from(new Set((l ?? []).filter(Boolean)));
 const rotModelo = (m) => (m === "mecanizada" ? "Mecanizada" : m === "manual" ? "Manual" : "");
+/** objeto sem a chave `k` */
+const sem = (m, k) => {
+  const n = { ...m };
+  delete n[k];
+  return n;
+};
+/** "boletim nº 160" / "boletins nº 160 e 161" (e com maiúscula, para títulos) */
+const rotBoletins = (l) => `${l.length > 1 ? "boletins" : "boletim"} nº ${listaDeBoletins(l)}`;
+const tituloBoletins = (l) => `${l.length > 1 ? "Boletins" : "Boletim"} nº ${listaDeBoletins(l)}`;
+/** "do boletim nº 160" / "dos boletins nº 160 e 161" */
+const doBoletins = (l) => `${l.length > 1 ? "dos" : "do"} ${rotBoletins(l)}`;
+/** "da O.S. 6052" / "das O.S. 6052, 6053" */
+function rotuloDasOS(ordens) {
+  const l = unicos(ordens.map((o) => o.os));
+  return l.length > 1 ? `das O.S. ${l.join(", ")}` : `da O.S. ${l[0] ?? ""}`;
+}
+/**
+ * Status da O.S. de um lançamento (as O.S. dele): um só quando é uma O.S. ou todas iguais; senão o de cada O.S.
+ * ("6052 MANTER ABERTA · 6053 CONCLUÍDA").
+ */
+function statusResumo(ordens) {
+  const porOS = new Map();
+  for (const o of ordens) if (!porOS.get(o.os)) porOS.set(o.os, o.statusOS ?? "");
+  const l = unicos([...porOS.values()]);
+  if (l.length <= 1) return l[0] ?? "";
+  return [...porOS]
+    .filter(([, v]) => v)
+    .map(([os, v]) => `${os} ${v}`)
+    .join(" · ");
+}
 
 /** "TL 05" (talhão numérico com dois dígitos), "TL 2A"; vazio = só a fazenda */
 function rotTalhao(tlh) {
@@ -117,6 +171,14 @@ const textoUltimo = (u) => (u ? `${diaMes(u.dt)} · boletim nº ${u.boletim}${Nu
 
 let seqExtra = 0;
 const novaChaveExtra = () => `x${++seqExtra}`;
+let seqOrdem = 0;
+const novaChaveOrdem = () => `o${++seqOrdem}`;
+/**
+ * Talhões de uma O.S. do lançamento buscados no servidor: pela O.S. e operação (na edição, o "Já apontado" não conta
+ * nenhum apontamento do lançamento aberto — lanc.ids —, então vale para a O.S. tirada e posta de novo e para a trocada).
+ * Os buscados são esquecidos a cada lançamento novo ou aberto (zerarLancamento).
+ */
+const chaveInfo = (o) => `${o.os}|${o.opCod}`;
 
 /** GET na rota do Lançamento Mobile; sem sinal vira uma mensagem clara (no campo a conexão cai). */
 async function obter(params) {
@@ -225,24 +287,30 @@ function totaisDaOS(talhoes) {
   );
 }
 
-/** Em branco vêm da O.S. (atividade = descrição da operação, solicitante = responsável da O.S.); os preenchidos ficam. */
-function completarDaOS(s, info) {
-  const op = info.operacao ?? {};
-  return {
-    ...s,
-    atividade: s.atividade || op.ds || "",
-    solicitante: s.solicitante || info.resp || "",
-    etapaCod: s.etapaCod || op.etapaCod || "",
-    tipoAplicacao: s.tipoAplicacao || op.tipoDs || "",
-    modelo: s.modelo || op.modelo || "",
-  };
+/**
+ * Padrões do cabeçalho que a O.S. dá, com os talhões dela (atividade = descrição da operação, solicitante = responsável
+ * da O.S., etapa, tipo de aplicação e modelo da operação).
+ */
+function padroesDaInfo(info) {
+  const o = info.operacao ?? {};
+  return { atividade: o.ds ?? "", solicitante: info.resp ?? "", etapaCod: o.etapaCod ?? "", modelo: o.modelo ?? "", tipoAplicacao: o.tipoDs ?? "" };
+}
+
+/**
+ * Padrões de uma O.S. no cabeçalho: só onde o campo está em branco ou ainda com o padrão da anterior (`anteriores`); os
+ * preenchidos à mão ficam. Com `anteriores` vazio, só os em branco.
+ */
+function aplicarPadroes(s, anteriores, novos) {
+  const r = { ...s };
+  for (const [k, v] of Object.entries(novos)) if (!r[k] || r[k] === anteriores[k]) r[k] = v;
+  return r;
 }
 
 /**
  * Talhões gravados no boletim → marcas da O.S. (mesmo código, ou "05" = "5" e "09411-1" = "9411") e, os que não
  * estão na O.S., incluídos como de fora dela.
  */
-function encaixarTalhoes(l, gravados, daOS) {
+function encaixarTalhoes(ordem, gravados, daOS) {
   const somas = {};
   const extras = [];
   for (const g of gravados ?? []) {
@@ -253,7 +321,7 @@ function encaixarTalhoes(l, gravados, daOS) {
   }
   const marcas = {};
   for (const [k, v] of Object.entries(somas)) marcas[k] = areaCampo(round2(v));
-  return { ...l, marcas, extras, pendentes: null };
+  return { ...ordem, marcas, extras, pendentes: null };
 }
 
 function servicoDoBoletim(a) {
@@ -269,10 +337,58 @@ function servicoDoBoletim(a) {
     vazaoRec: paraCampo(a.vazaoRec),
     volCalda: paraCampo(a.volCalda),
     unCalda: a.unCalda === "kg" ? "kg" : "L",
-    statusOS: a.statusOS ?? "",
     obs: a.obs ?? "",
     modelo: a.modelo === "mecanizada" || a.modelo === "manual" ? a.modelo : "",
   };
+}
+
+/** Cabeçalho do lançamento aberto para editar: o do primeiro boletim, com a calda gasta do lançamento (a soma do que foi rateado entre as O.S.). */
+function servicoDoLancamento(grupo) {
+  const s = servicoDoBoletim(grupo[0] ?? {});
+  if (grupo.length > 1) {
+    const caldas = grupo.map((x) => x.volCalda).filter((v) => Number.isFinite(v));
+    s.volCalda = caldas.length ? paraCampo(Math.round(caldas.reduce((a, b) => a + b, 0) * 1e6) / 1e6) : "";
+  }
+  return s;
+}
+
+/** Rascunho guardado no aparelho que dá para continuar (o da primeira versão da tela, v1, tinha uma O.S. só). */
+function rascunhoValido(r) {
+  if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(r.dt ?? "")) return false;
+  if (r.v === 1) return !!(r.lanc?.os && r.lanc?.opCod);
+  return r.v === 2 && Array.isArray(r.lanc?.ordens) && r.lanc.ordens.length > 0 && r.lanc.ordens.every((o) => o && o.os && o.opCod);
+}
+
+/** Rascunho → lançamento na tela (chaves novas para os blocos e os talhões de fora da O.S.). */
+function lancDoRascunho(r) {
+  const l = r.lanc ?? {};
+  const { statusOS, ...servico } = { ...SERVICO_VAZIO, ...(l.servico ?? {}) };
+  const brutas =
+    r.v === 1
+      ? [{ id: l.id, boletim: l.boletim, os: l.os, opCod: l.opCod, statusOS: statusOS ?? STATUS_INICIAL, marcas: l.marcas, extras: l.extras, pendentes: l.pendentes }]
+      : l.ordens;
+  const ordemDoRascunho = (o) => ({
+    ...ORDEM_VAZIA,
+    chave: novaChaveOrdem(),
+    id: o.id ?? null,
+    boletim: o.boletim ?? null,
+    os: String(o.os),
+    opCod: String(o.opCod),
+    statusOS: typeof o.statusOS === "string" ? o.statusOS : STATUS_INICIAL,
+    marcas: o.marcas && typeof o.marcas === "object" ? o.marcas : {},
+    extras: (Array.isArray(o.extras) ? o.extras : []).map((x) => ({ ...x, chave: novaChaveExtra() })),
+    pendentes: Array.isArray(o.pendentes) ? o.pendentes : null,
+    gravados: Array.isArray(o.gravados) ? o.gravados : null,
+  });
+  const ordens = brutas.slice(0, MAX_ORDENS).map(ordemDoRascunho);
+  const removidas = (r.v === 2 && Array.isArray(l.removidas) ? l.removidas : []).filter((o) => o && o.id && o.os && o.opCod).map(ordemDoRascunho);
+  const boletins = r.v === 1 ? (l.boletim ? [l.boletim] : []) : Array.isArray(l.boletins) ? l.boletins : [];
+  // ids do lançamento aberto (o rascunho de antes deles: os das O.S. que estão nele)
+  const ids =
+    r.v === 2 && Array.isArray(l.ids) && l.ids.length
+      ? l.ids.filter((x) => Number.isInteger(x) && x > 0)
+      : [...ordens, ...removidas].map((o) => o.id).filter(Boolean);
+  return { id: l.id ?? null, ids, boletins, ordens, removidas, servico };
 }
 
 export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
@@ -290,27 +406,31 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
   const [filtroOS, setFiltroOS] = useState("");
   const [opcoes, setOpcoes] = useState(null);
   const [lanc, setLanc] = useState(LANC_VAZIO);
-  const [osInfo, setOsInfo] = useState(null);
-  const [osInfoChave, setOsInfoChave] = useState("");
-  const [carregandoTalhoes, setCarregandoTalhoes] = useState(false);
-  const [erroTalhoes, setErroTalhoes] = useState(null);
-  const [tentativa, setTentativa] = useState(0);
+  // talhões de cada O.S. do lançamento ("os|operação|id" → { dt, info } ou { dt, erro }) e as buscas em andamento (→ data)
+  const [infos, setInfos] = useState({});
+  const [carregandoInfo, setCarregandoInfo] = useState({});
+  const [abertas, setAbertas] = useState({}); // blocos abertos no lançamento com várias O.S. (chave da O.S. → true)
+  const [escolha, setEscolha] = useState(null); // passo 2: { modo: "adicionar" } ou { modo: "trocar", chave }
   const [msg, setMsg] = useState(null);
   const [gravando, setGravando] = useState(false);
   const [confirmacao, setConfirmacao] = useState(null); // avisos do servidor antes de gravar
   const [pergunta, setPergunta] = useState(null); // { titulo, texto, botao, perigo, acao }
-  const [resultado, setResultado] = useState(null); // { id, boletim, texto, avisos, editado, os, op, area, dt }
+  const [resultado, setResultado] = useState(null); // { id, boletins, texto, avisos, editado, ordens: [{ os, op }], area, dt }
   const [rascunho, setRascunho] = useState(null);
   const [diasMeus, setDiasMeus] = useState(7);
   const [meus, setMeus] = useState({ lista: null, carregando: false, erro: null });
   const [abrindo, setAbrindo] = useState(null); // boletim sendo carregado
-  const [detalhe, setDetalhe] = useState(null); // { apontamento, texto }: boletim aberto em Meus lançamentos
+  const [detalhe, setDetalhe] = useState(null); // { apontamento, apontamentos, texto }: lançamento aberto em Meus lançamentos
   const [copia, copiar] = usarCopia();
   const seqOS = useRef(0);
-  const seqTalhoes = useRef(0);
+  const seqInfo = useRef(0);
+  const voando = useRef({}); // buscas de talhões em andamento: "os|operação|id" → { seq, dt }
   const seqMeus = useRef(0);
   const iniciou = useRef(false);
   const padroes = useRef({});
+  const lancRef = useRef(lanc);
+  // os talhões buscados como estão agora (as ações confirmadas numa janela leem daqui, e não do que havia no toque)
+  const infosRef = useRef(infos);
   // data em que se estava lançando antes de abrir um boletim para editar (ou um rascunho de outro dia): o "Novo
   // lançamento" volta a ela, e não à data do boletim editado
   const dtAntesDeAbrir = useRef(null);
@@ -318,6 +438,13 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
   const focarPasso = useRef(false);
   const caixaTexto = useRef(null);
   const cacheBol = useRef(new Map());
+
+  useEffect(() => {
+    lancRef.current = lanc;
+  }, [lanc]);
+  useEffect(() => {
+    infosRef.current = infos;
+  }, [infos]);
 
   const matAtual = minhas?.mat ?? "";
   const nomePessoa = minhas?.responsavel?.nome || minhas?.ordens?.find((o) => o.resp)?.resp || "";
@@ -330,7 +457,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     obter({ opcoes: "1" }).then(({ ok, json }) => ok && setOpcoes(json));
     try {
       const r = JSON.parse(localStorage.getItem(CHAVE_RASCUNHO) ?? "null");
-      if (r && r.v === 1 && r.lanc?.os && r.lanc?.opCod && /^\d{4}-\d{2}-\d{2}$/.test(r.dt ?? "")) setRascunho(r);
+      if (rascunhoValido(r)) setRascunho(r);
     } catch {
       /* sem armazenamento: sem rascunho */
     }
@@ -389,65 +516,101 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     buscarOS(minhas.mat, dt);
   }, [dt]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // talhões da O.S. escolhida (na edição, o "Já apontado" não conta o próprio boletim)
-  const chaveDesejada = lanc.os && lanc.opCod && dt ? `${lanc.os}|${lanc.opCod}|${dt}|${lanc.id ?? ""}` : "";
-  useEffect(() => {
-    if (!chaveDesejada || chaveDesejada === osInfoChave) {
-      // nada a buscar (voltou à O.S. já carregada, ou o lançamento foi limpo): a resposta de uma busca ainda em
-      // andamento é de outra O.S./operação e não pode mais trocar os talhões nem os dados do serviço
-      ++seqTalhoes.current;
-      setCarregandoTalhoes(false);
-      setErroTalhoes(null);
-      return;
-    }
-    const seq = ++seqTalhoes.current;
-    setCarregandoTalhoes(true);
-    setErroTalhoes(null);
-    const p = { os: lanc.os, op: lanc.opCod, dt };
-    if (lanc.id) p.excluir = String(lanc.id);
+  // ------------------------------------------------------------------ talhões de cada O.S. do lançamento
+
+  /** Esquece os talhões buscados (e as respostas ainda a caminho, que não valem mais). */
+  const limparInfos = useCallback(() => {
+    voando.current = {};
+    setCarregandoInfo({});
+    setInfos({});
+  }, []);
+
+  /** Talhões da O.S./operação na data (na edição, o "Já apontado" não conta os apontamentos `excluir`, os do lançamento aberto). */
+  function buscarInfo(k, o, data, excluir) {
+    const seq = ++seqInfo.current;
+    voando.current[k] = { seq, dt: data };
+    setCarregandoInfo((m) => ({ ...m, [k]: data }));
+    const p = { os: o.os, op: o.opCod, dt: data };
+    if (excluir.length) p.excluir = excluir.join(",");
     obter(p).then(({ ok, json }) => {
-      if (seq !== seqTalhoes.current) return;
-      setCarregandoTalhoes(false);
+      // outra busca desta O.S. passou na frente (outra data) ou o lançamento foi limpo: a resposta não vale mais
+      if (voando.current[k]?.seq !== seq) return;
+      delete voando.current[k];
+      setCarregandoInfo((m) => sem(m, k));
       if (!ok || !json.operacao) {
-        setErroTalhoes(json.error ?? "Não foi possível carregar os talhões da O.S.");
+        // os talhões da data anterior (se havia) ficam à vista com o erro; o bloco recolhido abre para mostrar o erro
+        setInfos((m) => ({ ...m, [k]: { ...m[k], dt: data, erro: json.error ?? "Não foi possível carregar os talhões da O.S." } }));
+        const blocos = lancRef.current.ordens.filter((x) => chaveInfo(x) === k).map((x) => x.chave);
+        if (blocos.length) setAbertas((a) => ({ ...a, ...Object.fromEntries(blocos.map((c) => [c, true])) }));
         return;
       }
       const talhoes = Array.isArray(json.talhoes) ? json.talhoes : [];
       const info = { ...json, talhoes };
-      // padrões desta operação (o que o completarDaOS põe nos campos em branco): ao trocar de operação, o campo que
-      // ainda estiver com eles recebe os da nova — também no boletim aberto para editar e no rascunho
-      const o = json.operacao;
-      padroes.current = { atividade: o.ds ?? "", solicitante: json.resp ?? "", etapaCod: o.etapaCod ?? "", modelo: o.modelo ?? "", tipoAplicacao: o.tipoDs ?? "" };
-      setOsInfo(info);
-      setOsInfoChave(chaveDesejada);
-      setLanc((l) => {
-        const n = { ...l, servico: completarDaOS(l.servico, info) };
-        return l.pendentes ? encaixarTalhoes(n, l.pendentes, talhoes) : n;
-      });
+      // padrões da 1ª O.S. do lançamento (o cabeçalho vem dela): o campo em branco ou ainda com os padrões que estavam
+      // (os da lista do passo 2, os de outra O.S. que era a 1ª e saiu antes de os talhões desta chegarem) recebe os dela;
+      // no boletim aberto para editar e no rascunho, só os em branco
+      const primeira = lancRef.current.ordens[0];
+      const ehPrimeira = !!primeira && chaveInfo(primeira) === k;
+      const anteriores = padroes.current;
+      const novos = padroesDaInfo(info);
+      if (ehPrimeira) padroes.current = novos;
+      setInfos((m) => ({ ...m, [k]: { dt: data, info } }));
+      setLanc((l) => ({
+        ...l,
+        servico: ehPrimeira && l.ordens[0] && chaveInfo(l.ordens[0]) === k ? aplicarPadroes(l.servico, anteriores, novos) : l.servico,
+        ordens: l.ordens.map((x) => (x.pendentes && chaveInfo(x) === k ? encaixarTalhoes(x, x.pendentes, talhoes) : x)),
+      }));
     });
-  }, [chaveDesejada, tentativa]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
-  // os talhões na tela são da O.S./operação escolhida (trocando só a data, os da data anterior ficam até chegar os novos)
-  const osInfoValido = !!osInfo && osInfoChave.startsWith(`${lanc.os}|${lanc.opCod}|`) && !lanc.pendentes;
-  const talhoesOS = useMemo(() => (osInfoValido ? osInfo.talhoes : []), [osInfoValido, osInfo]);
-  const grupos = useMemo(() => agruparPorFazenda(talhoesOS), [talhoesOS]);
+  // busca os talhões das O.S. que ainda não têm os da data (trocando só a data, os da anterior ficam até chegar os novos)
+  useEffect(() => {
+    if (!dt) return;
+    for (const o of lanc.ordens) {
+      if (!o.os || !o.opCod) continue;
+      const k = chaveInfo(o);
+      if (infos[k]?.dt === dt || voando.current[k]?.dt === dt) continue;
+      buscarInfo(k, o, dt, lanc.ids ?? []);
+    }
+  }, [lanc.ordens, lanc.ids, dt, infos]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // linhas que vão no lançamento: talhões da O.S. marcados + os de fora dela
-  const linhas = useMemo(
-    () => [
-      ...talhoesOS.filter((t) => lanc.marcas[chaveDe(t)] !== undefined).map((t) => ({ propCod: t.propCod, tlh: t.tlh, texto: lanc.marcas[chaveDe(t)] })),
-      ...lanc.extras.map((x) => ({ propCod: x.propCod, tlh: x.tlh, texto: x.area })),
-    ],
-    [talhoesOS, lanc.marcas, lanc.extras],
+  const varias = lanc.ordens.length > 1;
+  // por O.S.: os talhões dela (valem depois de encaixados os do boletim aberto), as linhas que vão no lançamento
+  // (talhões da O.S. marcados + os de fora dela), o total e o que falta fazer depois do lançamento
+  const resumo = useMemo(
+    () =>
+      lanc.ordens.map((o) => {
+        const e = infos[chaveInfo(o)];
+        const info = e?.info && !o.pendentes ? e.info : null;
+        const talhoesOS = info ? info.talhoes : [];
+        const linhas = [
+          ...talhoesOS.filter((t) => o.marcas[chaveDe(t)] !== undefined).map((t) => ({ propCod: t.propCod, tlh: t.tlh, texto: o.marcas[chaveDe(t)] })),
+          ...o.extras.map((x) => ({ propCod: x.propCod, tlh: x.tlh, texto: x.area })),
+        ];
+        const total = round2(linhas.reduce((a, l) => a + (lerNumero(l.texto) > 0 ? lerNumero(l.texto) : 0), 0));
+        const faltaDepois = info
+          ? round2(
+              talhoesOS.reduce((a, t) => {
+                const v = lerNumero(o.marcas[chaveDe(t)]);
+                return a + Math.max(0, (t.saldo ?? 0) - (v > 0 ? v : 0));
+              }, 0),
+            )
+          : null;
+        return { info, talhoesOS, linhas, total, faltaDepois, carregando: !!carregandoInfo[chaveInfo(o)], erro: e?.erro ?? null };
+      }),
+    [lanc.ordens, infos, carregandoInfo],
   );
-  const total = round2(linhas.reduce((a, l) => a + (lerNumero(l.texto) > 0 ? lerNumero(l.texto) : 0), 0));
-  const temNaoGravado = !resultado && !!lanc.os && (Object.keys(lanc.marcas).length > 0 || lanc.extras.length > 0);
+  const total = round2(resumo.reduce((a, r) => a + r.total, 0));
+  const nLinhas = resumo.reduce((a, r) => a + r.linhas.length, 0);
+  const todasProntas = lanc.ordens.length > 0 && resumo.every((r) => !!r.info);
+  const temNaoGravado = !resultado && (varias || lanc.ordens.some((o) => Object.keys(o.marcas).length > 0 || o.extras.length > 0));
 
   // rascunho no aparelho: se a aba do navegador for fechada (ou o celular a descartar), dá para continuar depois
   useEffect(() => {
-    if (resultado || !lanc.os || !(lanc.id || Object.keys(lanc.marcas).length || lanc.extras.length)) return;
+    if (resultado || !lanc.ordens.length) return;
+    if (!(lanc.id || lanc.ordens.length > 1 || lanc.ordens.some((o) => Object.keys(o.marcas).length || o.extras.length))) return;
     try {
-      localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify({ v: 1, matricula: matAtual, dt, lanc, em: new Date().toISOString() }));
+      localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify({ v: 2, matricula: matAtual, dt, lanc, em: new Date().toISOString() }));
     } catch {
       /* cheio ou bloqueado: só não fica o rascunho */
     }
@@ -462,20 +625,27 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     }
   }, []);
 
-  const mostrarRascunho = !!rascunho && !lanc.os && !resultado && !!matAtual && rascunho.matricula === matAtual;
+  const mostrarRascunho = !!rascunho && !lanc.ordens.length && !resultado && !!matAtual && rascunho.matricula === matAtual;
+
+  /** Volta ao lançamento vazio (sem O.S., talhões nem dados). */
+  function zerarLancamento() {
+    setLanc(LANC_VAZIO);
+    limparInfos();
+    setAbertas({});
+    setEscolha(null);
+    padroes.current = {};
+  }
 
   function continuarRascunho() {
     const r = rascunho;
+    const l = lancDoRascunho(r);
     setRascunho(null);
-    padroes.current = {};
+    zerarLancamento();
     if (dtAntesDeAbrir.current === null) dtAntesDeAbrir.current = dt;
     setDt(r.dt);
-    setLanc({
-      ...LANC_VAZIO,
-      ...r.lanc,
-      extras: (r.lanc.extras ?? []).map((x) => ({ ...x, chave: novaChaveExtra() })),
-      servico: { ...SERVICO_VAZIO, ...r.lanc.servico },
-    });
+    setLanc(l);
+    // a última O.S. acrescentada fica aberta
+    setAbertas(l.ordens.length ? { [l.ordens[l.ordens.length - 1].chave]: true } : {});
     irPara(3);
   }
 
@@ -500,9 +670,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       setMatricula(r.mat);
       setMatDigitada(r.mat);
       if (outra) {
-        setLanc(LANC_VAZIO);
+        zerarLancamento();
         setResultado(null);
-        padroes.current = {};
         // as O.S. da outra matrícula já vieram para a data da tela: é nela que se segue
         dtAntesDeAbrir.current = null;
       }
@@ -511,7 +680,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     if (outra && temNaoGravado) {
       setPergunta({
         titulo: "Trocar a matrícula?",
-        texto: `O lançamento da O.S. ${lanc.os} ainda não foi gravado e será descartado.`,
+        texto: `O lançamento ${rotuloDasOS(lanc.ordens)} ainda não foi gravado e será descartado.`,
         botao: "Trocar",
         perigo: true,
         acao: fazer,
@@ -525,10 +694,9 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       setMatDigitada("");
       setMinhas(null);
       setErroMat(null);
-      setLanc(LANC_VAZIO);
+      zerarLancamento();
       setResultado(null);
       setMeus({ lista: null, carregando: false, erro: null });
-      padroes.current = {};
       voltarDataAntesDeAbrir();
       setAba("lancar");
       irPara(1);
@@ -536,7 +704,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     if (temNaoGravado) {
       setPergunta({
         titulo: "Trocar a matrícula?",
-        texto: `O lançamento da O.S. ${lanc.os} ainda não foi gravado e será descartado.`,
+        texto: `O lançamento ${rotuloDasOS(lanc.ordens)} ainda não foi gravado e será descartado.`,
         botao: "Trocar",
         perigo: true,
         acao: fazer,
@@ -546,29 +714,98 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
 
   // ------------------------------------------------------------------ passo 2: O.S. e operação
 
-  function escolherOperacao(ordem, op) {
-    if (lanc.os === ordem.os && lanc.opCod === op.cod) return irPara(3);
+  // o passo 2 escolhe a O.S./operação que entra no lançamento ou a que troca a de um bloco; pelo menu dos passos, com uma
+  // O.S. só, troca ela (como sempre foi) e, com várias, acrescenta
+  const alvoTroca =
+    escolha?.modo === "trocar" ? (lanc.ordens.find((o) => o.chave === escolha.chave) ?? null) : !escolha && lanc.ordens.length === 1 ? lanc.ordens[0] : null;
+  const acrescentando = !alvoTroca;
+  const noLancamento = useMemo(() => new Set(lanc.ordens.map((o) => `${o.os}|${o.opCod}`)), [lanc.ordens]);
+
+  function escolherOperacao(ordemLista, op) {
+    const alvo = alvoTroca;
+    const mesma = (o) => o.os === ordemLista.os && o.opCod === op.cod;
+    if (alvo && mesma(alvo)) {
+      setEscolha(null);
+      setAbertas((a) => ({ ...a, [alvo.chave]: true }));
+      return irPara(3);
+    }
+    // a mesma O.S. com a mesma operação não entra duas vezes no lançamento (com outra operação, pode): abre a que já está
+    const repetida = lanc.ordens.find((o) => o !== alvo && mesma(o));
+    if (repetida) {
+      setEscolha(null);
+      setAbertas((a) => ({ ...a, [repetida.chave]: true }));
+      setMsg({ texto: `A O.S. ${ordemLista.os} com a operação ${op.cod} já está neste lançamento.`, erro: true });
+      return irPara(3);
+    }
+    if (!alvo && lanc.ordens.length >= MAX_ORDENS) return setMsg({ texto: `No máximo ${MAX_ORDENS} O.S. por lançamento.`, erro: true });
+    // só a 1ª O.S. dá os padrões do cabeçalho
+    const primeira = alvo ? lanc.ordens[0]?.chave === alvo.chave : lanc.ordens.length === 0;
+    // a O.S. que já está no lançamento com outra operação leva o mesmo status
+    const statusDaOS = lanc.ordens.find((o) => o !== alvo && o.os === ordemLista.os)?.statusOS;
+    const chave = alvo?.chave ?? novaChaveOrdem();
     const fazer = () => {
+      // talhões desta O.S./operação já buscados (voltando a ela): os padrões vêm deles, como quando chegam (buscarInfo);
+      // senão, os da lista do passo 2 até os talhões chegarem
+      const emCache = infosRef.current[chaveInfo({ os: ordemLista.os, opCod: op.cod })]?.info ?? null;
       // padrões da O.S. nova só onde o campo está em branco ou ainda com o padrão da anterior
-      const novos = { atividade: op.ds ?? "", solicitante: ordem.resp ?? "", etapaCod: op.etapaCod ?? "", modelo: op.modelo ?? "", tipoAplicacao: "" };
+      const novos = emCache
+        ? padroesDaInfo(emCache)
+        : { atividade: op.ds ?? "", solicitante: ordemLista.resp ?? "", etapaCod: op.etapaCod ?? "", modelo: op.modelo ?? "", tipoAplicacao: "" };
       // cópia dos padrões da anterior: o React pode calcular a função do setLanc só na próxima renderização, quando
       // padroes.current já é o da operação nova
       const anteriores = padroes.current;
+      // a O.S./operação do lançamento aberto que foi tirada nesta edição volta com o apontamento (o boletim) e os talhões
+      // gravados nele; o bloco que já tem apontamento (trocando) fica com o dele
+      const volta = alvo?.id ? null : ((lancRef.current.removidas ?? []).find((x) => mesma(x)) ?? null);
       setLanc((l) => {
-        const s = { ...l.servico };
-        for (const [k, v] of Object.entries(novos)) if (!s[k] || s[k] === anteriores[k]) s[k] = v;
-        return { ...l, os: ordem.os, opCod: op.cod, marcas: {}, extras: [], pendentes: null, servico: s };
+        const antiga = l.ordens.find((o) => o.chave === chave);
+        let nova;
+        if (volta) {
+          const base = { ...volta, chave, statusOS: statusDaOS ?? volta.statusOS ?? STATUS_INICIAL };
+          // os talhões gravados no boletim (os marcados antes de tirar foram descartados); sem eles, como estava
+          const comGravados = volta.gravados ? { ...base, marcas: {}, extras: [], pendentes: volta.gravados } : base;
+          nova = comGravados.pendentes && emCache ? encaixarTalhoes(comGravados, comGravados.pendentes, emCache.talhoes) : comGravados;
+        } else {
+          // trocando, o apontamento (na edição) e o status ficam; os talhões marcados (e os gravados, de outra O.S.) saem
+          nova = {
+            ...(antiga ?? ORDEM_VAZIA),
+            chave,
+            os: ordemLista.os,
+            opCod: op.cod,
+            marcas: {},
+            extras: [],
+            pendentes: null,
+            gravados: null,
+            statusOS: statusDaOS ?? antiga?.statusOS ?? STATUS_INICIAL,
+          };
+        }
+        return {
+          ...l,
+          ordens: antiga ? l.ordens.map((o) => (o.chave === chave ? nova : o)) : [...l.ordens, nova],
+          removidas: volta ? (l.removidas ?? []).filter((x) => x.id !== volta.id) : l.removidas,
+          servico: primeira ? aplicarPadroes(l.servico, anteriores, novos) : l.servico,
+        };
       });
-      padroes.current = novos;
+      if (primeira) padroes.current = novos;
+      // a O.S. acrescentada fica aberta e as outras recolhidas
+      setAbertas((a) => (alvo ? { ...a, [chave]: true } : { [chave]: true }));
+      setEscolha(null);
       setRascunho(null);
-      setMsg(null);
+      setMsg(
+        volta
+          ? {
+              texto: `A O.S. ${volta.os} (operação ${volta.opCod}) voltou ao lançamento com o boletim nº ${volta.boletim}${volta.gravados ? " e os talhões gravados nele" : ""}: ele não será mais excluído.`,
+              erro: false,
+            }
+          : null,
+      );
       irPara(3);
     };
-    const n = Object.keys(lanc.marcas).length + lanc.extras.length;
+    const n = alvo ? Object.keys(alvo.marcas).length + alvo.extras.length : 0;
     if (n > 0 && !resultado) {
       setPergunta({
         titulo: "Trocar a O.S. / operação?",
-        texto: `${plural(n, "talhão marcado", "talhões marcados")} da O.S. ${lanc.os} (operação ${lanc.opCod}) ${n === 1 ? "será desmarcado" : "serão desmarcados"}.`,
+        texto: `${plural(n, "talhão marcado", "talhões marcados")} da O.S. ${alvo.os} (operação ${alvo.opCod}) ${n === 1 ? "será desmarcado" : "serão desmarcados"}.`,
         botao: "Trocar",
         acao: fazer,
       });
@@ -587,71 +824,147 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     );
   }, [minhas, filtroOS]);
 
-  // ------------------------------------------------------------------ passo 3: talhões
+  // ------------------------------------------------------------------ passo 3: talhões de cada O.S.
 
-  const marcar = useCallback((t, sim) => {
-    setLanc((l) => {
-      const marcas = { ...l.marcas };
-      if (sim) marcas[chaveDe(t)] = areaCampo(t.saldo);
-      else delete marcas[chaveDe(t)];
-      return { ...l, marcas };
-    });
-  }, []);
+  /** Muda uma O.S. do lançamento (talhões marcados, áreas, fora da O.S.). */
+  const mudarOrdem = useCallback((chave, f) => setLanc((l) => ({ ...l, ordens: l.ordens.map((o) => (o.chave === chave ? f(o) : o)) })), []);
+  /** Status da O.S.: vale para todas as operações dela no lançamento. */
+  const mudarStatus = useCallback(
+    (chave, v) =>
+      setLanc((l) => {
+        const os = l.ordens.find((o) => o.chave === chave)?.os;
+        return { ...l, ordens: l.ordens.map((o) => (o.os === os ? { ...o, statusOS: v } : o)) };
+      }),
+    [],
+  );
+  const alternarBloco = useCallback((chave) => setAbertas((a) => ({ ...a, [chave]: !a[chave] })), []);
+  // busca de novo (os talhões que já estavam à vista ficam até chegar os novos)
+  const tentarDeNovo = useCallback((o) => setInfos((m) => ({ ...m, [chaveInfo(o)]: { ...m[chaveInfo(o)], dt: null, erro: null } })), []);
 
-  const marcarVarios = useCallback((lista, sim) => {
-    setLanc((l) => {
-      const marcas = { ...l.marcas };
-      for (const t of lista) {
-        if (sim && marcas[chaveDe(t)] === undefined) marcas[chaveDe(t)] = areaCampo(t.saldo);
-        else if (!sim) delete marcas[chaveDe(t)];
-      }
-      return { ...l, marcas };
-    });
-  }, []);
+  function trocarOrdem(chave) {
+    setEscolha({ modo: "trocar", chave });
+    setMsg(null);
+    irPara(2);
+  }
 
-  const mudarArea = useCallback((k, v) => setLanc((l) => ({ ...l, marcas: { ...l.marcas, [k]: v } })), []);
-  const mudarAreaExtra = useCallback((chave, v) => setLanc((l) => ({ ...l, extras: l.extras.map((x) => (x.chave === chave ? { ...x, area: v } : x)) })), []);
-  const removerExtra = useCallback((chave) => setLanc((l) => ({ ...l, extras: l.extras.filter((x) => x.chave !== chave) })), []);
-  const incluirExtras = useCallback((itens) => {
-    setLanc((l) => {
-      const novos = itens.filter((x) => !l.extras.some((e) => mesmoTalhao(e, x)));
-      return { ...l, extras: [...l.extras, ...novos.map((x) => ({ ...x, chave: novaChaveExtra() }))] };
-    });
-  }, []);
+  function adicionarOS() {
+    setEscolha({ modo: "adicionar" });
+    setMsg(null);
+    irPara(2);
+  }
+
+  function removerOrdem(chave) {
+    const o = lanc.ordens.find((x) => x.chave === chave);
+    if (!o) return;
+    const fazer = () => {
+      const atuais = lancRef.current.ordens;
+      // saindo a 1ª O.S., o cabeçalho passa a ter os padrões da seguinte (onde ainda estava com os da que saiu); sem os
+      // talhões dela ainda (carregando, erro), os padrões entram quando eles chegarem (buscarInfo)
+      const seguinte = atuais[0]?.chave === chave ? atuais[1] : null;
+      const infoSeguinte = seguinte ? infosRef.current[chaveInfo(seguinte)]?.info : null;
+      const novos = infoSeguinte ? padroesDaInfo(infoSeguinte) : null;
+      const anteriores = padroes.current;
+      setLanc((l) => {
+        const saiu = l.ordens.find((x) => x.chave === chave);
+        return {
+          ...l,
+          ordens: l.ordens.filter((x) => x.chave !== chave),
+          // a O.S. com o apontamento do lançamento aberto fica guardada (como estava) para voltar com o boletim
+          removidas: saiu?.id ? [...(l.removidas ?? []).filter((x) => x.id !== saiu.id), saiu] : (l.removidas ?? []),
+          servico: novos ? aplicarPadroes(l.servico, anteriores, novos) : l.servico,
+        };
+      });
+      if (novos) padroes.current = novos;
+      setAbertas((a) => sem(a, chave));
+      setMsg(null);
+    };
+    const n = Object.keys(o.marcas).length + o.extras.length;
+    if (n > 0 || o.id) {
+      setPergunta({
+        titulo: "Tirar a O.S. do lançamento?",
+        texto: [
+          `O.S. ${o.os} (operação ${o.opCod})${n ? `: ${plural(n, "talhão marcado", "talhões marcados")} ${n === 1 ? "será descartado" : "serão descartados"}` : ""}.`,
+          o.id
+            ? `O boletim nº ${o.boletim} será excluído ao gravar a alteração (se a O.S. com a operação ${o.opCod} voltar ao lançamento antes disso, volta com o boletim e os talhões dele).`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        botao: "Tirar",
+        perigo: true,
+        acao: fazer,
+      });
+    } else fazer();
+  }
 
   // ------------------------------------------------------------------ passo 4: dados do serviço
 
   const upd = useCallback((p) => setLanc((l) => ({ ...l, servico: { ...l.servico, ...p } })), []);
   const s = lanc.servico;
-  const op = osInfoValido ? osInfo.operacao : null;
-  const faltaDepois = osInfoValido
-    ? round2(
-        talhoesOS.reduce((a, t) => {
-          const v = lerNumero(lanc.marcas[chaveDe(t)]);
-          return a + Math.max(0, (t.saldo ?? 0) - (v > 0 ? v : 0));
-        }, 0),
-      )
-    : null;
+  const ops = useMemo(() => resumo.map((r) => r.info?.operacao).filter(Boolean), [resumo]);
+  const statusOpcoes = opcoes?.statusOS?.length ? opcoes.statusOS : STATUS_PADRAO;
+  // status por O.S. (a O.S. com mais de uma operação no lançamento tem um só) e o que falta nela depois do lançamento
+  const statusPorOS = useMemo(() => {
+    const m = new Map();
+    lanc.ordens.forEach((o, i) => {
+      const r = resumo[i];
+      let x = m.get(o.os);
+      if (!x) {
+        x = { os: o.os, chave: o.chave, valor: o.statusOS, falta: 0, prontas: true, nTalhoes: 0, nOps: 0 };
+        m.set(o.os, x);
+      }
+      if (r.faltaDepois === null) x.prontas = false;
+      else x.falta = round2(x.falta + r.faltaDepois);
+      x.nTalhoes += r.linhas.length;
+      x.nOps += 1;
+    });
+    return [...m.values()].map((x) => ({ ...x, falta: x.prontas ? x.falta : null }));
+  }, [lanc.ordens, resumo]);
 
   // ------------------------------------------------------------------ gravar
+
+  /**
+   * O.S. do lançamento cujos talhões ainda não chegaram (carregando ou com erro): o aviso diz qual e por quê, e o bloco
+   * dela abre (com erro, volta aos talhões, onde está o "Tentar de novo"). false: todas prontas.
+   */
+  function avisarSemTalhoes() {
+    const i = resumo.findIndex((r) => !r.info);
+    if (i < 0) return false;
+    const o = lanc.ordens[i];
+    const qual = varias ? `da O.S. ${o.os} (operação ${o.opCod})` : "da O.S.";
+    setAbertas((a) => ({ ...a, [o.chave]: true }));
+    if (resumo[i].erro) {
+      if (passo !== 3) irPara(3);
+      setMsg({ texto: `Os talhões ${qual} não carregaram: toque em “Tentar de novo”${varias ? " no bloco dela" : ""}.`, erro: true });
+    } else setMsg({ texto: `Espere os talhões ${qual} carregarem.`, erro: true });
+    return true;
+  }
 
   async function gravar(confirmar = false) {
     setMsg(null);
     if (!pode) return setMsg({ texto: "Seu perfil é somente leitura: dá para consultar, mas não gravar.", erro: true });
     if (!matAtual) return irPara(1);
-    if (!osInfoValido) return setMsg({ texto: "Escolha a O.S. e a operação e espere os talhões carregarem.", erro: true });
+    if (!lanc.ordens.length) return setMsg({ texto: "Escolha a O.S. e a operação e espere os talhões carregarem.", erro: true });
+    if (avisarSemTalhoes()) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dt)) {
       irPara(4);
       return setMsg({ texto: "Informe a data da operação.", erro: true });
     }
-    if (linhas.length === 0) {
-      irPara(3);
-      return setMsg({ texto: "Marque pelo menos um talhão realizado.", erro: true });
-    }
-    const ruim = linhas.find((l) => !(lerNumero(l.texto) > 0));
-    if (ruim) {
-      irPara(3);
-      return setMsg({ texto: `Informe a área realizada do ${rotTalhao(ruim.tlh)} da fazenda ${ruim.propCod} (ou desmarque o talhão).`, erro: true });
+    // com várias O.S., o erro diz qual e abre o bloco dela
+    for (const [i, o] of lanc.ordens.entries()) {
+      const { linhas } = resumo[i];
+      const naOS = varias ? ` da O.S. ${o.os} (operação ${o.opCod})` : "";
+      if (linhas.length === 0) {
+        setAbertas((a) => ({ ...a, [o.chave]: true }));
+        irPara(3);
+        return setMsg({ texto: `Marque pelo menos um talhão realizado${naOS}.`, erro: true });
+      }
+      const ruim = linhas.find((l) => !(lerNumero(l.texto) > 0));
+      if (ruim) {
+        setAbertas((a) => ({ ...a, [o.chave]: true }));
+        irPara(3);
+        return setMsg({ texto: `Informe a área realizada do ${rotTalhao(ruim.tlh)} da fazenda ${ruim.propCod}${naOS} (ou desmarque o talhão).`, erro: true });
+      }
     }
     // "1.500" na calda é milhar (o teclado do Android tem o ponto); "0.035" e "12.5" continuam decimais
     const vazao = lerNumeroComMilhar(s.vazaoRec);
@@ -664,12 +977,28 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       irPara(4);
       return setMsg({ texto: "Escolha o modelo do texto: Mecanizada ou Manual.", erro: true });
     }
+    // solicitante, etapa e tipo de aplicação: com várias O.S., o do cabeçalho mudado à mão vale para todas e, sem
+    // mudança, cada O.S. leva o dela (o responsável da O.S., a etapa e o tipo da operação)
+    const aMao = (k) => !!String(s[k] ?? "").trim() && s[k] !== padroes.current[k];
+    const ordens = lanc.ordens.map((o, i) => {
+      const info = resumo[i].info;
+      const opi = info.operacao ?? {};
+      return {
+        ...(o.id ? { id: o.id } : {}),
+        os: o.os,
+        opCod: o.opCod,
+        statusOS: o.statusOS,
+        solicitante: (varias && !aMao("solicitante") ? info.resp || s.solicitante : s.solicitante).trim(),
+        etapaCod: varias && !aMao("etapaCod") ? opi.etapaCod || s.etapaCod : s.etapaCod,
+        tipoAplicacao: (varias && !aMao("tipoAplicacao") ? opi.tipoDs || s.tipoAplicacao : s.tipoAplicacao).trim(),
+        talhoes: resumo[i].linhas.map((l) => ({ propCod: l.propCod, tlh: l.tlh, area: lerNumero(l.texto) })),
+      };
+    });
     setGravando(true);
     const { ok, status, json } = await enviar({
-      ...(lanc.id ? { id: lanc.id, boletim: lanc.boletim } : {}),
+      // edição: o lançamento aberto e os boletins que ele tinha ao abrir (o servidor não exclui o que entrou depois)
+      ...(lanc.id ? { id: lanc.id, boletins: lanc.boletins } : {}),
       dt,
-      os: lanc.os,
-      opCod: lanc.opCod,
       modelo: s.modelo,
       atividade: s.atividade.trim(),
       solicitante: s.solicitante.trim(),
@@ -682,11 +1011,11 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       numEquipamentos: Number(s.numEquipamentos || 0),
       numPessoas: Number(s.numPessoas || 0),
       vazaoRec: vazao,
+      // calda/insumo gasto do lançamento: o servidor rateia entre as O.S. pela área
       volCalda: calda,
       unCalda: s.unCalda === "kg" ? "kg" : "L",
-      statusOS: s.statusOS,
       obs: s.obs.trim(),
-      talhoes: linhas.map((l) => ({ propCod: l.propCod, tlh: l.tlh, area: lerNumero(l.texto) })),
+      ordens,
       confirmar,
     });
     if (status === 409 && json.precisaConfirmar) {
@@ -698,19 +1027,22 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       setGravando(false);
       return setMsg({ texto: json.error ?? "Não foi possível gravar.", erro: true });
     }
+    const boletins = Array.isArray(json.boletins) && json.boletins.length ? json.boletins : json.boletim ? [json.boletim] : [];
     let texto = typeof json.texto === "string" ? json.texto : "";
-    if (!texto && json.boletim) texto = (await obter({ bol: String(json.boletim) })).json?.texto ?? "";
+    if (!texto && boletins[0]) texto = (await obter({ bol: String(boletins[0]) })).json?.texto ?? "";
     setGravando(false);
-    cacheBol.current.delete(json.boletim);
+    for (const b of [...boletins, ...lanc.boletins]) cacheBol.current.delete(b);
     limparRascunho();
     setResultado({
       id: json.id,
-      boletim: json.boletim,
+      boletins,
       texto,
       avisos: Array.isArray(json.avisos) ? json.avisos : [],
       editado: !!lanc.id,
-      os: lanc.os,
-      op: op ? `${op.cod} - ${op.ds}` : lanc.opCod,
+      ordens: lanc.ordens.map((o, i) => {
+        const opi = resumo[i].info?.operacao;
+        return { os: o.os, op: opi ? `${opi.cod} - ${opi.ds}` : o.opCod };
+      }),
       area: total,
       dt,
     });
@@ -722,12 +1054,9 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
   function novoLancamento() {
     limparRascunho();
     setResultado(null);
-    setLanc(LANC_VAZIO);
     // a mesma O.S. de novo traz os talhões com o que acabou de ser lançado
-    setOsInfo(null);
-    setOsInfoChave("");
+    zerarLancamento();
     setMsg(null);
-    padroes.current = {};
     // mantém a data do lançamento; depois de editar um boletim (ou terminar um rascunho) de outro dia, volta à de antes
     voltarDataAntesDeAbrir();
     irPara(2);
@@ -749,7 +1078,10 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     if (aba === "meus") carregarMeus();
   }, [aba, carregarMeus]);
 
-  /** Boletim com o texto do WhatsApp (o texto fica guardado nesta visita; `fresco` busca de novo, para editar). */
+  /**
+   * Lançamento do boletim com o texto do WhatsApp (o texto fica guardado nesta visita; `fresco` busca de novo, para
+   * editar). Com várias O.S., vêm todos os apontamentos dele, de qualquer um dos boletins.
+   */
   async function carregarBoletim(bol, fresco = false) {
     if (!fresco && cacheBol.current.has(bol)) return cacheBol.current.get(bol);
     setAbrindo(bol);
@@ -759,7 +1091,9 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       setMsg({ texto: json.error ?? `Não foi possível abrir o boletim nº ${bol}.`, erro: true });
       return null;
     }
-    const r = { apontamento: json.apontamento, texto: typeof json.texto === "string" ? json.texto : "" };
+    const apontamentos = Array.isArray(json.apontamentos) && json.apontamentos.length ? json.apontamentos : [json.apontamento];
+    const r = { apontamento: apontamentos[0], apontamentos, texto: typeof json.texto === "string" ? json.texto : "" };
+    for (const a of apontamentos) cacheBol.current.set(a.boletim, r);
     cacheBol.current.set(bol, r);
     return r;
   }
@@ -769,30 +1103,47 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     setMsg(null);
     const r = await carregarBoletim(bol, true);
     if (!r) return;
-    const a = r.apontamento;
+    const grupo = r.apontamentos;
+    const a = grupo[0];
     const fazer = () => {
       limparRascunho();
-      padroes.current = {};
       setResultado(null);
       setDetalhe(null);
       if (dtAntesDeAbrir.current === null) dtAntesDeAbrir.current = dt;
       setDt(a.dt);
-      setLanc({ ...LANC_VAZIO, id: a.id, boletim: a.boletim, os: String(a.os ?? ""), opCod: String(a.opCod ?? ""), pendentes: a.talhoes ?? [], servico: servicoDoBoletim(a) });
-      // força recarregar os talhões mesmo se for a mesma O.S. (agora sem contar este boletim) — e mesmo se for o
-      // boletim que já está aberto: aí a chave da busca não muda e só a nova tentativa faz o efeito buscar de novo
-      setOsInfoChave("");
-      setErroTalhoes(null);
-      setTentativa((n) => n + 1);
+      // recarrega os talhões mesmo se for a mesma O.S. (agora sem contar o boletim) — e mesmo se for o lançamento que já
+      // está aberto
+      zerarLancamento();
+      const ordens = grupo.map((x) => ({
+        ...ORDEM_VAZIA,
+        chave: novaChaveOrdem(),
+        id: x.id,
+        boletim: x.boletim,
+        os: String(x.os ?? ""),
+        opCod: String(x.opCod ?? ""),
+        statusOS: x.statusOS ?? "",
+        pendentes: x.talhoes ?? [],
+        gravados: x.talhoes ?? [],
+      }));
+      setLanc({
+        ...LANC_VAZIO,
+        id: a.id,
+        ids: grupo.map((x) => x.id),
+        boletins: grupo.map((x) => x.boletim),
+        ordens,
+        servico: servicoDoLancamento(grupo),
+      });
+      setAbertas(ordens.length ? { [ordens[0].chave]: true } : {});
       setAba("lancar");
       irPara(3);
     };
     if (temNaoGravado) {
-      const mesmo = lanc.id === a.id;
+      const mesmo = lanc.id !== null && grupo.some((x) => x.id === lanc.id);
       setPergunta({
-        titulo: mesmo ? "Abrir de novo o boletim?" : "Abrir outro lançamento?",
+        titulo: mesmo ? (lanc.boletins.length > 1 ? "Abrir de novo o lançamento?" : "Abrir de novo o boletim?") : "Abrir outro lançamento?",
         texto: mesmo
-          ? `As alterações do boletim nº ${lanc.boletim} que ainda não foram gravadas serão descartadas.`
-          : `O lançamento da O.S. ${lanc.os} ainda não foi gravado e será descartado.`,
+          ? `As alterações ${doBoletins(lanc.boletins)} que ainda não foram gravadas serão descartadas.`
+          : `O lançamento ${rotuloDasOS(lanc.ordens)} ainda não foi gravado e será descartado.`,
         botao: "Abrir para editar",
         perigo: true,
         acao: fazer,
@@ -813,7 +1164,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     setMsg(null);
     const r = await carregarBoletim(item.boletim);
     if (!r) return;
-    if (await copiarParaAreaDeTransferencia(r.texto)) setMsg({ texto: `Texto do boletim nº ${item.boletim} copiado. Abra o grupo do WhatsApp e cole.`, erro: false });
+    const boletins = r.apontamentos.map((x) => x.boletim);
+    if (await copiarParaAreaDeTransferencia(r.texto)) setMsg({ texto: `Texto ${doBoletins(boletins)} copiado. Abra o grupo do WhatsApp e cole.`, erro: false });
     else {
       focarPasso.current = true;
       setDetalhe(r);
@@ -822,11 +1174,19 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
 
   // ------------------------------------------------------------------ tela
 
-  // texto do WhatsApp na tela (resultado da gravação ou boletim aberto em Meus lançamentos): rodapé com Copiar e Enviar
+  // texto do WhatsApp na tela (resultado da gravação ou lançamento aberto em Meus lançamentos): rodapé com Copiar e Enviar
   const textoAberto = aba === "lancar" && resultado ? (resultado.texto ?? "") : aba === "meus" && detalhe ? (detalhe.texto ?? "") : null;
-  const alcancavel = (n) => n === 1 || (n === 2 && !!minhas) || (n >= 3 && !!lanc.os && !!minhas);
-  const escolhaDaLista = minhas?.ordens?.find((o) => o.os === lanc.os);
-  const opDaLista = escolhaDaLista?.operacoes?.find((o) => o.cod === lanc.opCod);
+  const alcancavel = (n) => n === 1 || (n === 2 && !!minhas) || (n >= 3 && lanc.ordens.length > 0 && !!minhas);
+  /** Situação da O.S. e descrição da operação como vieram na lista do passo 2 (até os talhões chegarem). */
+  const daLista = (o) => {
+    const x = minhas?.ordens?.find((y) => y.os === o.os);
+    return { situacao: x?.situacao, opDs: x?.operacoes?.find((y) => y.cod === o.opCod)?.ds ?? "" };
+  };
+  const infoDe = (o) => infos[chaveInfo(o)]?.info ?? null;
+  const dsDe = (o) => infoDe(o)?.operacao?.ds ?? daLista(o).opDs;
+  const situacaoDe = (o) => infoDe(o)?.situacao ?? daLista(o).situacao;
+  const doDetalhe = detalhe?.apontamentos ?? [];
+  const boletinsResultado = resultado?.boletins ?? [];
 
   const info = (
     <>
@@ -879,7 +1239,11 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                       type="button"
                       disabled={!ok}
                       aria-current={atual ? "step" : undefined}
-                      onClick={() => irPara(p.n)}
+                      onClick={() => {
+                        // pelo menu, o passo 2 volta ao jeito de sempre (troca a O.S. única; com várias, acrescenta)
+                        if (p.n === 2) setEscolha(null);
+                        irPara(p.n);
+                      }}
                       className={`flex h-10 w-full items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium disabled:opacity-45 ${
                         atual ? "bg-navy-900 text-white dark:bg-crv-acao" : feito ? "text-ink hover:bg-hover" : "text-muted hover:bg-hover"
                       }`}
@@ -918,17 +1282,17 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
           {aba === "meus" && detalhe ? (
             <VistaTexto
               tituloRef={tituloPasso}
-              titulo={`Boletim nº ${detalhe.apontamento.boletim}`}
+              titulo={tituloBoletins(doDetalhe.map((x) => x.boletim))}
               linha={[
                 fmtDateBR(detalhe.apontamento.dt),
-                `O.S. ${detalhe.apontamento.os}`,
-                `${detalhe.apontamento.opCod}${detalhe.apontamento.opDs ? ` - ${detalhe.apontamento.opDs}` : ""}`,
-                Number.isFinite(detalhe.apontamento.areaTotal) ? `${nf(detalhe.apontamento.areaTotal)} ha` : "",
-                detalhe.apontamento.statusOS ?? "",
+                `O.S. ${unicos(doDetalhe.map((x) => x.os)).join(", ")}`,
+                unicos(doDetalhe.map((x) => `${x.opCod}${x.opDs ? ` - ${x.opDs}` : ""}`)).join(", "),
+                `${nf(round2(doDetalhe.reduce((a, x) => a + (Number.isFinite(x.areaTotal) ? x.areaTotal : 0), 0)))} ha`,
+                statusResumo(doDetalhe),
               ]
                 .filter(Boolean)
                 .join(" · ")}
-              boletim={detalhe.apontamento.boletim}
+              boletins={doDetalhe.map((x) => x.boletim)}
               texto={detalhe.texto}
               caixaRef={caixaTexto}
               acoes={
@@ -976,11 +1340,11 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
           ) : resultado ? (
             <VistaTexto
               tituloRef={tituloPasso}
-              titulo={`${resultado.editado ? "Alterado" : "Lançado"} — Boletim nº ${resultado.boletim}`}
-              linha={`O.S. ${resultado.os} · ${resultado.op} · ${fmtDateBR(resultado.dt)} · ${nf(resultado.area)} ha`}
+              titulo={`${resultado.editado ? "Alterado" : "Lançado"} — ${tituloBoletins(boletinsResultado)}`}
+              linha={`${resultado.ordens.map((o) => `O.S. ${o.os} · ${o.op}`).join("; ")} · ${fmtDateBR(resultado.dt)} · ${nf(resultado.area)} ha`}
               sucesso
               avisos={resultado.avisos}
-              boletim={resultado.boletim}
+              boletins={boletinsResultado}
               texto={resultado.texto}
               caixaRef={caixaTexto}
               acoes={
@@ -988,10 +1352,10 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                   <button
                     type="button"
                     className={`${BOTAO} !h-12 leading-tight`}
-                    onClick={() => editarBoletim(resultado.boletim)}
-                    disabled={!pode || abrindo !== null}
+                    onClick={() => editarBoletim(boletinsResultado[0])}
+                    disabled={!pode || abrindo !== null || !boletinsResultado.length}
                   >
-                    <IconEditar size={16} /> {abrindo === resultado.boletim ? "Abrindo…" : "Editar este lançamento"}
+                    <IconEditar size={16} /> {abrindo !== null && abrindo === boletinsResultado[0] ? "Abrindo…" : "Editar este lançamento"}
                   </button>
                   <button type="button" className={`${BOTAO} !h-12 leading-tight`} onClick={novoLancamento}>
                     <IconMais size={16} /> Novo lançamento
@@ -1090,6 +1454,29 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                   </span>
                 </div>
               </div>
+              {/* acrescentando outra O.S. (ou trocando a de um bloco, com várias): o que já está no lançamento */}
+              {lanc.ordens.length > 0 && (acrescentando || varias) && (
+                <div role="status" className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-[13px] text-brand-700">
+                  <p className="font-semibold">
+                    {alvoTroca ? `Trocar a O.S. ${alvoTroca.os} (operação ${alvoTroca.opCod})` : "Acrescentar outra O.S. ao lançamento"}
+                  </p>
+                  <p className="mt-0.5">
+                    {alvoTroca
+                      ? "Escolha a O.S./operação que entra no lugar dela."
+                      : `Já no lançamento: ${lanc.ordens.map((o) => `O.S. ${o.os} · ${o.opCod}`).join("; ")}. Pode ser outra O.S. ou outra operação da mesma.`}
+                  </p>
+                  <button
+                    type="button"
+                    className={`${BOTAO_MENOR} mt-2`}
+                    onClick={() => {
+                      setEscolha(null);
+                      irPara(3);
+                    }}
+                  >
+                    Voltar aos talhões
+                  </button>
+                </div>
+              )}
               {mostrarRascunho && <BannerRascunho r={rascunho} onContinuar={continuarRascunho} onDescartar={limparRascunho} />}
               {(minhas?.ordens.length ?? 0) > 3 && (
                 <div>
@@ -1126,7 +1513,13 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
               {!buscandoOS && (
                 <div className="space-y-3">
                   {ordensFiltradas.map((o) => (
-                    <CartaoOS key={o.os} ordem={o} escolhida={{ os: lanc.os, opCod: lanc.opCod }} onEscolher={escolherOperacao} />
+                    <CartaoOS
+                      key={o.os}
+                      ordem={o}
+                      noLancamento={noLancamento}
+                      selo={varias || (acrescentando && lanc.ordens.length > 0)}
+                      onEscolher={escolherOperacao}
+                    />
                   ))}
                 </div>
               )}
@@ -1136,62 +1529,45 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
               <h2 id="lm-p3" ref={tituloPasso} tabIndex={-1} className={TITULO_PASSO}>
                 Talhões realizados
               </h2>
-              <ResumoEscolha
-                os={lanc.os}
-                opCod={lanc.opCod}
-                opDs={op?.ds ?? opDaLista?.ds ?? ""}
-                situacao={osInfoValido ? osInfo.situacao : escolhaDaLista?.situacao}
-                dt={dt}
-                info={osInfoValido ? osInfo : null}
-                talhoes={talhoesOS}
-                onTrocar={() => irPara(2)}
-              />
               {lanc.id && (
                 <p className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-[13px] text-brand-700">
-                  Editando o boletim nº {lanc.boletim}. O “Já apontado” e o “Falta” não contam este boletim.
+                  Editando {lanc.boletins.length > 1 ? "os" : "o"} {rotBoletins(lanc.boletins)}. O “Já apontado” e o “Falta” não contam{" "}
+                  {lanc.boletins.length > 1 ? "estes boletins" : "este boletim"}.
                 </p>
               )}
-              {(carregandoTalhoes || lanc.pendentes) && !erroTalhoes && (
-                <p className="py-6 text-center text-[14px] text-muted" aria-live="polite">
-                  Carregando os talhões da O.S.…
-                </p>
-              )}
-              {erroTalhoes && (
-                <div className="space-y-2">
-                  <Aviso msg={{ texto: erroTalhoes, erro: true }} />
-                  <button type="button" className={`${BOTAO} w-full`} onClick={() => setTentativa((n) => n + 1)}>
-                    <IconAtualizar size={16} /> Tentar de novo
+              {varias && resumo.some((r) => r.info) && <CaixaSoFalta checked={soFalta} onChange={setSoFalta} />}
+              {lanc.ordens.map((o, i) => (
+                <BlocoOrdem
+                  key={o.chave}
+                  ordem={o}
+                  r={resumo[i]}
+                  dt={dt}
+                  unica={!varias}
+                  aberto={!!abertas[o.chave]}
+                  soFalta={soFalta}
+                  onSoFalta={setSoFalta}
+                  opDs={dsDe(o)}
+                  situacao={situacaoDe(o)}
+                  statusOpcoes={statusOpcoes}
+                  onAlternar={alternarBloco}
+                  onRemover={removerOrdem}
+                  onTrocar={trocarOrdem}
+                  onMudar={mudarOrdem}
+                  onTentar={tentarDeNovo}
+                  onStatus={mudarStatus}
+                />
+              ))}
+              {lanc.ordens.length > 0 && lanc.ordens.length < MAX_ORDENS && (
+                <div>
+                  <button type="button" className={`${BOTAO} w-full border-dashed`} onClick={adicionarOS}>
+                    <IconMais size={18} /> Adicionar outra O.S.
                   </button>
-                </div>
-              )}
-              {osInfoValido && (
-                <>
-                  <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg px-1 text-[14px] text-ink">
-                    <input
-                      type="checkbox"
-                      checked={soFalta}
-                      onChange={(e) => setSoFalta(e.target.checked)}
-                      className="h-5 w-5 flex-shrink-0 accent-[#23396B] dark:accent-[#7FA8E8]"
-                    />
-                    Mostrar só os talhões que faltam fazer
-                  </label>
-                  {talhoesOS.length === 0 && (
-                    <p className={`${CARTAO} px-4 py-6 text-center text-[13.5px] text-muted`}>Esta operação não tem talhões na O.S. Inclua abaixo os realizados.</p>
+                  {!varias && (
+                    <p className="mt-1 text-center text-[12px] text-muted">
+                      Outra O.S. (ou outra operação desta) no mesmo lançamento: o mesmo cabeçalho, um boletim para cada.
+                    </p>
                   )}
-                  {grupos.map((g) => (
-                    <GrupoFazenda key={g.propCod} grupo={g} marcas={lanc.marcas} soFalta={soFalta} onMarcar={marcar} onArea={mudarArea} onMarcarVarios={marcarVarios} />
-                  ))}
-                  <ListaForaDaOS extras={lanc.extras} onArea={mudarAreaExtra} onRemover={removerExtra} />
-                  <IncluirForaDaOS
-                    dt={dt}
-                    talhoesOS={talhoesOS}
-                    marcas={lanc.marcas}
-                    extras={lanc.extras}
-                    onIncluir={incluirExtras}
-                    onMarcarDaOS={marcarVarios}
-                    onAreaDaOS={mudarArea}
-                  />
-                </>
+                </div>
               )}
             </section>
           ) : (
@@ -1199,25 +1575,31 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
               <h2 id="lm-p4" ref={tituloPasso} tabIndex={-1} className={TITULO_PASSO}>
                 Dados do serviço
               </h2>
-              <ResumoEscolha
-                os={lanc.os}
-                opCod={lanc.opCod}
-                opDs={op?.ds ?? opDaLista?.ds ?? ""}
-                situacao={osInfoValido ? osInfo.situacao : escolhaDaLista?.situacao}
-                dt={dt}
-                onTrocar={() => irPara(2)}
-                compacto
-              />
+              {varias ? (
+                <ResumoLancamento ordens={lanc.ordens} resumo={resumo} dsDe={dsDe} dt={dt} onTalhoes={() => irPara(3)} />
+              ) : lanc.ordens[0] ? (
+                <ResumoEscolha
+                  os={lanc.ordens[0].os}
+                  opCod={lanc.ordens[0].opCod}
+                  opDs={dsDe(lanc.ordens[0])}
+                  situacao={situacaoDe(lanc.ordens[0])}
+                  dt={dt}
+                  onTrocar={() => trocarOrdem(lanc.ordens[0].chave)}
+                  compacto
+                />
+              ) : null}
               <DadosServico
                 s={s}
                 upd={upd}
                 dt={dt}
                 hoje={hoje}
                 onDt={setDt}
-                op={op}
+                ops={ops}
                 opcoes={opcoes}
-                faltaDepois={faltaDepois}
-                nTalhoes={linhas.length}
+                varias={varias}
+                statusPorOS={statusPorOS}
+                statusOpcoes={statusOpcoes}
+                onStatus={mudarStatus}
               />
               {!pode && <Aviso msg={{ texto: "Seu perfil é somente leitura: dá para conferir os dados, mas não gravar.", erro: true }} />}
             </section>
@@ -1229,17 +1611,32 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
         <div className="print-hide flex-shrink-0 border-t border-line bg-card px-4 py-2.5 md:px-6">
           <div className="mx-auto flex w-full max-w-xl items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[12px] leading-tight text-muted">Área total · {plural(linhas.length, "talhão", "talhões")}</div>
+              <div className="truncate text-[12px] leading-tight text-muted">
+                Área total · {varias ? `${lanc.ordens.length} O.S. · ` : ""}
+                {plural(nLinhas, "talhão", "talhões")}
+              </div>
               <div className="font-display text-[25px] font-semibold leading-tight tabular text-ink">
                 {nf(total)} <span className="font-sans text-[13px] font-normal text-muted">ha</span>
               </div>
             </div>
+            {/* sem os talhões de alguma O.S. (carregando, erro), o toque diz qual e abre o bloco dela */}
             {passo === 3 ? (
-              <button type="button" className={BOTAO_PRIMARIO} onClick={() => irPara(4)} disabled={!osInfoValido}>
+              <button
+                type="button"
+                className={`${BOTAO_PRIMARIO} ${todasProntas ? "" : "opacity-60"}`}
+                onClick={() => avisarSemTalhoes() || irPara(4)}
+                aria-disabled={!todasProntas || undefined}
+              >
                 Dados do serviço <IconSetaDireita size={18} />
               </button>
             ) : (
-              <button type="button" className={BOTAO_PRIMARIO} onClick={() => gravar(false)} disabled={gravando || !pode || !osInfoValido}>
+              <button
+                type="button"
+                className={`${BOTAO_PRIMARIO} ${todasProntas ? "" : "opacity-60"}`}
+                onClick={() => gravar(false)}
+                disabled={gravando || !pode}
+                aria-disabled={!todasProntas || undefined}
+              >
                 <IconSalvar size={18} />
                 {gravando ? "Gravando…" : lanc.id ? "Gravar alteração" : "Gravar"}
               </button>
@@ -1343,12 +1740,17 @@ function Pessoa({ nome, mat, area }) {
 }
 
 function BannerRascunho({ r, onContinuar, onDescartar }) {
-  const n = Object.keys(r.lanc.marcas ?? {}).length + (r.lanc.extras ?? []).length;
+  const l = r.lanc ?? {};
+  // o rascunho da primeira versão da tela (v1) tinha uma O.S. só
+  const ordens = r.v === 1 ? [{ os: l.os, opCod: l.opCod, marcas: l.marcas, extras: l.extras }] : (l.ordens ?? []);
+  const boletins = r.v === 1 ? [l.boletim] : (l.boletins ?? []);
+  const n = ordens.reduce((a, o) => a + Object.keys(o.marcas ?? {}).length + (o.extras ?? []).length, 0);
   return (
     <div role="status" className="rounded-lg border border-amber-500/40 bg-amber-50 p-3 text-[13px] text-amber-600">
       <p className="font-semibold">Lançamento não gravado neste aparelho</p>
       <p className="mt-0.5">
-        {r.lanc.id ? `Edição do boletim nº ${r.lanc.boletim}` : "Lançamento novo"} · O.S. {r.lanc.os} · operação {r.lanc.opCod} · {fmtDateBR(r.dt)}
+        {l.id ? `Edição ${doBoletins(boletins)}` : "Lançamento novo"} · {ordens.map((o) => `O.S. ${o.os} · operação ${o.opCod}`).join("; ")} ·{" "}
+        {fmtDateBR(r.dt)}
         {n ? ` · ${plural(n, "talhão", "talhões")}` : ""}
       </p>
       <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1369,7 +1771,8 @@ function SeloSituacao({ s }) {
   return <span className={`rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${cor}`}>{s}</span>;
 }
 
-function CartaoOS({ ordem, escolhida, onEscolher }) {
+/** O.S. em aberto com as operações dela; as que já estão no lançamento ficam destacadas (`selo`: com o selo "no lançamento"). */
+function CartaoOS({ ordem, noLancamento, selo, onEscolher }) {
   const pct = ordem.areaRec > 0 ? Math.min(100, Math.max(0, ((ordem.ja ?? 0) / ordem.areaRec) * 100)) : 0;
   const fazendas = ordem.fazendas ?? [];
   return (
@@ -1405,7 +1808,7 @@ function CartaoOS({ ordem, escolhida, onEscolher }) {
       </div>
       <ul className="border-t border-line">
         {(ordem.operacoes ?? []).map((op) => {
-          const sel = escolhida.os === ordem.os && escolhida.opCod === op.cod;
+          const sel = noLancamento.has(`${ordem.os}|${op.cod}`);
           return (
             <li key={op.cod} className="border-b border-line last:border-b-0">
               <button
@@ -1417,6 +1820,11 @@ function CartaoOS({ ordem, escolhida, onEscolher }) {
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14.5px] font-semibold leading-snug text-ink">
                     {op.cod} - {op.ds || "sem descrição"}
+                    {sel && selo && (
+                      <span className="ml-1.5 inline-block rounded-full bg-brand-50 px-1.5 py-px align-middle text-[11px] font-semibold text-brand-700">
+                        no lançamento
+                      </span>
+                    )}
                   </span>
                   <span className="block text-[12.5px] text-muted">
                     {[op.etapaDs, plural(op.nTalhoes ?? 0, "talhão", "talhões"), rotModelo(op.modelo)].filter(Boolean).join(" · ")}
@@ -1427,7 +1835,7 @@ function CartaoOS({ ordem, escolhida, onEscolher }) {
                     {op.ultimo && <span className="text-muted"> · último {textoUltimo({ ...op.ultimo, area: undefined })}</span>}
                   </span>
                 </span>
-                {sel && <span className="sr-only">(escolhida)</span>}
+                {sel && !selo && <span className="sr-only">(escolhida)</span>}
                 <IconSetaDireita size={18} className="flex-shrink-0 text-muted" />
               </button>
             </li>
@@ -1490,6 +1898,220 @@ function ResumoEscolha({ os, opCod, opDs, situacao, dt, info, talhoes, onTrocar,
   );
 }
 
+/** Passo 4 do lançamento com várias O.S.: as O.S./operações com a área de cada uma e o caminho de volta aos talhões. */
+function ResumoLancamento({ ordens, resumo, dsDe, dt, onTalhoes }) {
+  return (
+    <div className={`${CARTAO} p-3`}>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="font-display text-[19px] font-semibold leading-tight text-ink">{ordens.length} O.S. no lançamento</span>
+            <span className="text-[12.5px] text-muted">{fmtDateBR(dt)}</span>
+          </div>
+          <div className="text-[12.5px] text-muted">O mesmo cabeçalho para todas; cada uma ganha o seu boletim.</div>
+        </div>
+        <button type="button" className={BOTAO_MENOR} onClick={onTalhoes}>
+          Talhões
+        </button>
+      </div>
+      <ul className="mt-2 divide-y divide-line border-t border-line">
+        {ordens.map((o, i) => {
+          const ds = dsDe(o);
+          return (
+            <li key={o.chave} className="flex items-baseline gap-2 py-1.5 text-[13px]">
+              <span className="min-w-0 flex-1 truncate text-ink">
+                <b className="font-semibold">O.S. {o.os}</b> · {o.opCod}
+                {ds ? ` - ${ds}` : ""}
+              </span>
+              <span className="flex-shrink-0 tabular text-muted">{nf(resumo[i]?.total ?? 0)} ha</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function CaixaSoFalta({ checked, onChange }) {
+  return (
+    <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg px-1 text-[14px] text-ink">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-5 w-5 flex-shrink-0 accent-[#23396B] dark:accent-[#7FA8E8]"
+      />
+      Mostrar só os talhões que faltam fazer
+    </label>
+  );
+}
+
+/**
+ * Uma O.S./operação do lançamento: o resumo (com Trocar), os talhões dela por fazenda e os de fora da O.S. Com várias
+ * O.S. no lançamento, fica num bloco que abre e fecha (com a área e o status no cabeçalho), tem o status da O.S. e o
+ * botão de tirar a O.S. do lançamento; com uma só (`unica`), fica como sempre foi.
+ */
+function BlocoOrdem({ ordem, r, dt, unica, aberto, soFalta, onSoFalta, opDs, situacao, statusOpcoes, onAlternar, onRemover, onTrocar, onMudar, onTentar, onStatus }) {
+  const ch = ordem.chave;
+  const marcar = useCallback(
+    (t, sim) =>
+      onMudar(ch, (o) => {
+        const marcas = { ...o.marcas };
+        if (sim) marcas[chaveDe(t)] = areaCampo(t.saldo);
+        else delete marcas[chaveDe(t)];
+        return { ...o, marcas };
+      }),
+    [ch, onMudar],
+  );
+  const marcarVarios = useCallback(
+    (lista, sim) =>
+      onMudar(ch, (o) => {
+        const marcas = { ...o.marcas };
+        for (const t of lista) {
+          if (sim && marcas[chaveDe(t)] === undefined) marcas[chaveDe(t)] = areaCampo(t.saldo);
+          else if (!sim) delete marcas[chaveDe(t)];
+        }
+        return { ...o, marcas };
+      }),
+    [ch, onMudar],
+  );
+  const mudarArea = useCallback((k, v) => onMudar(ch, (o) => ({ ...o, marcas: { ...o.marcas, [k]: v } })), [ch, onMudar]);
+  const mudarAreaExtra = useCallback(
+    (chave, v) => onMudar(ch, (o) => ({ ...o, extras: o.extras.map((x) => (x.chave === chave ? { ...x, area: v } : x)) })),
+    [ch, onMudar],
+  );
+  const removerExtra = useCallback((chave) => onMudar(ch, (o) => ({ ...o, extras: o.extras.filter((x) => x.chave !== chave) })), [ch, onMudar]);
+  const incluirExtras = useCallback(
+    (itens) =>
+      onMudar(ch, (o) => {
+        const novos = itens.filter((x) => !o.extras.some((e) => mesmoTalhao(e, x)));
+        return { ...o, extras: [...o.extras, ...novos.map((x) => ({ ...x, chave: novaChaveExtra() }))] };
+      }),
+    [ch, onMudar],
+  );
+  const info = r.info;
+  const talhoesOS = r.talhoesOS;
+  const grupos = useMemo(() => agruparPorFazenda(talhoesOS), [talhoesOS]);
+  const idBloco = `lm-b-${idSeguro(ch)}`;
+  const nome = `O.S. ${ordem.os} · operação ${ordem.opCod}`;
+
+  const conteudo = (
+    <>
+      <ResumoEscolha
+        os={ordem.os}
+        opCod={ordem.opCod}
+        opDs={opDs}
+        situacao={situacao}
+        dt={dt}
+        info={info}
+        talhoes={talhoesOS}
+        onTrocar={() => onTrocar(ch)}
+      />
+      {(r.carregando || ordem.pendentes) && !r.erro && (
+        <p className="py-6 text-center text-[14px] text-muted" aria-live="polite">
+          Carregando os talhões da O.S.…
+        </p>
+      )}
+      {r.erro && (
+        <div className="space-y-2">
+          <Aviso msg={{ texto: r.erro, erro: true }} />
+          <button type="button" className={`${BOTAO} w-full`} onClick={() => onTentar(ordem)}>
+            <IconAtualizar size={16} /> Tentar de novo
+          </button>
+        </div>
+      )}
+      {info && (
+        <>
+          {unica && <CaixaSoFalta checked={soFalta} onChange={onSoFalta} />}
+          {talhoesOS.length === 0 && (
+            <p className={`${CARTAO} px-4 py-6 text-center text-[13.5px] text-muted`}>Esta operação não tem talhões na O.S. Inclua abaixo os realizados.</p>
+          )}
+          {grupos.map((g) => (
+            <GrupoFazenda
+              key={g.propCod}
+              prefixo={ch}
+              grupo={g}
+              marcas={ordem.marcas}
+              soFalta={soFalta}
+              onMarcar={marcar}
+              onArea={mudarArea}
+              onMarcarVarios={marcarVarios}
+            />
+          ))}
+          <ListaForaDaOS extras={ordem.extras} onArea={mudarAreaExtra} onRemover={removerExtra} />
+          <IncluirForaDaOS
+            idBase={idBloco}
+            dt={dt}
+            talhoesOS={talhoesOS}
+            marcas={ordem.marcas}
+            extras={ordem.extras}
+            onIncluir={incluirExtras}
+            onMarcarDaOS={marcarVarios}
+            onAreaDaOS={mudarArea}
+          />
+          {!unica && (
+            <div className={`${CARTAO} p-3`}>
+              <Opcoes
+                nome={`${idBloco}-status`}
+                legenda={`Status da O.S. ${ordem.os}`}
+                valor={ordem.statusOS}
+                onChange={(v) => onStatus(ch, v)}
+                colunas={3}
+                opcoes={statusOpcoes.map((x) => ({ valor: x, rotulo: x }))}
+              />
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+  if (unica) return conteudo;
+
+  return (
+    <section aria-label={nome} className="space-y-2.5">
+      <div className={`${CARTAO} flex items-stretch overflow-hidden`}>
+        <button
+          type="button"
+          onClick={() => onAlternar(ch)}
+          aria-expanded={aberto}
+          aria-controls={aberto ? idBloco : undefined}
+          className="flex min-h-[64px] min-w-0 flex-1 items-center gap-3 px-3.5 py-2.5 text-left hover:bg-hover"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-display text-[19px] font-semibold leading-tight text-ink">O.S. {ordem.os}</span>
+              {ordem.boletim && <span className="text-[12px] text-muted">boletim nº {ordem.boletim}</span>}
+            </span>
+            <span className="block truncate text-[13.5px] font-medium text-ink">
+              {ordem.opCod}
+              {opDs ? ` - ${opDs}` : ""}
+            </span>
+            {/* sem os talhões ainda (recolhido), o cabeçalho diz que estão carregando ou que deu erro, e não "0 talhões" */}
+            <span className={`block text-[12.5px] tabular ${!r.info && r.erro ? "font-medium text-alert-600" : "text-muted"}`}>
+              {r.info ? `${plural(r.linhas.length, "talhão", "talhões")} · ${nf(r.total)} ha` : r.erro ? "Os talhões não carregaram" : "Carregando os talhões…"}
+              {ordem.statusOS ? ` · ${ordem.statusOS}` : ""}
+            </span>
+          </span>
+          <IconSetaBaixo size={18} className={`flex-shrink-0 text-muted transition-transform ${aberto ? "rotate-180" : ""}`} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onRemover(ch)}
+          className="flex w-12 flex-shrink-0 items-center justify-center border-l border-line text-muted hover:bg-hover hover:text-alert-600"
+          aria-label={`Tirar a ${nome} do lançamento`}
+        >
+          <IconExcluir size={18} />
+        </button>
+      </div>
+      {aberto && (
+        <div id={idBloco} className="space-y-3 border-l-2 border-[rgb(var(--form-acento))] pl-2.5">
+          {conteudo}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CampoArea({ id, valor, onChange, alerta = false, rotuloAria }) {
   return (
     <div className="relative">
@@ -1512,7 +2134,7 @@ function CampoArea({ id, valor, onChange, alerta = false, rotuloAria }) {
   );
 }
 
-function GrupoFazenda({ grupo, marcas, soFalta, onMarcar, onArea, onMarcarVarios }) {
+function GrupoFazenda({ prefixo, grupo, marcas, soFalta, onMarcar, onArea, onMarcarVarios }) {
   const visiveis = grupo.talhoes.filter((t) => !soFalta || t.saldo > 0 || marcas[chaveDe(t)] !== undefined);
   // "Marcar todos" vale para os que faltam fazer (se nenhum falta, para todos)
   const aFazer = grupo.talhoes.filter((t) => t.saldo > 0);
@@ -1545,16 +2167,17 @@ function GrupoFazenda({ grupo, marcas, soFalta, onMarcar, onArea, onMarcarVarios
       </header>
       <ul className="divide-y divide-line">
         {visiveis.map((t) => (
-          <LinhaTalhao key={chaveDe(t)} t={t} valor={marcas[chaveDe(t)]} onMarcar={onMarcar} onArea={onArea} />
+          <LinhaTalhao key={chaveDe(t)} prefixo={prefixo} t={t} valor={marcas[chaveDe(t)]} onMarcar={onMarcar} onArea={onArea} />
         ))}
       </ul>
     </section>
   );
 }
 
-function LinhaTalhao({ t, valor, onMarcar, onArea }) {
+function LinhaTalhao({ prefixo, t, valor, onMarcar, onArea }) {
   const k = chaveDe(t);
-  const id = `lm-t-${idSeguro(k)}`;
+  // o mesmo talhão pode estar em duas O.S./operações do lançamento: o id leva a O.S. (o bloco)
+  const id = `lm-t-${idSeguro(`${prefixo}-${k}`)}`;
   const marcado = valor !== undefined;
   const v = marcado ? lerNumero(valor) : null;
   const ref = t.areaRec ?? t.areaTlh;
@@ -1686,7 +2309,7 @@ function ListaForaDaOS({ extras, onArea, onRemover }) {
  * Incluir fazenda/talhão que não está na O.S.: código da fazenda → talhões da base Fazenda e Talhões da safra da data
  * (ou o talhão digitado). Talhão que já está na O.S. é marcado lá em cima, não entra como "fora da O.S.".
  */
-function IncluirForaDaOS({ dt, talhoesOS, marcas, extras, onIncluir, onMarcarDaOS, onAreaDaOS }) {
+function IncluirForaDaOS({ idBase, dt, talhoesOS, marcas, extras, onIncluir, onMarcarDaOS, onAreaDaOS }) {
   const [aberto, setAberto] = useState(false);
   const [cod, setCod] = useState("");
   const [busca, setBusca] = useState(null); // { fazenda, talhoes }
@@ -1792,9 +2415,9 @@ function IncluirForaDaOS({ dt, talhoesOS, marcas, extras, onIncluir, onMarcarDaO
 
   const nEscolhidos = Object.values(escolhidos).filter(Boolean).length;
   return (
-    <section className="caixa-form space-y-3" aria-labelledby="lm-fora-t">
+    <section className="caixa-form space-y-3" aria-labelledby={`${idBase}-fora-t`}>
       <div className="flex items-center gap-2">
-        <h3 id="lm-fora-t" className="min-w-0 flex-1 text-[15px] font-semibold text-ink">
+        <h3 id={`${idBase}-fora-t`} className="min-w-0 flex-1 text-[15px] font-semibold text-ink">
           Incluir fora da O.S.
         </h3>
         <button type="button" onClick={fechar} className="flex h-10 w-10 items-center justify-center rounded-lg text-muted hover:bg-surface" aria-label="Fechar a inclusão">
@@ -1803,11 +2426,11 @@ function IncluirForaDaOS({ dt, talhoesOS, marcas, extras, onIncluir, onMarcarDaO
       </div>
       <form onSubmit={buscar} className="flex items-end gap-2" noValidate>
         <div className="min-w-0 flex-1">
-          <label htmlFor="lm-faz" className={ROTULO}>
+          <label htmlFor={`${idBase}-faz`} className={ROTULO}>
             Código da fazenda
           </label>
           <input
-            id="lm-faz"
+            id={`${idBase}-faz`}
             ref={campoCod}
             value={cod}
             onChange={(e) => setCod(e.target.value.replace(/\s/g, "").slice(0, 12))}
@@ -1876,27 +2499,27 @@ function IncluirForaDaOS({ dt, talhoesOS, marcas, extras, onIncluir, onMarcarDaO
             <p className="text-[13px] font-medium text-ink">Talhão que não está na lista</p>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label htmlFor="lm-outro-t" className={ROTULO}>
+                <label htmlFor={`${idBase}-outro-t`} className={ROTULO}>
                   Talhão
                 </label>
                 <input
-                  id="lm-outro-t"
+                  id={`${idBase}-outro-t`}
                   value={outroTlh}
                   onChange={(e) => setOutroTlh(e.target.value.replace(/\s/g, "").slice(0, 8))}
                   autoComplete="off"
                   placeholder="Ex.: 07"
-                  aria-describedby="lm-outro-dica"
+                  aria-describedby={`${idBase}-outro-dica`}
                   className={`${CAMPO} tabular`}
                 />
               </div>
               <div>
-                <label htmlFor="lm-outro-a" className={ROTULO}>
+                <label htmlFor={`${idBase}-outro-a`} className={ROTULO}>
                   Área realizada
                 </label>
-                <CampoArea id="lm-outro-a" valor={outraArea} onChange={setOutraArea} />
+                <CampoArea id={`${idBase}-outro-a`} valor={outraArea} onChange={setOutraArea} />
               </div>
             </div>
-            <p id="lm-outro-dica" className="text-[12px] text-muted">
+            <p id={`${idBase}-outro-dica`} className="text-[12px] text-muted">
               Sem talhão, a área fica lançada só na fazenda.
             </p>
             <button type="submit" className={`${BOTAO} w-full`}>
@@ -1948,16 +2571,20 @@ function Opcoes({ nome, legenda, valor, opcoes, onChange, colunas = 2, dica }) {
   );
 }
 
-function DadosServico({ s, upd, dt, hoje, onDt, op, opcoes, faltaDepois, nTalhoes }) {
-  const statusOS = opcoes?.statusOS?.length ? opcoes.statusOS : STATUS_PADRAO;
-  // etapas do cadastro + a da operação (e a gravada) quando não estão nele
+/**
+ * Cabeçalho do lançamento (o mesmo para todas as O.S.) e o status de cada O.S. `ops`: as operações do lançamento (a
+ * primeira dá as dicas); `statusPorOS`: { os, chave, valor, falta, nTalhoes, nOps } de cada O.S.
+ */
+function DadosServico({ s, upd, dt, hoje, onDt, ops, opcoes, varias, statusPorOS, statusOpcoes, onStatus }) {
+  const op = ops[0] ?? null;
+  // etapas do cadastro + as das operações (e a gravada) quando não estão nele
   const etapas = useMemo(() => {
     const l = [...(opcoes?.etapas ?? [])];
-    if (op?.etapaCod && !l.some((x) => x.cod === op.etapaCod)) l.unshift({ cod: op.etapaCod, ds: op.etapaDs ?? "" });
+    for (const o of ops) if (o.etapaCod && !l.some((x) => x.cod === o.etapaCod)) l.unshift({ cod: o.etapaCod, ds: o.etapaDs ?? "" });
     if (s.etapaCod && !l.some((x) => x.cod === s.etapaCod)) l.unshift({ cod: s.etapaCod, ds: "" });
     return l;
-  }, [opcoes, op, s.etapaCod]);
-  const tipos = useMemo(() => unicos([op?.tipoDs, ...(opcoes?.tipos ?? [])]), [opcoes, op]);
+  }, [opcoes, ops, s.etapaCod]);
+  const tipos = useMemo(() => unicos([...ops.map((o) => o.tipoDs), ...(opcoes?.tipos ?? [])]), [opcoes, ops]);
   const mec = s.modelo === "mecanizada";
   const un = s.unCalda === "kg" ? "kg" : "L";
   const recomendado = (sim) => (sim ? " (recomendado)" : "");
@@ -1969,7 +2596,7 @@ function DadosServico({ s, upd, dt, hoje, onDt, op, opcoes, faltaDepois, nTalhoe
       <Campo id="lm-ativ" rotulo="Atividade" dica={op?.ds && s.atividade !== op.ds ? `Operação: ${op.ds}` : undefined}>
         <input id="lm-ativ" value={s.atividade} onChange={(e) => upd({ atividade: e.target.value.slice(0, 120) })} autoComplete="off" className={CAMPO} />
       </Campo>
-      <Campo id="lm-solic" rotulo="Solicitante">
+      <Campo id="lm-solic" rotulo="Solicitante" dica={varias ? "Sem mudar, cada O.S. leva o responsável dela." : undefined}>
         <input
           id="lm-solic"
           list="lm-solicitantes"
@@ -2011,6 +2638,7 @@ function DadosServico({ s, upd, dt, hoje, onDt, op, opcoes, faltaDepois, nTalhoe
             ))}
           </datalist>
         </Campo>
+        {varias && <p className="-mt-2 text-[12px] text-muted sm:col-span-2">Etapa e tipo de aplicação: sem mudar, cada O.S. leva os da operação dela.</p>}
       </div>
       <Campo id="lm-equipe" rotulo={`Prestador / Equipe${recomendado(s.modelo === "manual")}`}>
         <input
@@ -2115,20 +2743,29 @@ function DadosServico({ s, upd, dt, hoje, onDt, op, opcoes, faltaDepois, nTalhoe
             </span>
           </div>
         </Campo>
+        {varias && (
+          <p className="col-span-2 -mt-1.5 text-[12px] text-muted">
+            A dose vale para todas as O.S.; a calda/insumo gasto é a do lançamento todo, dividida entre as O.S. pela área.
+          </p>
+        )}
       </div>
-      <Opcoes
-        nome="lm-status"
-        legenda="Status da O.S."
-        valor={s.statusOS}
-        onChange={(v) => upd({ statusOS: v })}
-        colunas={3}
-        opcoes={statusOS.map((x) => ({ valor: x, rotulo: x }))}
-        dica={
-          faltaDepois !== null && faltaDepois <= 0.001 && nTalhoes > 0 && !/^CONCLU/i.test(s.statusOS)
-            ? "Com este lançamento não sobra área a fazer nesta operação. Se a O.S. terminou, marque CONCLUÍDA."
-            : undefined
-        }
-      />
+      {/* status de cada O.S. (a O.S. com mais de uma operação no lançamento tem um só) */}
+      {statusPorOS.map((x) => (
+        <Opcoes
+          key={x.os}
+          nome={`lm-status-${idSeguro(x.os)}`}
+          legenda={varias ? `Status da O.S. ${x.os}` : "Status da O.S."}
+          valor={x.valor}
+          onChange={(v) => onStatus(x.chave, v)}
+          colunas={3}
+          opcoes={statusOpcoes.map((v) => ({ valor: v, rotulo: v }))}
+          dica={
+            x.falta !== null && x.falta <= 0.001 && x.nTalhoes > 0 && !/^CONCLU/i.test(x.valor)
+              ? `Com este lançamento não sobra área a fazer ${x.nOps > 1 ? "nas operações desta O.S." : "nesta operação"}. Se a O.S. terminou, marque CONCLUÍDA.`
+              : undefined
+          }
+        />
+      ))}
       <Campo id="lm-obs" rotulo="Observação">
         <textarea
           id="lm-obs"
@@ -2173,8 +2810,11 @@ function CaixaTexto({ texto, caixaRef }) {
   );
 }
 
-/** Texto do WhatsApp de um boletim (logo depois de gravar, ou aberto em Meus lançamentos); Copiar e Enviar ficam no rodapé. */
-function VistaTexto({ tituloRef, titulo, linha, sucesso = false, avisos = [], boletim, texto, caixaRef, acoes }) {
+/**
+ * Texto do WhatsApp de um lançamento (logo depois de gravar, ou aberto em Meus lançamentos), com o boletim ou os
+ * boletins dele; Copiar e Enviar ficam no rodapé.
+ */
+function VistaTexto({ tituloRef, titulo, linha, sucesso = false, avisos = [], boletins = [], texto, caixaRef, acoes }) {
   return (
     <section aria-labelledby="lm-texto-t" className="space-y-3">
       <div className={`${CARTAO} p-4`}>
@@ -2207,7 +2847,7 @@ function VistaTexto({ tituloRef, titulo, linha, sucesso = false, avisos = [], bo
       <div>
         <p className={ROTULO}>Texto para o grupo do WhatsApp</p>
         <p className="mb-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-[12.5px] text-brand-700">
-          A última linha (Boletim nº {boletim} · lançado no sistema) evita que o bot lance de novo — não apague.
+          A última linha ({tituloBoletins(boletins)} · lançado no sistema) evita que o bot lance de novo — não apague.
         </p>
         <CaixaTexto texto={texto} caixaRef={caixaRef} />
       </div>
@@ -2277,34 +2917,46 @@ function MeusLancamentos({ tituloRef, mat, nome, pode, dias, onDias, estado, abr
       </div>
       {lista && lista.length > 0 && (
         <ul className="space-y-2">
-          {lista.map((a) => (
-            <li key={a.id} className={`${CARTAO} p-3`}>
-              <div className="flex flex-wrap items-baseline gap-x-2">
-                <span className="font-display text-[19px] font-semibold leading-tight text-ink">Boletim nº {a.boletim}</span>
-                <span className="text-[12.5px] text-muted">{fmtDateBR(a.dt)}</span>
-                {abrindo === a.boletim && <span className="text-[12px] text-muted">abrindo…</span>}
-              </div>
-              <p className="truncate text-[13.5px] text-ink">
-                O.S. {a.os} · {a.opCod}
-                {a.opDs ? ` - ${a.opDs}` : ""}
-              </p>
-              <p className="text-[12.5px] text-muted">
-                <span className="tabular">{nf(a.areaTotal ?? 0)} ha</span>
-                {a.statusOS ? ` · ${a.statusOS}` : ""}
-              </p>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                <button type="button" className={`${BOTAO} !px-2`} onClick={() => onCopiar(a)} disabled={abrindo !== null}>
-                  <IconCopiar size={16} /> Copiar
-                </button>
-                <button type="button" className={`${BOTAO} !px-2`} onClick={() => onVerTexto(a)} disabled={abrindo !== null}>
-                  Ver texto
-                </button>
-                <button type="button" className={`${BOTAO} !px-2`} onClick={() => onEditar(a)} disabled={!pode || abrindo !== null}>
-                  <IconEditar size={16} /> Editar
-                </button>
-              </div>
-            </li>
-          ))}
+          {lista.map((a) => {
+            // o lançamento com várias O.S. é um item: os boletins e as O.S. dele
+            const ordens = Array.isArray(a.ordens) && a.ordens.length ? a.ordens : [{ id: a.id, os: a.os, opCod: a.opCod, opDs: a.opDs, statusOS: a.statusOS }];
+            const boletins = Array.isArray(a.boletins) && a.boletins.length ? a.boletins : [a.boletim];
+            const status = statusResumo(ordens);
+            return (
+              <li key={a.id} className={`${CARTAO} p-3`}>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-display text-[19px] font-semibold leading-tight text-ink">{tituloBoletins(boletins)}</span>
+                  <span className="text-[12.5px] text-muted">{fmtDateBR(a.dt)}</span>
+                  {abrindo === a.boletim && <span className="text-[12px] text-muted">abrindo…</span>}
+                </div>
+                {ordens.map((o, i) => (
+                  <p key={o.id ?? i} className="truncate text-[13.5px] text-ink">
+                    O.S. {o.os} · {o.opCod}
+                    {o.opDs ? ` - ${o.opDs}` : ""}
+                    {ordens.length > 1 && Number.isFinite(o.area) && <span className="tabular text-muted"> · {nf(o.area)} ha</span>}
+                  </p>
+                ))}
+                <p className="text-[12.5px] text-muted">
+                  <span className="tabular">
+                    {ordens.length > 1 ? "Total " : ""}
+                    {nf(a.areaTotal ?? 0)} ha
+                  </span>
+                  {status ? ` · ${status}` : ""}
+                </p>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <button type="button" className={`${BOTAO} !px-2`} onClick={() => onCopiar(a)} disabled={abrindo !== null}>
+                    <IconCopiar size={16} /> Copiar
+                  </button>
+                  <button type="button" className={`${BOTAO} !px-2`} onClick={() => onVerTexto(a)} disabled={abrindo !== null}>
+                    Ver texto
+                  </button>
+                  <button type="button" className={`${BOTAO} !px-2`} onClick={() => onEditar(a)} disabled={!pode || abrindo !== null}>
+                    <IconEditar size={16} /> Editar
+                  </button>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

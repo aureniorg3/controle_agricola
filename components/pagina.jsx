@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Children, createContext, Fragment, isValidElement, useContext } from "react";
+import { Children, createContext, Fragment, isValidElement, useContext, useLayoutEffect, useRef } from "react";
 import { caminhoDaTela } from "@/lib/menu";
 import { IconSetaEsquerda } from "./icons";
 
@@ -18,7 +18,8 @@ import { IconSetaEsquerda } from "./icons";
  *   </Pagina>
  *
  * A barra de comandos (branca, no topo da tela) traz o Voltar e as ações da tela; abaixo dela, a trilha do menu e o
- * título. O conteúdo rola por baixo, com o cabeçalho sempre à vista.
+ * título. O conteúdo rola por baixo, com o cabeçalho sempre à vista. No celular e em tela baixa (aparelho deitado) o
+ * cabeçalho fica numa linha só e sai de cena ao rolar o conteúdo para baixo, junto com a barra azul (AppShell).
  */
 
 /** Tela anterior desta aba, para o Voltar da barra de comandos (fornecida pelo AppShell). */
@@ -40,49 +41,89 @@ export function Pagina({ children, className = "", ...props }) {
  * Cabeçalho da tela: barra de comandos (Voltar + `comandos`) e, abaixo, a trilha do menu e o título; `info` fica à
  * direita do título (data de atualização, contadores, selos) e `abas` logo abaixo dele. `categoria` só é usada quando
  * a tela não está no menu (a trilha vem do menu).
+ *
+ * No celular em pé e em tela baixa (globals.css, "Barras do topo no celular") a barra de comandos vira o cabeçalho
+ * inteiro: Voltar, título e os comandos rolando para o lado; a trilha some e o `info` vira uma linha fina embaixo.
+ * O título da barra é só visual: o `<h1>` continua na página (fora da vista) para o leitor de tela.
  */
 export function CabecalhoPagina({ titulo, categoria, comandos, info, abas, children }) {
   const pathname = usePathname();
   const { anterior, voltar } = useContext(ContextoVoltar);
+  const ref = usarAlturaOcultavel();
   const local = caminhoDaTela(pathname ?? "/");
   const trilha = local && (local.secao || local.grupos.length) ? [local.secao, ...local.grupos].filter(Boolean) : categoria ? [categoria] : [];
   const temComandos = temConteudo(comandos);
   const temBarra = !!anterior || temComandos;
   return (
-    <div className="flex-shrink-0">
-      {temBarra && (
-        <div className="print-hide flex min-h-[44px] items-center gap-0.5 overflow-x-auto border-b border-line bg-card px-2 py-1.5 md:px-4">
-          {anterior && (
-            <>
-              <button
-                type="button"
-                onClick={voltar}
-                className={classeComando()}
-                title={`Voltar para ${anterior.nome ?? "a tela anterior"}`}
-                aria-label={`Voltar para ${anterior.nome ?? "a tela anterior"}`}
-              >
-                <span className="text-navy-900">
-                  <IconSetaEsquerda size={16} />
-                </span>
-                <span className="hidden sm:inline">Voltar</span>
-              </button>
-              {temComandos && <SeparadorComandos />}
-            </>
-          )}
-          {comandos}
-        </div>
-      )}
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-1.5 px-4 pb-3 pt-3.5 md:px-6">
-        <div className="min-w-[min(100%,240px)] flex-1">
-          {trilha.length > 0 && <div className="truncate text-[12px] text-muted">{trilha.join(" › ")}</div>}
-          <h1 className="truncate font-display text-[24px] font-semibold leading-[1.15] text-ink">{titulo}</h1>
-        </div>
-        {info && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-0.5 text-[12px] text-muted">{info}</div>}
+    <div ref={ref} data-barra-ocultavel="" className="cab-pagina barra-ocultavel flex-shrink-0">
+      {/* sem Voltar nem comandos a barra só aparece no celular (é onde fica o título) */}
+      <div
+        className={`cab-barra print-hide ${temBarra ? "flex" : "hidden"} min-h-[44px] items-center gap-0.5 overflow-x-auto border-b border-line bg-card px-2 py-1.5 md:px-4`}
+      >
+        {anterior && (
+          <button
+            type="button"
+            onClick={voltar}
+            className={classeComando()}
+            title={`Voltar para ${anterior.nome ?? "a tela anterior"}`}
+            aria-label={`Voltar para ${anterior.nome ?? "a tela anterior"}`}
+          >
+            <span className="text-navy-900">
+              <IconSetaEsquerda size={16} />
+            </span>
+            <span className="cab-voltar-texto hidden sm:inline">Voltar</span>
+          </button>
+        )}
+        {/* com comandos, o título fica com até 55% da linha e os comandos rolam no resto */}
+        <span
+          className={`cab-titulo-compacto hidden min-w-[5rem] flex-[0_1_auto] truncate px-1.5 font-display text-[19px] font-semibold leading-[1.15] text-ink ${temComandos ? "max-w-[55%]" : ""}`}
+          aria-hidden="true"
+        >
+          {titulo}
+        </span>
+        {temComandos && <span className={`cab-sep mx-1 h-5 w-px flex-shrink-0 bg-line ${anterior ? "" : "hidden"}`} aria-hidden="true" />}
+        {/* no computador a caixa não existe (contents): os comandos ficam direto na barra, como sempre */}
+        <div className="cab-comandos contents">{comandos}</div>
       </div>
-      {abas && <div className="mb-3 px-4 md:px-6">{abas}</div>}
+      <div className="cab-titulo flex flex-wrap items-end gap-x-4 gap-y-1.5 px-4 pb-3 pt-3.5 md:px-6">
+        <div className="min-w-[min(100%,240px)] flex-1">
+          {trilha.length > 0 && <div className="cab-trilha truncate text-[12px] text-muted">{trilha.join(" › ")}</div>}
+          <h1 className="cab-h1 truncate font-display text-[24px] font-semibold leading-[1.15] text-ink">{titulo}</h1>
+        </div>
+        {info && <div className="cab-info flex flex-wrap items-center gap-x-3 gap-y-1 pb-0.5 text-[12px] text-muted">{info}</div>}
+      </div>
+      {abas && <div className="cab-abas mb-3 px-4 md:px-6">{abas}</div>}
       {children}
     </div>
   );
+}
+
+/**
+ * Guarda a altura do elemento em `--altura-barra`: no celular, ao rolar o conteúdo para baixo, ele sobe essa altura
+ * para sair da tela (globals.css). Acompanha a mudança de altura (abas, info, linha quebrada). Mede antes da pintura
+ * e grava sem a transição do CSS: a tela aberta com as barras recolhidas já nasce fora de cena (sem uma faixa vazia
+ * da altura do cabeçalho que sobe animada), e o cabeçalho escondido que muda de altura não abre fresta.
+ */
+function usarAlturaOcultavel() {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const medir = () => {
+      const altura = `${el.getBoundingClientRect().height}px`;
+      if (el.style.getPropertyValue("--altura-barra") === altura) return;
+      el.style.transition = "none";
+      el.style.setProperty("--altura-barra", altura);
+      void el.offsetHeight; // aplica a margem nova já sem transição; devolver a do CSS não anima nada
+      el.style.transition = "";
+    };
+    medir();
+    if (typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(medir);
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return ref;
 }
 
 /** O nó desenha alguma coisa? (um fragmento só com condições falsas não desenha nada) */

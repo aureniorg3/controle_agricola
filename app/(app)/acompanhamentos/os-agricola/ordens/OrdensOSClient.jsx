@@ -16,7 +16,6 @@ const data = (iso) => (iso ? fmtDateBR(iso) : "");
 
 export default function OrdensOSClient({ perfil }) {
   const [f, setF] = usarFiltrosOS();
-  const [op, setOp] = usarPersistido("os-agr.ordens.op", "", ehTexto);
   const [faixa, setFaixa] = usarPersistido("os-agr.ordens.faixa", "", ehTexto);
   const [atrasadas, setAtrasadas] = usarPersistido("os-agr.ordens.atrasadas", false, ehBooleano);
   const [busca, setBusca] = usarPersistido("os-agr.ordens.busca", "", ehTexto);
@@ -50,13 +49,12 @@ export default function OrdensOSClient({ perfil }) {
 
   const params = () => {
     const p = paramsDosFiltros(f);
-    if (op) p.set("op", op);
     if (faixa) p.set("faixa", faixa);
     if (atrasadas) p.set("atrasadas", "1");
     if (termo.trim()) p.set("q", termo.trim());
     return p;
   };
-  const chaveFiltro = JSON.stringify([f, op, faixa, atrasadas, termo]);
+  const chaveFiltro = JSON.stringify([f, faixa, atrasadas, termo]);
   useEffect(() => setPagina(1), [chaveFiltro]);
 
   useEffect(() => {
@@ -136,9 +134,8 @@ export default function OrdensOSClient({ perfil }) {
             f={f}
             setF={setF}
             opcoes={opcoes}
-            extraAtivo={!!(op || faixa || atrasadas || busca)}
+            extraAtivo={!!(faixa || atrasadas || busca)}
             limparExtra={() => {
-              setOp("");
               setFaixa("");
               setAtrasadas(false);
               setBusca("");
@@ -146,17 +143,6 @@ export default function OrdensOSClient({ perfil }) {
             }}
             extra={
               <>
-                <label className="flex flex-col gap-1 text-[11.5px] text-muted">
-                  Operação
-                  <select value={op} onChange={(e) => setOp(e.target.value)} className={`${FILTRO} max-w-[240px]`}>
-                    <option value="">Todas</option>
-                    {opcoes?.operacoes.map((o) => (
-                      <option key={o.cod} value={o.cod}>
-                        {o.cod} · {o.nome}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 <label className="flex flex-col gap-1 text-[11.5px] text-muted">
                   Faixa de dias (em aberto)
                   <select value={faixa} onChange={(e) => setFaixa(e.target.value)} className={FILTRO}>
@@ -313,7 +299,8 @@ export default function OrdensOSClient({ perfil }) {
         </div>
         <p className="mt-3 text-[11.5px] text-muted">
           Dias: O.S. em aberto, desde a data da O.S. até hoje; encerrada, da data da O.S. ao encerramento. Previsão em vermelho = vencida com a O.S. ainda em
-          aberto. Clique numa O.S. para ver os talhões.
+          aberto. Com operação ou fazenda no filtro, cada O.S. traz só as operações e as fazendas escolhidas (talhões e área contam só elas). Clique numa
+          O.S. para ver todos os talhões dela.
         </p>
       </CorpoPagina>
     </Pagina>

@@ -1,27 +1,59 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import { IconBaixar, IconImportar } from "@/components/icons";
 import { Comando } from "@/components/pagina";
+import SelecaoMultipla from "@/components/SelecaoMultipla";
 
 import { exportarPlanilha } from "@/lib/exportar-planilha";
 
-import { usarPersistido } from "@/lib/usar-persistido";
+import { ehTexto, usarPersistido } from "@/lib/usar-persistido";
 
 export const FILTRO = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
 
-const VAZIO = { de: "", ate: "", safra: "", posicao: "", resp: "", etapa: "" };
-const ehFiltros = (v) => !!v && typeof v === "object" && Object.keys(VAZIO).every((k) => typeof v[k] === "string");
+/** Máximo de operações / de fazendas marcadas num filtro (o servidor corta no mesmo limite). */
+export const MAX_ITENS_FILTRO = 300;
 
-/** Filtros comuns ao Dashboard e às Ordens de Serviço (lembrados entre as duas telas). */
+// op e faz: listas de códigos (vazia = todas); os demais, texto
+const VAZIO = { de: "", ate: "", safra: "", posicao: "", resp: "", etapa: "", op: [], faz: [] };
+const TEXTOS = ["de", "ate", "safra", "posicao", "resp", "etapa"];
+// o filtro guardado antes das listas não tem op/faz; texto separado por vírgula também vale
+const ehLista = (v) =>
+  v === undefined || typeof v === "string" || (Array.isArray(v) && v.length <= MAX_ITENS_FILTRO && v.every((x) => typeof x === "string"));
+const ehFiltros = (v) => !!v && typeof v === "object" && TEXTOS.every((k) => typeof v[k] === "string") && ehLista(v.op) && ehLista(v.faz);
+const lista = (v) =>
+  (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : [])
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, MAX_ITENS_FILTRO);
+
+/**
+ * Filtros comuns ao Dashboard e às Ordens de Serviço (lembrados entre as duas telas). Devolve sempre o objeto completo,
+ * com `op` e `faz` como listas, mesmo vindo de um filtro guardado antes delas.
+ */
 export function usarFiltrosOS() {
-  return usarPersistido("os-agr.filtros", VAZIO, ehFiltros);
+  const [guardado, setF] = usarPersistido("os-agr.filtros", VAZIO, ehFiltros);
+  // filtro antigo das Ordens de Serviço (uma operação só, guardado à parte): passa para a lista comum de operações
+  const [opAntiga, setOpAntiga] = usarPersistido("os-agr.ordens.op", "", ehTexto);
+  useEffect(() => {
+    if (!opAntiga) return;
+    setF((x) => ({ ...x, op: [...new Set([...lista(x.op), opAntiga])] }));
+    setOpAntiga("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opAntiga]);
+  const f = useMemo(() => ({ ...VAZIO, ...guardado, op: lista(guardado.op), faz: lista(guardado.faz) }), [guardado]);
+  return [f, setF];
 }
 
+/** Parâmetros da API: as listas vão separadas por vírgula (op=14330,14340&faz=9411,9001). */
 export function paramsDosFiltros(f) {
   const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) if (v) p.set(k, v);
+  for (const [k, v] of Object.entries(f)) {
+    if (Array.isArray(v)) {
+      if (v.length) p.set(k, v.join(","));
+    } else if (v) p.set(k, v);
+  }
   return p;
 }
 
@@ -40,10 +72,10 @@ export function usarOpcoesOS(recarregar) {
   return opcoes;
 }
 
-/** Barra de filtros: período (data da O.S.), safra, posição, solicitante e etapa; `extra` entra no fim. */
+/** Barra de filtros: período (data da O.S.), safra, posição, solicitante, etapa, operações e fazendas; `extra` entra no fim. */
 export function BarraFiltrosOS({ f, setF, opcoes, extra, extraAtivo = false, limparExtra }) {
-  const mudar = (p) => setF({ ...f, ...p });
-  const algum = Object.values(f).some(Boolean) || extraAtivo;
+  const mudar = (p) => setF((x) => ({ ...x, ...p }));
+  const algum = Object.values(f).some((v) => (Array.isArray(v) ? v.length > 0 : !!v)) || extraAtivo;
   return (
     <div className="flex flex-wrap items-end gap-2.5">
       <label className="flex flex-col gap-1 text-[11.5px] text-muted">
@@ -97,6 +129,26 @@ export function BarraFiltrosOS({ f, setF, opcoes, extra, extraAtivo = false, lim
           ))}
         </select>
       </label>
+      <SelecaoMultipla
+        rotulo="Operação"
+        opcoes={opcoes?.operacoes ?? null}
+        valor={f.op}
+        onChange={(op) => mudar({ op })}
+        singular="operação"
+        plural="operações"
+        maximo={MAX_ITENS_FILTRO}
+        className={`${FILTRO} w-[220px]`}
+      />
+      <SelecaoMultipla
+        rotulo="Fazenda"
+        opcoes={opcoes?.fazendas ?? null}
+        valor={f.faz}
+        onChange={(faz) => mudar({ faz })}
+        singular="fazenda"
+        plural="fazendas"
+        maximo={MAX_ITENS_FILTRO}
+        className={`${FILTRO} w-[200px]`}
+      />
       {extra}
       <BotaoLimparFiltros
         ativo={algum}

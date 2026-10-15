@@ -21,11 +21,17 @@ export const dynamic = "force-dynamic";
  *   ?opcoes=1                              listas da tela (operações com a classificação, etapas, tipos, solicitantes,
  *                                          equipes, equipamentos e status da O.S.)
  *   ?mat=<matrícula ou código>&dt=         quem lança e as O.S. em aberto dele (404 se a matrícula não está em lugar nenhum)
- *   ?os=<n>&op=<cód>&dt=[&excluir=<id>]    a operação da O.S. para lançar: talhões, saldo e último apontamento
+ *   ?os=<n>&op=<cód>&dt=[&excluir=<ids>]   a operação da O.S. para lançar: talhões, saldo e último apontamento (sem
+ *                                          contar os apontamentos `excluir` — os ids do lançamento aberto, separados
+ *                                          por vírgula)
  *   ?fazenda=<cód>&dt=                     fazenda do Cadastro de Fazenda com os talhões da base da safra da data
- *   ?meus=1&mat=<matrícula>&de=&ate=       lançamentos do Lançamento Mobile com a matrícula
- *   ?bol=<n>                               o boletim lançado pelo Lançamento Mobile e o texto para o WhatsApp
- * POST (pode editar): inclui ou altera; com avisos e sem `confirmar`, 409 com os avisos.
+ *   ?meus=1&mat=<matrícula>&de=&ate=       lançamentos do Lançamento Mobile com a matrícula (o de várias O.S. é um item,
+ *                                          com os boletins e as O.S. dele)
+ *   ?bol=<n>                               o lançamento do boletim feito pelo Lançamento Mobile (com várias O.S., todos os
+ *                                          apontamentos dele, de qualquer um dos boletins) e o texto para o WhatsApp
+ * POST (pode editar): inclui ou altera um lançamento de uma ou várias O.S. (`ordens`: os, opCod, statusOS, talhões e,
+ * na edição, o id de cada uma; `id` = um apontamento do lançamento aberto e `boletins`, os dele ao abrir); com avisos e
+ * sem `confirmar`, 409 com os avisos. Aceita também o formato de uma O.S. só (os, opCod, statusOS e talhões soltos).
  */
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -68,9 +74,10 @@ export async function GET(req) {
       const os = (p.get("os") ?? "").trim().slice(0, 20);
       const op = (p.get("op") ?? "").trim().slice(0, 20);
       if (!os || !op) return erro("Informe a O.S. e a operação.", 400);
+      // um id ou os do lançamento aberto para editar, separados por vírgula
       const ex = (p.get("excluir") ?? "").trim();
-      const excluir = ex ? Number(ex) : undefined;
-      if (excluir !== undefined && (!Number.isInteger(excluir) || excluir <= 0)) return erro("Apontamento inválido.", 400);
+      const excluir = ex ? ex.split(",").slice(0, 30).map((x) => Number(x.trim())) : [];
+      if (excluir.some((x) => !Number.isInteger(x) || x <= 0)) return erro("Apontamento inválido.", 400);
       const r = await detalheDaOperacao(os, op, dt, excluir);
       if (r.erro) return erro(r.erro, r.status);
       return NextResponse.json(r);
@@ -88,7 +95,10 @@ export async function GET(req) {
   }
 }
 
-/** Inclui (sem id) ou altera (com id, só o que o Lançamento Mobile lançou) e devolve o texto para o grupo do WhatsApp. */
+/**
+ * Inclui (sem id) ou altera (com id, só o que o Lançamento Mobile lançou) o lançamento de uma ou várias O.S. e devolve os
+ * boletins e o texto para o grupo do WhatsApp.
+ */
 export async function POST(req) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) return erro("Você não tem permissão para lançar apontamentos.", 403);
