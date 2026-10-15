@@ -5,5 +5,5 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const usuario = await usuarioAtual();
-  return <FazendasTalhoesClient perfil={usuario?.perfil ?? "leitura"} />;
+  return <FazendasTalhoesClient perfil={usuario?.perfil ?? "leitura"} acessos={usuario?.acessos ?? null} />;
 }

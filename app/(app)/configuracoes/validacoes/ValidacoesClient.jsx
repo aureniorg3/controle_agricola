@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconAtualizar, IconBaixar } from "@/components/icons";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina } from "@/components/pagina";
 
@@ -21,12 +21,24 @@ export default function ValidacoesClient() {
   const [erro, setErro] = useState(null);
   const [soDivergencias, setSoDivergencias] = usarPersistido("validacoes.soDivergencias", true, ehBooleano);
   const [modulo, setModulo] = usarPersistido("validacoes.modulo", "", ehTexto);
-  const algumFiltroAtivo = soDivergencias !== true || modulo !== "";
-  function limparFiltros() {
-    setSoDivergencias(true);
-    setModulo("");
-  }
   const [abertas, setAbertas] = useState(new Set());
+
+  // ?modulo=<nome> (link de outra tela, ex.: Fazenda e Talhões) abre já filtrada no módulo, que passa a ser o filtro lembrado.
+  // Vem depois do usarPersistido: aplicado por último, vence o valor guardado. O parâmetro sai do endereço (ao atualizar a
+  // página vale o filtro lembrado) e fica na ref, que sobrevive à remontagem do StrictMode.
+  const moduloDaUrl = useRef(undefined);
+  useEffect(() => {
+    if (moduloDaUrl.current === undefined) {
+      const p = new URLSearchParams(window.location.search);
+      moduloDaUrl.current = p.get("modulo")?.trim() ?? null;
+      if (p.has("modulo")) {
+        p.delete("modulo");
+        const resto = p.toString();
+        window.history.replaceState(null, "", `${window.location.pathname}${resto ? `?${resto}` : ""}${window.location.hash}`);
+      }
+    }
+    if (moduloDaUrl.current !== null) setModulo(moduloDaUrl.current);
+  }, [setModulo]);
 
   const executar = useCallback(async () => {
     setCarregando(true);
@@ -48,6 +60,13 @@ export default function ValidacoesClient() {
   }, [executar]);
 
   const modulos = useMemo(() => Array.from(new Set(dados?.verificacoes.map((v) => v.modulo) ?? [])), [dados]);
+  // módulo lembrado (ou vindo do endereço) que não existe nas verificações não vale — senão a lista some
+  const moduloAtivo = dados && modulo && !modulos.includes(modulo) ? "" : modulo;
+  const algumFiltroAtivo = soDivergencias !== true || moduloAtivo !== "";
+  function limparFiltros() {
+    setSoDivergencias(true);
+    setModulo("");
+  }
 
   const resumo = useMemo(() => {
     const v = dados?.verificacoes ?? [];
@@ -62,10 +81,10 @@ export default function ValidacoesClient() {
 
   const lista = useMemo(() => {
     const v = (dados?.verificacoes ?? [])
-      .filter((x) => (!modulo || x.modulo === modulo) && (!soDivergencias || x.total > 0 || x.erroExecucao))
+      .filter((x) => (!moduloAtivo || x.modulo === moduloAtivo) && (!soDivergencias || x.total > 0 || x.erroExecucao))
       .sort((a, b) => Number(b.total > 0) - Number(a.total > 0) || ORDEM[a.severidade] - ORDEM[b.severidade]);
     return v;
-  }, [dados, modulo, soDivergencias]);
+  }, [dados, moduloAtivo, soDivergencias]);
 
   function alternar(id) {
     setAbertas((s) => {
@@ -126,8 +145,8 @@ export default function ValidacoesClient() {
 
       <CorpoPagina>
         <p className="mb-4 max-w-3xl text-[12.5px] leading-relaxed text-muted">
-          Cruza os dados dos módulos (Colheita, Rodadas de Campo e cadastros) e lista o que não se encontra, com o que fazer para corrigir. Rode de novo depois
-          de importar ou corrigir. A cada recurso novo do sistema, as verificações dele entram aqui.
+          Cruza os dados dos módulos (Colheita, Rodadas de Campo, Fazenda e Talhões e cadastros) e lista o que não se encontra, com o que fazer para
+          corrigir. Rode de novo depois de importar ou corrigir. A cada recurso novo do sistema, as verificações dele entram aqui.
         </p>
 
         {erro && <p className="mb-3 text-[12.5px] font-medium text-alert-600">{erro}</p>}
@@ -141,7 +160,7 @@ export default function ValidacoesClient() {
 
         <BarraFiltros>
           <select
-            value={modulo}
+            value={moduloAtivo}
             onChange={(e) => setModulo(e.target.value)}
             className="rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink"
             aria-label="Módulo"

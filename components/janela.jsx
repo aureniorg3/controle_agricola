@@ -187,6 +187,60 @@ export default function JanelaFormulario({
   );
 }
 
+/**
+ * Janela de consulta (detalhe de um card, de um registro): caixa branca com título, subtítulo, ações no topo
+ * (ex.: exportar), conteúdo rolável e rodapé. Fecha pelo ×, pelo Esc e clicando fora.
+ */
+export function JanelaInfo({ titulo, subtitulo, acoes, rodape, children, onFechar, largura = "5xl", rotulo }) {
+  const id = useJanela(true, { onEsc: onFechar });
+  const montado = usePortal();
+  const cliqueFora = useCliqueFora(onFechar);
+  const fechar = useRef(null);
+  useEffect(() => {
+    const antes = document.activeElement;
+    const t = setTimeout(() => ehJanelaDeCima(id) && fechar.current?.focus({ preventScroll: true }), 0);
+    return () => {
+      clearTimeout(t);
+      if (antes instanceof HTMLElement && document.contains(antes)) antes.focus({ preventScroll: true });
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!montado) return null;
+  return createPortal(
+    <div translate="no" className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-navy-950/50 px-3 py-6 sm:py-10" {...cliqueFora}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`${id}-t`}
+        aria-label={rotulo}
+        className={`w-full ${LARGURAS[largura] ?? largura} rounded-xl2 bg-card shadow-pop`}
+      >
+        <header className="flex items-start gap-3 border-b border-line px-5 py-3.5">
+          <div className="min-w-0 flex-1">
+            <h2 id={`${id}-t`} className="text-[15px] font-semibold text-ink">
+              {titulo}
+            </h2>
+            {subtitulo && <div className="mt-0.5 text-[12px] text-muted">{subtitulo}</div>}
+          </div>
+          {acoes && <div className="flex shrink-0 items-center gap-2">{acoes}</div>}
+          <button
+            ref={fechar}
+            type="button"
+            onClick={onFechar}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[20px] leading-none text-muted hover:bg-surface"
+            aria-label="Fechar"
+            title="Fechar (Esc)"
+          >
+            ×
+          </button>
+        </header>
+        <div className="px-5 py-4">{children}</div>
+        {rodape && <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">{rodape}</footer>}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 /** Mensagem de retorno (sucesso ou erro) com botão de fechar. */
 export function Aviso({ msg, onFechar }) {
   if (!msg) return null;
