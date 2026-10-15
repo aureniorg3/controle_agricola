@@ -11,6 +11,18 @@ import { podeEditar } from "@/lib/permissoes";
 
 import { ehBooleano, ehTexto, usarPersistido } from "@/lib/usar-persistido";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
+import {
+  BotaoCartao,
+  BotaoLink,
+  JanelaCard,
+  Nota,
+  Secao,
+  TabelaJanela,
+  corVariacao,
+  exportarTabela,
+  int,
+  pct,
+} from "@/app/(app)/acompanhamentos/insumos/janela-detalhe";
 
 const INPUT = "w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px]";
 const ROTULO = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted";
@@ -43,6 +55,8 @@ export default function SaldoClient({ perfil, nomeUsuario }) {
   const [importar, setImportar] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [qDebounce, setQDebounce] = useState(q);
+  /** janela (detalhe) do card aberta: valor, variacao, insumos, empresa */
+  const [janela, setJanela] = useState(null);
 
   const empresas = useMemo(
     () =>
@@ -175,6 +189,45 @@ export default function SaldoClient({ perfil, nomeUsuario }) {
       setAte(nova);
       setDe(addDays(nova, -30));
     }
+  };
+
+  // janelas dos cards: a data base e os filtros que formaram os números; clicar no grupo, no insumo, na empresa ou no
+  // depósito dentro da janela filtra a página por ele
+  const fechar = () => setJanela(null);
+  const baseJanela = {
+    subtitulo: [
+      `Data base ${dtBase ? fmtDateBR(dtBase) : "—"}`,
+      empresas.length ? `empresa ${empresas.map(nomeEmpresa).join(" + ")}` : "nenhuma empresa",
+      depositos.length ? `depósito ${depositos.join(", ")}` : "nenhum depósito",
+      grupo && `grupo ${grupo.trim()}`,
+      qDebounce.trim() && `insumo “${qDebounce.trim()}”`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    prefixo: `Saldo Insumos ${dtBase}`.trim(),
+    // os mesmos filtros da consulta da tela (a janela da variação busca com eles o retrato anterior)
+    consulta: new URLSearchParams({ emp: empresas.join(","), almx: depositos.join(","), q: qDebounce, grupo }).toString(),
+    onFechar: fechar,
+    onGrupo: (g) => {
+      setGrupo(g);
+      fechar();
+    },
+    onInsumo: (cod) => {
+      setQ(cod);
+      setQDebounce(cod);
+      fechar();
+    },
+    onEmpresa: (id) => {
+      setEmpStr(String(id));
+      fechar();
+    },
+    // o mesmo código de depósito pode existir nas duas empresas: filtra a empresa da linha junto, para a página
+    // ficar com o valor da linha clicada
+    onDeposito: (emp, almx) => {
+      setEmpStr(String(emp));
+      setDepStr(String(almx));
+      fechar();
+    },
   };
 
   async function imprimir() {
@@ -323,29 +376,44 @@ export default function SaldoClient({ perfil, nomeUsuario }) {
 
         {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[13px] text-alert-700">{erro}</p>}
 
-        {/* Indicadores */}
+        {/* Indicadores: cada card abre a janela com o detalhe dos mesmos números (mesmos filtros) */}
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Indicador cor="azul" rotulo="Valor em estoque" valor={brl(matriz.total.valor)} apoio={`Data base ${dtBase ? fmtDateBR(dtBase) : "—"}`} />
-          <Indicador
-            cor={kpis.var1 === null ? "cinza" : kpis.var1 >= 0 ? "verde" : "vermelho"}
-            rotulo="Variação sobre o retrato anterior"
-            valor={kpis.var1 === null ? "—" : `${kpis.var1 >= 0 ? "▲" : "▼"} ${brl(Math.abs(kpis.var1))}`}
-            apoio={kpis.anterior ? `vs ${fmtDateBR(kpis.anterior)}` : "sem retrato anterior no período"}
-          />
-          <Indicador cor="cinza" rotulo="Insumos com saldo" valor={kpis.itens} apoio={`${matriz.grupos.length} grupo(s)`} />
+          <BotaoCartao onClick={() => setJanela("valor")}>
+            <Indicador
+              cor="azul"
+              rotulo="Valor em estoque"
+              valor={brl(matriz.total.valor)}
+              apoio={`Data base ${dtBase ? fmtDateBR(dtBase) : "—"}`}
+              className="h-full"
+            />
+          </BotaoCartao>
+          <BotaoCartao onClick={() => setJanela("variacao")}>
+            <Indicador
+              cor={kpis.var1 === null ? "cinza" : kpis.var1 >= 0 ? "verde" : "vermelho"}
+              rotulo="Variação sobre o retrato anterior"
+              valor={kpis.var1 === null ? "—" : `${kpis.var1 >= 0 ? "▲" : "▼"} ${brl(Math.abs(kpis.var1))}`}
+              apoio={kpis.anterior ? `vs ${fmtDateBR(kpis.anterior)}` : "sem retrato anterior no período"}
+              className="h-full"
+            />
+          </BotaoCartao>
+          <BotaoCartao onClick={() => setJanela("insumos")}>
+            <Indicador cor="cinza" rotulo="Insumos com saldo" valor={kpis.itens} apoio={`${matriz.grupos.length} grupo(s)`} className="h-full" />
+          </BotaoCartao>
           {/* lista por empresa: mesmo cartão do Indicador, com uma linha por empresa no lugar do número */}
-          <div className="min-w-0 rounded-xl2 border border-line bg-card py-3 pl-4 pr-3.5 shadow-card">
-            <div className="mb-1 truncate text-[12px] text-muted">Por empresa</div>
-            {kpis.porEmp.map((e) => (
-              <div key={e.id} className="flex items-center justify-between text-[13px]">
-                <span className="flex items-center gap-1.5 font-semibold" style={{ color: corEmpresa(e.id) }}>
-                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: corEmpresa(e.id) }} />
-                  {e.nome}
-                </span>
-                <span className="tabular text-ink">{brl(e.valor)}</span>
-              </div>
-            ))}
-          </div>
+          <BotaoCartao onClick={() => setJanela("empresa")}>
+            <div className="h-full min-w-0 rounded-xl2 border border-line bg-card py-3 pl-4 pr-3.5 shadow-card">
+              <div className="mb-1 truncate text-[12px] text-muted">Por empresa</div>
+              {kpis.porEmp.map((e) => (
+                <div key={e.id} className="flex items-center justify-between text-[13px]">
+                  <span className="flex items-center gap-1.5 font-semibold" style={{ color: corEmpresa(e.id) }}>
+                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: corEmpresa(e.id) }} />
+                    {e.nome}
+                  </span>
+                  <span className="tabular text-ink">{brl(e.valor)}</span>
+                </div>
+              ))}
+            </div>
+          </BotaoCartao>
         </div>
 
         {/* Gráficos */}
@@ -612,6 +680,21 @@ export default function SaldoClient({ perfil, nomeUsuario }) {
         </div>
       </CorpoPagina>
 
+      {janela === "valor" && <JanelaValor matriz={matriz} base={baseJanela} />}
+      {janela === "variacao" && (
+        <JanelaVariacao
+          dados={dados}
+          dtBase={dtBase}
+          anterior={kpis.anterior}
+          variacao={kpis.var1}
+          totalPorData={movimento.totalPorData}
+          periodo={{ de, ate }}
+          base={baseJanela}
+        />
+      )}
+      {janela === "insumos" && <JanelaInsumos matriz={matriz} itens={kpis.itens} base={baseJanela} />}
+      {janela === "empresa" && <JanelaEmpresa linhas={dados?.linhas ?? []} porEmp={kpis.porEmp} depositos={dados?.depositos ?? []} base={baseJanela} />}
+
       {importar && (
         <ImportarSaldo
           onFechar={() => setImportar(false)}
@@ -669,6 +752,382 @@ function Evolucao({ totalPorData, datas }) {
         {brlCurto(ult.v)}
       </text>
     </svg>
+  );
+}
+
+/* ---------- Janelas dos cards: o detalhe calculado da mesma posição (mesmos filtros) que forma o card ---------- */
+
+/** Insumos da posição (um por código, com o grupo), na ordem da matriz: grupo e, dentro dele, o maior valor primeiro. */
+const insumosDaMatriz = (matriz) => matriz.grupos.flatMap((g) => g.itens.map((it) => ({ ...it, grp: g.grp, grpDs: g.grpDs })));
+/** Coluna da matriz: a empresa ou, com "Separar por depósito", empresa · depósito. */
+const rotuloColuna = (c) => `${c.rotulo}${c.sub ? ` · ${c.sub}` : ""}`;
+
+const colGrupo = (onGrupo) => ({
+  rotulo: "Grupo",
+  valor: (l) => l.grp.trim(),
+  exibir: (l) => (
+    <BotaoLink onClick={() => onGrupo(l.grp)} title={`Mostrar na página só o grupo ${l.grp.trim()}`}>
+      {l.grp.trim()}
+    </BotaoLink>
+  ),
+});
+const colInsumo = (onInsumo) => ({
+  rotulo: "Código",
+  valor: (l) => l.cod,
+  exibir: (l) => (
+    <BotaoLink onClick={() => onInsumo(l.cod)} title={`Mostrar na página só o insumo ${l.cod}`}>
+      {l.cod}
+    </BotaoLink>
+  ),
+});
+
+/** Card Valor em estoque: o valor de cada grupo em cada empresa (ou depósito) e o de cada insumo, do maior para o menor. */
+function JanelaValor({ matriz, base }) {
+  const total = matriz.total.valor;
+  const pctTotal = total > 0 ? 100 : null;
+  const insumos = useMemo(() => {
+    let acum = 0;
+    return insumosDaMatriz(matriz)
+      .sort((a, b) => b.total.valor - a.total.valor)
+      .map((it) => ({ ...it, acum: (acum += it.total.valor) }));
+  }, [matriz]);
+  const colunas = [
+    colGrupo(base.onGrupo),
+    { rotulo: "Descrição do grupo", valor: (g) => g.grpDs.trim() },
+    { rotulo: "Insumos", num: "int", valor: (g) => g.itens.length, total: insumos.length },
+    ...(matriz.colunas.length > 1
+      ? matriz.colunas.map((c) => ({
+          rotulo: `${rotuloColuna(c)} (R$)`,
+          num: "dec",
+          valor: (g) => g.cels[c.chave]?.valor ?? null,
+          total: matriz.cels[c.chave]?.valor ?? 0,
+        }))
+      : []),
+    { rotulo: "Valor total (R$)", num: "dec", valor: (g) => g.total.valor, total, classe: () => "font-medium text-ink" },
+    { rotulo: "% do total", num: "pct", valor: (g) => pct(g.total.valor, total), total: pctTotal, classe: () => "text-muted" },
+  ];
+  const colunasInsumos = [
+    colInsumo(base.onInsumo),
+    { rotulo: "Descrição do insumo", valor: (it) => it.ds },
+    { rotulo: "Grupo", valor: (it) => it.grp.trim(), classe: () => "text-muted" },
+    { rotulo: "UM", valor: (it) => it.un, classe: () => "text-muted" },
+    { rotulo: "Quantidade", num: "qtd", valor: (it) => it.total.qtd },
+    { rotulo: "Preço médio (R$)", num: "dec", valor: (it) => precoMedio(it.total), classe: () => "text-muted" },
+    { rotulo: "Valor (R$)", num: "dec", valor: (it) => it.total.valor, total, classe: () => "font-medium text-ink" },
+    { rotulo: "% do total", num: "pct", valor: (it) => pct(it.total.valor, total), total: pctTotal, classe: () => "text-muted" },
+    { rotulo: "% acumulado", num: "pct", valor: (it) => pct(it.acum, total), classe: () => "text-muted" },
+  ];
+  return (
+    <JanelaCard
+      titulo="Valor em estoque"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      onFechar={base.onFechar}
+      largura="6xl"
+      exportar={{ nome: "Valor por grupo", colunas, linhas: matriz.grupos }}
+    >
+      <Nota>
+        Valor = saldo × custo médio de cada depósito na data base, somado por grupo
+        {matriz.colunas.length > 1 ? ` em cada ${matriz.colunas.some((c) => c.sub) ? "empresa e depósito" : "empresa"}` : ""}. Clique no grupo ou no código
+        do insumo para filtrar a página por ele.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={matriz.grupos}
+        chave={(g) => g.grp}
+        vazio="Nenhum insumo com saldo no filtro."
+        rotuloTotal={`Total · ${int(matriz.grupos.length)} grupo(s)`}
+      />
+      <Secao
+        titulo={`Valor por insumo, do maior para o menor · ${int(insumos.length)}`}
+        acoes={exportarTabela(base.prefixo, { nome: "Valor por insumo", colunas: colunasInsumos, linhas: insumos })}
+      >
+        <TabelaJanela colunas={colunasInsumos} linhas={insumos} chave={(it) => it.cod} vazio="Nenhum insumo com saldo no filtro." />
+      </Secao>
+    </JanelaCard>
+  );
+}
+
+/**
+ * Card Variação sobre o retrato anterior: o valor de cada empresa · depósito no retrato anterior e na data base (da
+ * série do período, de onde sai o card) e, por insumo, o que mudou — o retrato anterior é buscado com os mesmos filtros.
+ */
+function JanelaVariacao({ dados, dtBase, anterior, variacao, totalPorData, periodo, base }) {
+  const [antes, setAntes] = useState(null);
+  const [erro, setErro] = useState(null);
+  useEffect(() => {
+    if (!anterior) return;
+    let ativo = true;
+    const p = new URLSearchParams(base.consulta);
+    p.set("dt", anterior);
+    fetch(`/api/insumos/saldo?${p}`, { cache: "no-store" })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ativo) return;
+        if (!ok || j.dtBase !== anterior) return setErro(j.error ?? "Não foi possível carregar o retrato anterior.");
+        setAntes(j.linhas ?? []);
+      })
+      .catch(() => ativo && setErro("Não foi possível carregar o retrato anterior."));
+    return () => {
+      ativo = false;
+    };
+  }, [anterior, base.consulta]);
+
+  // por empresa · depósito: a série diária nas duas datas (a soma é o total de cada dia, como no card)
+  const porDeposito = useMemo(() => {
+    const m = new Map();
+    for (const s of dados?.serie ?? []) {
+      if (!anterior || (s.dt !== anterior && s.dt !== dtBase)) continue;
+      const k = `${s.emp}|${s.almx}`;
+      const l = m.get(k) ?? { emp: s.emp, almx: s.almx, antes: 0, agora: 0 };
+      if (s.dt === dtBase) l.agora += s.valor;
+      else l.antes += s.valor;
+      m.set(k, l);
+    }
+    return Array.from(m.values())
+      .map((l) => ({ ...l, dif: l.agora - l.antes }))
+      .sort((a, b) => a.emp - b.emp || a.almx - b.almx);
+  }, [dados, anterior, dtBase]);
+
+  // por insumo: a posição da data base (a da tela) contra a do retrato anterior; ficam os que mudaram
+  const porInsumo = useMemo(() => {
+    if (!antes) return null;
+    const m = new Map();
+    const somar = (l, agora) => {
+      const x = m.get(l.cod) ?? { cod: l.cod, ds: l.ds, un: l.un, grp: l.grp, qtdAntes: 0, qtdAgora: 0, antes: 0, agora: 0 };
+      if (agora) {
+        x.qtdAgora += l.qtd;
+        x.agora += l.valor;
+      } else {
+        x.qtdAntes += l.qtd;
+        x.antes += l.valor;
+      }
+      m.set(l.cod, x);
+    };
+    for (const l of antes) somar(l, false);
+    for (const l of dados?.linhas ?? []) somar(l, true);
+    return Array.from(m.values())
+      .map((x) => ({ ...x, dif: x.agora - x.antes, difQtd: x.qtdAgora - x.qtdAntes }))
+      .filter((x) => Math.abs(x.dif) >= 0.005 || Math.abs(x.difQtd) >= 0.0005)
+      .sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
+  }, [antes, dados]);
+  const somaInsumos = porInsumo ? porInsumo.reduce((s, x) => s + x.dif, 0) : 0;
+
+  const nomes = new Map((dados?.depositos ?? []).map((d) => [`${d.emp}|${d.almx}`, d.nm]));
+  const dAnt = anterior ? fmtDateBR(anterior).slice(0, 5) : "";
+  const dBase = dtBase ? fmtDateBR(dtBase).slice(0, 5) : "";
+  const colunas = [
+    { rotulo: "Empresa", valor: (l) => nomeEmpresa(l.emp), classe: () => "font-medium text-ink" },
+    { rotulo: "Depósito", valor: (l) => l.almx },
+    { rotulo: "Nome do depósito", valor: (l) => nomes.get(`${l.emp}|${l.almx}`) ?? "", classe: () => "text-muted" },
+    { rotulo: `Valor em ${dAnt} (R$)`, num: "dec", valor: (l) => l.antes, total: totalPorData[anterior] ?? 0 },
+    { rotulo: `Valor em ${dBase} (R$)`, num: "dec", valor: (l) => l.agora, total: totalPorData[dtBase] ?? 0 },
+    { rotulo: "Variação (R$)", num: "decVar", valor: (l) => l.dif, total: variacao, classe: (l) => `font-medium ${corVariacao(l.dif)}` },
+  ];
+  const colunasInsumos = [
+    colInsumo(base.onInsumo),
+    { rotulo: "Descrição do insumo", valor: (x) => x.ds },
+    { rotulo: "Grupo", valor: (x) => x.grp.trim(), classe: () => "text-muted" },
+    { rotulo: "UM", valor: (x) => x.un, classe: () => "text-muted" },
+    { rotulo: `Qtd em ${dAnt}`, num: "qtd", valor: (x) => x.qtdAntes },
+    { rotulo: `Qtd em ${dBase}`, num: "qtd", valor: (x) => x.qtdAgora },
+    { rotulo: "Var. qtd", num: "qtdVar", valor: (x) => x.difQtd, classe: (x) => corVariacao(x.difQtd, 3) },
+    { rotulo: `Valor em ${dAnt} (R$)`, num: "dec", valor: (x) => x.antes, soPlanilha: true },
+    { rotulo: `Valor em ${dBase} (R$)`, num: "dec", valor: (x) => x.agora, soPlanilha: true },
+    { rotulo: "Variação (R$)", num: "decVar", valor: (x) => x.dif, total: somaInsumos, classe: (x) => `font-medium ${corVariacao(x.dif)}` },
+  ];
+  return (
+    <JanelaCard
+      titulo="Variação sobre o retrato anterior"
+      subtitulo={`${base.subtitulo}${anterior ? ` · vs ${fmtDateBR(anterior)}` : ""}`}
+      prefixo={base.prefixo}
+      onFechar={base.onFechar}
+      largura="6xl"
+      exportar={variacao !== null && { nome: "Variação por depósito", colunas, linhas: porDeposito }}
+    >
+      {variacao === null ? (
+        <Nota>
+          Sem retrato anterior à data base no período ({periodo.de ? fmtDateBR(periodo.de) : "—"} a {periodo.ate ? fmtDateBR(periodo.ate) : "—"}): a
+          variação compara o valor em estoque da data base com o do retrato logo antes dela. Confira se a data base está dentro do período ou escolha outra.
+        </Nota>
+      ) : (
+        <>
+          <Nota>
+            Valor em estoque da data base ({fmtDateBR(dtBase)}) menos o do retrato anterior ({fmtDateBR(anterior)}), por empresa e depósito, com os mesmos
+            filtros — a mesma conta da linha Total da Movimentação diária. Abaixo, os insumos que mudaram de quantidade ou de valor; clique no código para
+            filtrar a página por ele.
+          </Nota>
+          <TabelaJanela colunas={colunas} linhas={porDeposito} chave={(l) => `${l.emp}|${l.almx}`} vazio="Sem valor em estoque nas duas datas." />
+          <Secao
+            titulo={porInsumo ? `Insumos que mudaram · ${int(porInsumo.length)}` : "Insumos que mudaram"}
+            acoes={porInsumo && exportarTabela(base.prefixo, { nome: "Variação por insumo", colunas: colunasInsumos, linhas: porInsumo })}
+          >
+            {erro ? (
+              <Nota aviso>{erro}</Nota>
+            ) : !porInsumo ? (
+              <p className="py-6 text-center text-[12.5px] text-muted">Carregando o retrato de {fmtDateBR(anterior)}…</p>
+            ) : (
+              <>
+                {Math.abs(somaInsumos - variacao) >= 0.01 && (
+                  <Nota aviso>
+                    A soma por insumo ({brl(somaInsumos)}) difere da variação do card ({brl(variacao)}): a posição por insumo deixa de fora o saldo zerado
+                    que ainda tem valor no depósito, que entra no valor do dia.
+                  </Nota>
+                )}
+                <TabelaJanela
+                  colunas={colunasInsumos}
+                  linhas={porInsumo}
+                  chave={(x) => x.cod}
+                  vazio="Nenhum insumo mudou de quantidade ou de valor entre as duas datas."
+                  rotuloTotal={`Total · ${int(porInsumo.length)} insumo(s)`}
+                />
+              </>
+            )}
+          </Secao>
+        </>
+      )}
+    </JanelaCard>
+  );
+}
+
+/** Card Insumos com saldo: cada insumo da posição (quantidade em cada empresa ou depósito) e quantos há em cada grupo. */
+function JanelaInsumos({ matriz, itens, base }) {
+  const insumos = useMemo(() => insumosDaMatriz(matriz), [matriz]);
+  const colunas = [
+    colInsumo(base.onInsumo),
+    { rotulo: "Descrição do insumo", valor: (it) => it.ds },
+    colGrupo(base.onGrupo),
+    { rotulo: "UM", valor: (it) => it.un, classe: () => "text-muted" },
+    ...(matriz.colunas.length > 1
+      ? matriz.colunas.map((c) => ({ rotulo: `Qtd ${rotuloColuna(c)}`, num: "qtd", valor: (it) => it.cels[c.chave]?.qtd ?? null }))
+      : []),
+    { rotulo: "Qtd total", num: "qtd", valor: (it) => it.total.qtd, classe: () => "font-medium text-ink" },
+    { rotulo: "Valor (R$)", num: "dec", valor: (it) => it.total.valor, total: matriz.total.valor },
+  ];
+  const colunasGrupo = [
+    colGrupo(base.onGrupo),
+    { rotulo: "Descrição do grupo", valor: (g) => g.grpDs.trim() },
+    { rotulo: "Insumos", num: "int", valor: (g) => g.itens.length, total: itens },
+    { rotulo: "Valor (R$)", num: "dec", valor: (g) => g.total.valor, total: matriz.total.valor },
+  ];
+  return (
+    <JanelaCard
+      titulo="Insumos com saldo"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      onFechar={base.onFechar}
+      largura="6xl"
+      exportar={{ nome: "Insumos com saldo", colunas, linhas: insumos }}
+    >
+      <Nota>
+        Cada insumo (código) com saldo diferente de zero na data base em alguma empresa ou depósito do filtro; quantidades na unidade de consumo do insumo.
+        Clique no código ou no grupo para filtrar a página por ele.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={insumos}
+        chave={(it) => it.cod}
+        vazio="Nenhum insumo com saldo no filtro."
+        rotuloTotal={`Total · ${int(itens)} insumo(s)`}
+      />
+      <Secao
+        titulo={`Por grupo · ${int(matriz.grupos.length)}`}
+        acoes={exportarTabela(base.prefixo, { nome: "Insumos por grupo", colunas: colunasGrupo, linhas: matriz.grupos })}
+      >
+        <TabelaJanela
+          colunas={colunasGrupo}
+          linhas={matriz.grupos}
+          chave={(g) => g.grp}
+          vazio="Nenhum insumo com saldo no filtro."
+          rotuloTotal={`Total · ${int(matriz.grupos.length)} grupo(s)`}
+        />
+      </Secao>
+    </JanelaCard>
+  );
+}
+
+/** Card Por empresa: o valor de cada empresa (as linhas do card) e, abaixo, o de cada depósito delas. */
+function JanelaEmpresa({ linhas, porEmp, depositos, base }) {
+  const { empresas, porDeposito } = useMemo(() => {
+    const cods = new Map();
+    const deps = new Map();
+    for (const l of linhas) {
+      cods.set(l.emp, (cods.get(l.emp) ?? new Set()).add(l.cod));
+      const k = `${l.emp}|${l.almx}`;
+      const d = deps.get(k) ?? { emp: l.emp, almx: l.almx, cods: new Set(), valor: 0 };
+      d.cods.add(l.cod);
+      d.valor += l.valor;
+      deps.set(k, d);
+    }
+    const lista = Array.from(deps.values())
+      .map((d) => ({ ...d, insumos: d.cods.size }))
+      .sort((a, b) => a.emp - b.emp || a.almx - b.almx);
+    return {
+      empresas: porEmp.map((e) => ({
+        ...e,
+        insumos: cods.get(e.id)?.size ?? 0,
+        depositos: lista.filter((d) => d.emp === e.id).map((d) => d.almx),
+      })),
+      porDeposito: lista,
+    };
+  }, [linhas, porEmp]);
+  const total = porEmp.reduce((s, e) => s + e.valor, 0);
+  const totalDep = porDeposito.reduce((s, d) => s + d.valor, 0);
+  const nomes = new Map(depositos.map((d) => [`${d.emp}|${d.almx}`, d.nm]));
+  const colunas = [
+    {
+      rotulo: "Empresa",
+      valor: (e) => e.nome,
+      exibir: (e) => (
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: corEmpresa(e.id) }} />
+          <BotaoLink onClick={() => base.onEmpresa(e.id)} title={`Mostrar na página só a empresa ${e.nome}`}>
+            {e.nome}
+          </BotaoLink>
+        </span>
+      ),
+    },
+    { rotulo: "Depósitos com saldo", valor: (e) => e.depositos.join(", "), classe: () => "text-muted" },
+    { rotulo: "Insumos", num: "int", valor: (e) => e.insumos },
+    { rotulo: "Valor (R$)", num: "dec", valor: (e) => e.valor, total, classe: () => "font-medium text-ink" },
+    { rotulo: "% do total", num: "pct", valor: (e) => pct(e.valor, total), total: total > 0 ? 100 : null, classe: () => "text-muted" },
+  ];
+  const colunasDep = [
+    { rotulo: "Empresa", valor: (d) => nomeEmpresa(d.emp), classe: () => "font-medium text-ink" },
+    {
+      rotulo: "Depósito",
+      valor: (d) => d.almx,
+      exibir: (d) => (
+        <BotaoLink onClick={() => base.onDeposito(d.emp, d.almx)} title={`Mostrar na página só o depósito ${d.almx} da empresa ${nomeEmpresa(d.emp)}`}>
+          {d.almx}
+        </BotaoLink>
+      ),
+    },
+    { rotulo: "Nome do depósito", valor: (d) => nomes.get(`${d.emp}|${d.almx}`) ?? "", classe: () => "text-muted" },
+    { rotulo: "Insumos", num: "int", valor: (d) => d.insumos },
+    { rotulo: "Valor (R$)", num: "dec", valor: (d) => d.valor, total: totalDep },
+    { rotulo: "% do total", num: "pct", valor: (d) => pct(d.valor, totalDep), total: totalDep > 0 ? 100 : null, classe: () => "text-muted" },
+  ];
+  return (
+    <JanelaCard
+      titulo="Valor por empresa"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      onFechar={base.onFechar}
+      exportar={{ nome: "Valor por empresa", colunas, linhas: empresas }}
+    >
+      <Nota>
+        Valor = saldo × custo médio de cada depósito na data base. Um insumo pode estar nas duas empresas (por isso a coluna Insumos não soma). Clique na
+        empresa para filtrar a página por ela, ou no depósito para filtrar por ele e pela empresa da linha.
+      </Nota>
+      <TabelaJanela colunas={colunas} linhas={empresas} chave={(e) => e.id} vazio="Nenhuma empresa no filtro." />
+      <Secao
+        titulo={`Por depósito · ${int(porDeposito.length)}`}
+        acoes={exportarTabela(base.prefixo, { nome: "Valor por depósito", colunas: colunasDep, linhas: porDeposito })}
+      >
+        <TabelaJanela colunas={colunasDep} linhas={porDeposito} chave={(d) => `${d.emp}|${d.almx}`} vazio="Nenhum insumo com saldo no filtro." />
+      </Secao>
+    </JanelaCard>
   );
 }
 

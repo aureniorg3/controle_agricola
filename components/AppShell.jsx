@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { filtrarMenu, nomeDaTela, podeAcessar, SECOES_MENU, telaDoEndereco } from "@/lib/menu";
+import { filtrarMenu, ITEM_INICIO, nomeDaTela, paginaInicial, podeAcessar, SECOES_MENU, telaDoEndereco } from "@/lib/menu";
 import { ehBooleano, usarPersistido } from "@/lib/usar-persistido";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BarraSuperior from "./BarraSuperior";
@@ -25,17 +25,28 @@ const LIMIAR_MOSTRAR = 20; // px rolados para cima até elas voltarem
 const PERTO_DO_TOPO = 8; // no topo do conteúdo as barras sempre voltam
 const TRAVA_MS = 350; // pouco mais que a transição do CSS (0,22s): a rolagem mexida pela troca de altura não conta
 
-function SemAcesso() {
+/**
+ * Aviso de tela não liberada, com o botão para a página inicial do usuário (`destino`: o Início ou, sem ele, a primeira
+ * tela liberada). Sem nenhuma tela liberada (`destino` nulo) avisa isso, sem botão: a entrada do sistema ("/") também
+ * usa este aviso, em vez de redirecionar em círculo.
+ */
+export function SemAcesso({ destino = null }) {
+  const nome = destino === ITEM_INICIO.href ? "o Início" : destino ? (nomeDaTela(destino) ?? "a página inicial") : null;
   return (
     <div className="flex flex-1 items-center justify-center px-6">
       <div className="max-w-md rounded-xl2 border border-line bg-card px-8 py-10 text-center shadow-card">
-        <h1 className="font-display text-[20px] font-semibold text-ink">Esta tela não está liberada para você</h1>
+        <h1 className="font-display text-[20px] font-semibold text-ink">
+          {destino ? "Esta tela não está liberada para você" : "Nenhuma tela está liberada para você"}
+        </h1>
         <p className="mt-2 text-[13px] leading-relaxed text-muted">
-          O acesso às telas é definido pelo administrador em Parâmetros → Usuários. Se precisar dela, peça a liberação.
+          O acesso às telas é definido pelo administrador em Parâmetros → Usuários.{" "}
+          {destino ? "Se precisar dela, peça a liberação." : "Peça a liberação das telas de que precisa."}
         </p>
-        <Link href="/painel" className="mt-5 inline-block rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-navy-800">
-          Ir para o Início
-        </Link>
+        {destino && (
+          <Link href={destino} className="mt-5 inline-block rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-navy-800">
+            Ir para {nome}
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -58,8 +69,11 @@ export default function AppShell({ usuario, children }) {
   const router = useRouter();
   const liberado = podeAcessar(pathname ?? "/", usuario?.perfil, usuario?.acessos ?? null);
   const anterior = usarTelaAnterior(pathname);
-  // menu do usuário: sem os itens de administrador e só com as telas liberadas (Parâmetros → Usuários)
+  // menu do usuário: sem os itens de administrador e só com as telas liberadas (Parâmetros → Usuários); o Início
+  // também pode estar fora (secoes.inicio)
   const secoes = useMemo(() => filtrarMenu(SECOES_MENU, usuario?.perfil, usuario?.acessos ?? null), [usuario?.perfil, usuario?.acessos]);
+  // página inicial do usuário (o Início ou a primeira tela liberada; null se nenhuma): nome/logo da barra azul e aviso
+  const inicio = useMemo(() => paginaInicial(usuario?.perfil, usuario?.acessos ?? null), [usuario?.perfil, usuario?.acessos]);
   // com a gaveta do menu ou a busca de telas aberta as barras ficam à vista
   const barrasPresas = gavetaAberta || buscaAberta;
   const { compacta, ocultas, mostrarBarras, travarRolagem } = usarBarrasAoRolar(raizRef, pathname, barrasPresas);
@@ -79,7 +93,8 @@ export default function AppShell({ usuario, children }) {
 
   useEffect(() => {
     setGavetaAberta(false);
-    if (pathname) registrarRecente(pathname === "/" ? "/painel" : (telaDoEndereco(pathname) ?? (pathname.startsWith("/painel") ? "/painel" : null)));
+    // o Início é uma das telas (telaDoEndereco); "/" só leva à página inicial e não entra
+    if (pathname) registrarRecente(telaDoEndereco(pathname));
   }, [pathname]);
 
   useEffect(() => {
@@ -140,7 +155,7 @@ export default function AppShell({ usuario, children }) {
       >
         {/* clicar no título de uma coluna ordena qualquer tabela */}
         <OrdenarTabelas />
-        <BarraSuperior usuario={usuario} onMenu={botaoMenu} onBuscar={() => setBuscaAberta(true)} onRecolher={recolherBarras} />
+        <BarraSuperior usuario={usuario} inicio={inicio ?? "/"} onMenu={botaoMenu} onBuscar={() => setBuscaAberta(true)} onRecolher={recolherBarras} />
         {/* barras recolhidas: alça no canto de cima à direita, onde fica o botão que as recolhe (abaixo das janelas e
             da gaveta), para trazê-las de volta; desenhada inteira (40×40): nenhum pedaço invisível toma o toque do conteúdo */}
         {alcaVisivel && (
@@ -164,6 +179,7 @@ export default function AppShell({ usuario, children }) {
           >
             <MenuLateral
               secoes={secoes}
+              inicio={secoes.inicio}
               recolhido={false}
               gaveta
               onNavigate={() => setGavetaAberta(false)}
@@ -173,9 +189,9 @@ export default function AppShell({ usuario, children }) {
           </div>
           {/* tela larga: menu fixo ao lado */}
           <div className="print-hide hidden md:flex">
-            <MenuLateral secoes={secoes} recolhido={recolhido} onAlternar={alternarRecolhido} />
+            <MenuLateral secoes={secoes} inicio={secoes.inicio} recolhido={recolhido} onAlternar={alternarRecolhido} />
           </div>
-          <main className="flex min-w-0 flex-1 flex-col">{liberado ? children : <SemAcesso />}</main>
+          <main className="flex min-w-0 flex-1 flex-col">{liberado ? children : <SemAcesso destino={inicio} />}</main>
         </div>
         {buscaAberta && <PaletaComandos secoes={secoes} onFechar={() => setBuscaAberta(false)} />}
       </div>

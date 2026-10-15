@@ -1,3 +1,6 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import {
   IconBalanca,
   IconCalendario,
@@ -16,13 +19,16 @@ import { CabecalhoPagina, CorpoPagina, Pagina } from "@/components/pagina";
 
 import { fmtDateBR, fmtHa, fmtT } from "@/lib/format";
 import { nomeEmpresa, textoDosagem, textoHectares } from "@/lib/insumos-saldo";
+import { podeAcessar } from "@/lib/menu";
 import {
   Barra,
+  CLASSE_BOTAO_AREA,
   Caixa,
   CartaoFrente,
   GraficoDiario,
   GraficoMensal,
   Indicador,
+  JanelaDoPainel,
   Legenda,
   Numero,
   Secao,
@@ -30,6 +36,7 @@ import {
   brl,
   compacto,
   coresDasFrentes,
+  detalheMoagem,
   nf,
 } from "./blocos";
 
@@ -61,9 +68,26 @@ function ParBarras({ rotulo, a, b, formato }) {
   );
 }
 
-/** Tela do painel: só apresenta os dados já carregados (a consulta fica em page.jsx). */
-export default function PainelView({ d, verEmprestimos }) {
+/**
+ * Tela do painel: apresenta os dados já carregados (a consulta fica em page.jsx). As caixas com número (moagem,
+ * cartões das frentes, safra estimado e realizado, saldo contábil e empréstimos) abrem a janela com o detalhe dele
+ * (blocos.jsx, "Janelas"); `perfil` e `acessos` decidem as ligações para as telas de origem no rodapé delas.
+ */
+export default function PainelView({ d, verEmprestimos, perfil = "leitura", acessos = null }) {
   const { cana, insumos, rodadas, safraComparativo } = d;
+  /** janela aberta: { tipo: "dia" | "periodo" | "safra" | "media" | "frente" | "estimado" | "saldo" | "emprestimos", … } (ver JanelaDoPainel) */
+  const [janela, setJanela] = useState(null);
+  const mo = useMemo(() => (cana.ultimaData && cana.detalhe ? detalheMoagem(cana) : null), [cana]);
+  const baseJanela = {
+    safra: d.safra.rotulo,
+    safraInicio: d.safra.inicio,
+    onFechar: () => setJanela(null),
+    abrir: setJanela,
+    /** a tela de origem entra no rodapé da janela só se o usuário pode abri-la */
+    pode: (href) => podeAcessar(href, perfil, acessos),
+  };
+  // sem o detalhe carregado as caixas da moagem ficam como antes, sem clique
+  const abrir = (j) => (mo ? () => setJanela(j) : undefined);
 
   const frentes = cana.porFrente.map((f) => f.frente);
   const cores = coresDasFrentes(frentes);
@@ -108,6 +132,7 @@ export default function PainelView({ d, verEmprestimos }) {
                     unidade="t"
                     real={cana.diaT}
                     meta={cana.metaDiaT}
+                    onClick={abrir({ tipo: "dia" })}
                     apoio={
                       varDia === null ? undefined : (
                         <>
@@ -126,6 +151,7 @@ export default function PainelView({ d, verEmprestimos }) {
                     unidade="t"
                     real={cana.mesT}
                     meta={cana.metaMesT}
+                    onClick={mo ? abrir({ tipo: "periodo", inicio: mo.inicioMes, fim: mo.ultima }) : undefined}
                     apoio={mesAtual ? `${mesAtual.dias} dias com entrega · média ${fmtT(mesAtual.mediaDiaT)} t/dia` : undefined}
                   />
                   <Indicador
@@ -135,6 +161,7 @@ export default function PainelView({ d, verEmprestimos }) {
                     unidade="t"
                     real={cana.safraT}
                     meta={cana.metaSafraT}
+                    onClick={abrir({ tipo: "safra" })}
                     apoio={`${cana.diasEfetivos} dias com entrega desde ${d.safra.inicio ? fmtDateBR(d.safra.inicio) : "o início"}`}
                   />
                   <Indicador
@@ -143,6 +170,7 @@ export default function PainelView({ d, verEmprestimos }) {
                     rotulo="Média por dia efetivo"
                     valor={fmtT(cana.mediaDiaEfetivoT)}
                     unidade="t/dia"
+                    onClick={abrir({ tipo: "media" })}
                     apoio={
                       melhor ? (
                         <>
@@ -203,7 +231,7 @@ export default function PainelView({ d, verEmprestimos }) {
                   {cana.porFrente.length > 0 ? (
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                       {cana.porFrente.map((f) => (
-                        <CartaoFrente key={f.frente} f={f} cor={cores[f.frente]} />
+                        <CartaoFrente key={f.frente} f={f} cor={cores[f.frente]} onClick={abrir({ tipo: "frente", frente: f.frente })} />
                       ))}
                     </div>
                   ) : (
@@ -229,19 +257,31 @@ export default function PainelView({ d, verEmprestimos }) {
                   <div className="space-y-5">
                     {atual && (
                       <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                        <Numero rotulo="Produção estimada" valor={`${fmtT(atual.estimadoT)} t`} apoio={`Safra ${atual.safra}`} />
+                        <Numero
+                          rotulo="Produção estimada"
+                          valor={`${fmtT(atual.estimadoT)} t`}
+                          apoio={`Safra ${atual.safra}`}
+                          onClick={() => setJanela({ tipo: "estimado" })}
+                        />
+                        {/* a moagem até agora é a moagem da safra (cana.safraT): abre a mesma janela da caixa dela */}
                         <Numero
                           rotulo="Moagem até agora"
                           valor={`${fmtT(d.realizadoAteHojeT)} t`}
                           apoio={atual.estimadoT > 0 ? `${pct(d.realizadoAteHojeT, atual.estimadoT)} do estimado` : undefined}
+                          onClick={abrir({ tipo: "safra" })}
                         />
-                        <Numero rotulo="TCH estimado" valor={atual.tchEstimado === null ? "—" : nf(atual.tchEstimado)} />
+                        <Numero
+                          rotulo="TCH estimado"
+                          valor={atual.tchEstimado === null ? "—" : nf(atual.tchEstimado)}
+                          onClick={() => setJanela({ tipo: "estimado" })}
+                        />
                         <Numero
                           rotulo="TCH realizado"
                           valor={atual.tchRealizado === null ? "—" : nf(atual.tchRealizado)}
                           tom={
                             atual.tchRealizado !== null && atual.tchEstimado !== null ? (atual.tchRealizado >= atual.tchEstimado ? "bom" : "ruim") : undefined
                           }
+                          onClick={() => setJanela({ tipo: "estimado" })}
                         />
                       </div>
                     )}
@@ -298,29 +338,37 @@ export default function PainelView({ d, verEmprestimos }) {
                     rotuloLigacao="Ver saldo de insumos"
                     className={verEmprestimos ? undefined : "flex-1"}
                   >
-                    <div className="tabular font-display text-[30px] font-semibold leading-none text-ink">{brl(insumos.valor)}</div>
-                    {insumos.variacao !== null && (
-                      <div className="mt-2 text-[12px]" style={{ color: insumos.variacao >= 0 ? VERDE : VERMELHO }}>
-                        <span className="font-medium">
-                          {insumos.variacao >= 0 ? "▲" : "▼"} {brl(Math.abs(insumos.variacao))}
-                        </span>{" "}
-                        <span className="text-muted">sobre {insumos.dtAnterior ? fmtDateBR(insumos.dtAnterior) : "o retrato anterior"}</span>
-                      </div>
-                    )}
-                    <div className="mt-5 space-y-2.5 border-t border-line pt-4">
-                      {insumos.porEmpresa.map((e) => (
-                        <div key={e.emp}>
-                          <div className="mb-1 flex items-center justify-between text-[12.5px]">
-                            <span className="flex items-center gap-2 text-muted">
-                              <span className="inline-block h-2.5 w-2.5 rounded-[3px]" style={{ background: COR_EMPRESA[e.emp] ?? "#7C93BD" }} />
-                              {nomeEmpresa(e.emp)}
-                            </span>
-                            <span className="tabular text-ink">{brl(e.valor)}</span>
-                          </div>
-                          <Barra valor={insumos.valor > 0 ? e.valor / insumos.valor : 0} cor={COR_EMPRESA[e.emp] ?? "#7C93BD"} altura={3} />
+                    {/* o valor, a variação e as empresas formam um só botão: abre a janela por empresa e por grupo */}
+                    <button
+                      type="button"
+                      onClick={() => setJanela({ tipo: "saldo" })}
+                      title="Ver o detalhe · Saldo contábil"
+                      className={`block w-[calc(100%_+_0.75rem)] ${CLASSE_BOTAO_AREA}`}
+                    >
+                      <div className="tabular font-display text-[30px] font-semibold leading-none text-ink">{brl(insumos.valor)}</div>
+                      {insumos.variacao !== null && (
+                        <div className="mt-2 text-[12px]" style={{ color: insumos.variacao >= 0 ? VERDE : VERMELHO }}>
+                          <span className="font-medium">
+                            {insumos.variacao >= 0 ? "▲" : "▼"} {brl(Math.abs(insumos.variacao))}
+                          </span>{" "}
+                          <span className="text-muted">sobre {insumos.dtAnterior ? fmtDateBR(insumos.dtAnterior) : "o retrato anterior"}</span>
                         </div>
-                      ))}
-                    </div>
+                      )}
+                      <div className="mt-5 space-y-2.5 border-t border-line pt-4">
+                        {insumos.porEmpresa.map((e) => (
+                          <div key={e.emp}>
+                            <div className="mb-1 flex items-center justify-between text-[12.5px]">
+                              <span className="flex items-center gap-2 text-muted">
+                                <span className="inline-block h-2.5 w-2.5 rounded-[3px]" style={{ background: COR_EMPRESA[e.emp] ?? "#7C93BD" }} />
+                                {nomeEmpresa(e.emp)}
+                              </span>
+                              <span className="tabular text-ink">{brl(e.valor)}</span>
+                            </div>
+                            <Barra valor={insumos.valor > 0 ? e.valor / insumos.valor : 0} cor={COR_EMPRESA[e.emp] ?? "#7C93BD"} altura={3} />
+                          </div>
+                        ))}
+                      </div>
+                    </button>
                   </Caixa>
 
                   {verEmprestimos && (
@@ -333,8 +381,12 @@ export default function PainelView({ d, verEmprestimos }) {
                       className="flex-1"
                     >
                       <div className="grid grid-cols-2 gap-x-6">
-                        <Numero rotulo="Empréstimos" valor={String(insumos.emprestimosAbertos.n)} />
-                        <Numero rotulo="Valor em aberto" valor={brl(insumos.emprestimosAbertos.valor)} />
+                        <Numero rotulo="Empréstimos" valor={String(insumos.emprestimosAbertos.n)} onClick={() => setJanela({ tipo: "emprestimos" })} />
+                        <Numero
+                          rotulo="Valor em aberto"
+                          valor={brl(insumos.emprestimosAbertos.valor)}
+                          onClick={() => setJanela({ tipo: "emprestimos" })}
+                        />
                       </div>
                       <p className="mt-4 border-t border-line pt-3 text-[11.5px] text-muted">
                         {insumos.valor > 0 && insumos.emprestimosAbertos.valor > 0
@@ -411,6 +463,7 @@ export default function PainelView({ d, verEmprestimos }) {
           </Secao>
         </div>
       </CorpoPagina>
+      <JanelaDoPainel janela={janela} d={d} mo={mo} base={baseJanela} melhor={melhor?.dt} menor={menor?.dt} />
     </Pagina>
   );
 }

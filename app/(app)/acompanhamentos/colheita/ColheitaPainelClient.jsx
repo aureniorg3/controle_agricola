@@ -7,7 +7,8 @@ import { fmtHa, fmtT, fmtTch } from "@/lib/format";
 import { ehBooleano, ehTexto, usarPersistido } from "@/lib/usar-persistido";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import { IconHistorico } from "@/components/icons";
-import { CabecalhoPagina, Comando, CorpoPagina, EstadoVazio, Indicador, Pagina, Painel } from "@/components/pagina";
+import { Abas, CabecalhoPagina, Comando, CorpoPagina, EstadoVazio, Indicador, Pagina, Painel } from "@/components/pagina";
+import { BotaoCartao, BotaoLink, CLASSE_LINK_RODAPE, JanelaCard, Nota, pct, qtd, r2, r3, TabelaJanela } from "./janela-detalhe";
 
 const DIMENSOES = [
   { key: "fazenda", label: "Fazenda", coluna: "Fazenda" },
@@ -19,6 +20,9 @@ const DIMENSOES = [
 
 const FILTRO = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
 const LIMITE = 200;
+const HISTORICO = "/acompanhamentos/colheita/historico-safras";
+/** tabela "TCH Realizado por …" da página (o clique num nome dentro das janelas leva até ela) */
+const ID_TABELA_DIMENSAO = "colheita-tch-dimensao";
 
 function variacao(atual, anterior) {
   if (atual === null || anterior === null || anterior <= 0) return null;
@@ -43,6 +47,16 @@ export default function ColheitaPainelClient({ safras, dimensoes, variedadeCorte
   function limparFiltros() {
     setBusca("");
     setVerTudo(false);
+  }
+  /** janela (detalhe) do card aberta: area, producao, tchReal, tchEst */
+  const [janela, setJanela] = useState(null);
+  // clique num nome dentro da janela: a tabela "TCH Realizado por …" passa a mostrar só ele (agrupamento e busca dela)
+  function mostrarNaTabela(dimensao, chave) {
+    setDim(dimensao);
+    setBusca(chave);
+    setVerTudo(false);
+    setJanela(null);
+    setTimeout(() => document.getElementById(ID_TABELA_DIMENSAO)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
   const anos = useMemo(() => safras.map((s) => s.safra).sort((a, b) => a - b), [safras]);
@@ -99,12 +113,14 @@ export default function ColheitaPainelClient({ safras, dimensoes, variedadeCorte
           </Painel>
         ) : (
           <>
+            {/* cada card abre a janela com o detalhe do número (a safra aberta por fazenda, variedade…) */}
             <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
               {ultima !== undefined && (
                 <>
-                  <Kpi cor="azul" titulo={`Safra ${ultima} · Área Total (ha)`} valor={fmtHa(porAno.get(ultima).areaTot)} />
-                  <Kpi cor="azul" titulo={`Safra ${ultima} · Produção (t)`} valor={fmtT(porAno.get(ultima).producaoT)} />
+                  <Kpi cor="azul" titulo={`Safra ${ultima} · Área Total (ha)`} valor={fmtHa(porAno.get(ultima).areaTot)} onAbrir={() => setJanela("area")} />
+                  <Kpi cor="azul" titulo={`Safra ${ultima} · Produção (t)`} valor={fmtT(porAno.get(ultima).producaoT)} onAbrir={() => setJanela("producao")} />
                   <Kpi
+                    onAbrir={() => setJanela("tchReal")}
                     cor="verde"
                     titulo={`Safra ${ultima} · TCH Realizado (t/ha)`}
                     valor={porAno.get(ultima).tchReal !== null ? fmtTch(porAno.get(ultima).tchReal) : "—"}
@@ -117,6 +133,7 @@ export default function ColheitaPainelClient({ safras, dimensoes, variedadeCorte
                     }
                   />
                   <Kpi
+                    onAbrir={() => setJanela("tchEst")}
                     cor="cinza"
                     titulo={`Safra ${ultima} · TCH Estimado (t/ha)`}
                     valor={porAno.get(ultima).tchEst !== null ? fmtTch(porAno.get(ultima).tchEst) : "—"}
@@ -203,6 +220,7 @@ export default function ColheitaPainelClient({ safras, dimensoes, variedadeCorte
             <VariedadesSecao anos={anos} variedades={dimensoes.variedade} variedadeCorte={variedadeCorte} />
 
             <Painel
+              id={ID_TABELA_DIMENSAO}
               titulo={`TCH Realizado (t/ha) por ${dimInfo.label}`}
               semEspaco
               acoes={
@@ -296,7 +314,178 @@ export default function ColheitaPainelClient({ safras, dimensoes, variedadeCorte
           </>
         )}
       </CorpoPagina>
+      {janela && ultima !== undefined && (
+        <JanelaSafra
+          tipo={janela}
+          safra={ultima}
+          anterior={anterior}
+          porAno={porAno}
+          dimensoes={dimensoes}
+          dimInicial={dim}
+          onFechar={() => setJanela(null)}
+          onChave={mostrarNaTabela}
+        />
+      )}
     </Pagina>
+  );
+}
+
+/* ---------- Janelas dos cards: o número da safra aberto pelas mesmas bases da página ---------- */
+
+/** O que cada card mostra: título, nome no arquivo exportado e a medida que ordena as linhas. */
+const CARDS_SAFRA = {
+  area: { titulo: "Área Total (ha)", nome: "Área Total", ordem: "areaTot" },
+  producao: { titulo: "Produção (t)", nome: "Produção", ordem: "producaoT" },
+  tchReal: { titulo: "TCH Realizado (t/ha)", nome: "TCH Realizado", ordem: "areaColhida" },
+  tchEst: { titulo: "TCH Estimado (t/ha)", nome: "TCH Estimado", ordem: "areaTot" },
+};
+const ABAS_DIMENSAO = DIMENSOES.map((d) => ({ id: d.key, label: `Por ${d.label}` }));
+const MUTED = () => "text-muted";
+const FORTE = () => "font-semibold text-ink";
+
+/**
+ * Janela de um card da safra: o número aberto por fazenda, proprietário, município, variedade ou corte (abas; abre no
+ * agrupamento escolhido na tabela da página). Os cards somam a safra inteira, então a janela também (a busca da
+ * tabela da página não entra) e a linha de total é a do card. Clicar no nome mostra só ele na tabela "TCH Realizado
+ * por …" da página.
+ */
+function JanelaSafra({ tipo, safra, anterior, porAno, dimensoes, dimInicial, onFechar, onChave }) {
+  const [aba, setAba] = useState(DIMENSOES.some((d) => d.key === dimInicial) ? dimInicial : "fazenda");
+  const card = CARDS_SAFRA[tipo];
+  const dimInfo = DIMENSOES.find((d) => d.key === aba);
+  const total = porAno.get(safra);
+  const totalAnt = anterior !== undefined ? porAno.get(anterior) : undefined;
+
+  const linhas = useMemo(() => {
+    const todas = dimensoes[aba];
+    const doAnterior = new Map(todas.filter((r) => r.safra === anterior).map((r) => [r.chave, r]));
+    // a busca da tabela procura o texto dentro do nome: só filtra pelo nome que não está contido em outro
+    const chaves = Array.from(new Set(todas.map((r) => r.chave.toLowerCase())));
+    const filtravel = (chave) => {
+      const termo = chave.trim().toLowerCase();
+      return termo !== "" && chaves.filter((c) => c.includes(termo)).length === 1;
+    };
+    return todas
+      .filter((r) => r.safra === safra)
+      .map((r) => {
+        const tchAnterior = doAnterior.get(r.chave)?.tchReal ?? null;
+        return {
+          ...r,
+          tchAnterior,
+          variacao: variacao(r.tchReal, tchAnterior),
+          realEst: r.tchReal !== null && r.tchEst ? (r.tchReal / r.tchEst) * 100 : null,
+          filtravel: filtravel(r.chave),
+        };
+      })
+      .sort((a, b) => (aba === "corte" ? Number(a.chave) - Number(b.chave) : b[card.ordem] - a[card.ordem] || a.chave.localeCompare(b.chave)));
+  }, [dimensoes, aba, safra, anterior, card.ordem]);
+
+  const nomeFazenda = (l) => l.chave.split(" - ").slice(1).join(" - ");
+  const botao = (l, texto) =>
+    l.filtravel ? (
+      <BotaoLink onClick={() => onChave(aba, l.chave)} title={`Mostrar só ${texto} na tabela TCH Realizado por ${dimInfo.label} da página`}>
+        {texto}
+      </BotaoLink>
+    ) : (
+      texto
+    );
+  const colChave =
+    aba === "fazenda"
+      ? [
+          { rotulo: "Fazenda", valor: (l) => l.chave.split(" - ")[0], classe: () => "font-medium tabular text-ink" },
+          { rotulo: "Descrição Fazenda", valor: nomeFazenda, exibir: (l) => botao(l, nomeFazenda(l) || l.chave) },
+        ]
+      : [
+          {
+            rotulo: dimInfo.coluna,
+            valor: (l) => (aba === "corte" ? Number(l.chave) : l.chave),
+            exibir: (l) => botao(l, l.chave || `(sem ${dimInfo.label.toLowerCase()})`),
+            classe: () => "font-medium text-ink",
+          },
+        ];
+
+  const colAreaTot = { rotulo: "Área Total (ha)", num: "ha", valor: (l) => r3(l.areaTot), total: total.areaTot };
+  const colAreaCol = { rotulo: "Área Colhida (ha)", num: "ha", valor: (l) => r3(l.areaColhida), total: total.areaColhida };
+  const colProd = { rotulo: "Produção (t)", num: "t", valor: (l) => r3(l.producaoT), total: total.producaoT };
+  const colTchReal = { rotulo: "TCH Realizado (t/ha)", num: "tch", valor: (l) => r2(l.tchReal), total: total.tchReal };
+  const colunas = [
+    ...colChave,
+    ...{
+      area: [
+        { ...colAreaTot, classe: FORTE },
+        { rotulo: "% da área", num: "pct", valor: (l) => r2(pct(l.areaTot, total.areaTot)), total: total.areaTot > 0 ? 100 : null, classe: MUTED },
+        { ...colAreaCol, classe: MUTED },
+      ],
+      producao: [
+        colAreaCol,
+        { ...colProd, classe: FORTE },
+        { rotulo: "% da produção", num: "pct", valor: (l) => r2(pct(l.producaoT, total.producaoT)), total: total.producaoT > 0 ? 100 : null, classe: MUTED },
+        { ...colTchReal, classe: MUTED },
+      ],
+      tchReal: [
+        colAreaCol,
+        colProd,
+        { ...colTchReal, classe: FORTE },
+        ...(totalAnt
+          ? [
+              { rotulo: `TCH ${anterior} (t/ha)`, num: "tch", valor: (l) => r2(l.tchAnterior), total: totalAnt.tchReal, classe: MUTED },
+              {
+                rotulo: `Variação ${safra} x ${anterior}`,
+                num: "var",
+                valor: (l) => r2(l.variacao),
+                exibir: (l) => <Variacao valor={l.variacao} />,
+                total: variacao(total.tchReal, totalAnt.tchReal),
+              },
+            ]
+          : []),
+      ],
+      tchEst: [
+        colAreaTot,
+        { rotulo: "Produção Estimada (t)", num: "t", valor: (l) => r3(l.producaoEstT), total: total.producaoEstT },
+        { rotulo: "TCH Estimado (t/ha)", num: "tch", valor: (l) => r2(l.tchEst), total: total.tchEst, classe: FORTE },
+        { ...colTchReal, classe: MUTED },
+        {
+          rotulo: "Real/Est.",
+          num: "pct0",
+          valor: (l) => r2(l.realEst),
+          total: total.tchReal !== null && total.tchEst ? (total.tchReal / total.tchEst) * 100 : null,
+          classe: MUTED,
+        },
+      ],
+    }[tipo],
+  ];
+
+  const regra = {
+    area: "Área total dos talhões da safra no Histórico de Safras.",
+    producao: "Produção realizada dos talhões já colhidos (com produção) e a área colhida deles; TCH = produção ÷ área colhida.",
+    tchReal:
+      "TCH Realizado = produção ÷ área colhida, só dos talhões já colhidos (com produção). A linha de total é o TCH da safra (produção total ÷ área colhida total), não a média das linhas.",
+    tchEst:
+      "TCH Estimado = produção estimada ÷ área total de todos os talhões (inclusive os sem estimativa); fica em branco sem produção estimada. Real/Est. = TCH Realizado ÷ TCH Estimado.",
+  }[tipo];
+
+  return (
+    <JanelaCard
+      titulo={card.titulo}
+      subtitulo={`Safra ${safra} · por ${dimInfo.label} · safra inteira (a busca da tabela da página não entra nos cards)`}
+      prefixo={`Moagem Dashboard - Safra ${safra}`}
+      exportar={{ nome: `${card.nome} por ${dimInfo.label}`, colunas, linhas }}
+      onFechar={onFechar}
+      rodape={
+        <>
+          <span className="mr-auto text-[11.5px] text-muted">Base: relatórios de safra importados em Histórico de Safras.</span>
+          <Link href={HISTORICO} className={CLASSE_LINK_RODAPE}>
+            Ver em Histórico de Safras
+          </Link>
+        </>
+      }
+    >
+      <Nota>
+        {regra} {qtd(linhas.length, "linha", "linhas")}; clique no nome para ver só ele na tabela TCH Realizado por {dimInfo.label} da página.
+      </Nota>
+      <Abas itens={ABAS_DIMENSAO} ativo={aba} onChange={setAba} className="mb-3" />
+      <TabelaJanela colunas={colunas} linhas={linhas} chave={(l) => l.chave} vazio={`Nenhuma linha na safra ${safra}.`} />
+    </JanelaCard>
   );
 }
 
@@ -454,8 +643,13 @@ function VariedadesSecao({ anos, variedades, variedadeCorte }) {
   );
 }
 
-function Kpi({ titulo, valor, extra, cor }) {
-  return <Indicador cor={cor} rotulo={titulo} valor={valor} apoio={extra || undefined} title={titulo} />;
+/** Card da safra: abre a janela com o detalhe do número (o título inteiro aparece ao passar o mouse). */
+function Kpi({ titulo, valor, extra, cor, onAbrir }) {
+  return (
+    <BotaoCartao onClick={onAbrir} title={`${titulo} · ver o detalhe`}>
+      <Indicador cor={cor} rotulo={titulo} valor={valor} apoio={extra || undefined} className="h-full" />
+    </BotaoCartao>
+  );
 }
 
 function Barra({ valor, max, cor }) {

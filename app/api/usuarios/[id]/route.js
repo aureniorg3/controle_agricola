@@ -31,18 +31,24 @@ export async function PATCH(req, { params }) {
     return NextResponse.json({ error: "A senha precisa ter ao menos 6 caracteres." }, { status: 400 });
   }
 
-  const resultado = await updateUsuario(
-    id,
-    {
-      nome: body.nome,
-      sobrenome: body.sobrenome,
-      usuario: body.usuario,
-      perfil: body.perfil,
-      ativo: body.ativo,
-      senha: body.senha || undefined,
-    },
-    solicitante.id,
-  );
+  let resultado;
+  try {
+    resultado = await updateUsuario(
+      id,
+      {
+        nome: body.nome,
+        sobrenome: body.sobrenome,
+        usuario: body.usuario,
+        perfil: body.perfil,
+        ativo: body.ativo,
+        senha: body.senha || undefined,
+      },
+      solicitante.id,
+    );
+  } catch (err) {
+    // erro do banco (ex.: constraint) volta com o motivo — sem isso a tela só dizia "verifique a conexão"
+    return NextResponse.json({ error: `Não foi possível gravar o usuário: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 });
+  }
   if ("erro" in resultado) {
     return NextResponse.json({ error: resultado.erro }, { status: 409 });
   }

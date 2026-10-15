@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ModalShell } from "@/components/ui";
 import { IconBaixar, IconImportar, IconImprimir } from "@/components/icons";
-import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel, Selo } from "@/components/pagina";
+import { Abas, BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel, Selo } from "@/components/pagina";
 import { conferirLinhas, normalizarFrente, STATUS_CONFERENCIA_LABEL } from "@/lib/conferencia";
 import { fmtDateBR, fmtT } from "@/lib/format";
 import { gerarConferenciaPdf, gerarConferenciaXlsx } from "@/lib/relatorio-conferencia";
@@ -12,6 +12,7 @@ import { podeEditar } from "@/lib/permissoes";
 
 import { ehTexto, usarPersistido } from "@/lib/usar-persistido";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
+import { BotaoCartao, BotaoLink, CLASSE_LINK_RODAPE, exportarTabela, int, JanelaCard, Nota, pct, qtd, r2, r3, Secao, TabelaJanela } from "../janela-detalhe";
 
 const FILTRO = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
 
@@ -22,6 +23,18 @@ const COR_STATUS = {
   "sem-ordem": "bg-amber-50 text-amber-600",
   "sem-cadastro": "bg-surface text-muted",
 };
+
+/** Busca da lista (termo já em minúsculas): texto contido no equipamento, na descrição, na fazenda (nome ou código) ou na ordem. */
+function casaBusca(l, termo) {
+  return (
+    !termo ||
+    l.eqp.toLowerCase().includes(termo) ||
+    l.eqpNome.toLowerCase().includes(termo) ||
+    l.fazendaNomeExibido.toLowerCase().includes(termo) ||
+    l.fazendaCodigo.includes(termo) ||
+    (l.ordemNumero ?? "").includes(termo)
+  );
+}
 
 export default function ConferenciaClient({ linhas, equiptos, ordens, perfil, nomeUsuario }) {
   const podeGravar = podeEditar(perfil);
@@ -58,30 +71,46 @@ export default function ConferenciaClient({ linhas, equiptos, ordens, perfil, no
     [frentes, ordens, equiptos],
   );
 
+  // período, frente e status (sem a busca): a lista sai daqui e as janelas conferem nela o que a busca por um código traria
+  const semBusca = useMemo(
+    () =>
+      conferidas
+        .filter((l) => (!de || l.data >= de) && (!ate || l.data <= ate))
+        .filter(
+          (l) =>
+            frenteFiltro === "todas" ||
+            normalizarFrente(l.frente) === normalizarFrente(frenteFiltro) ||
+            (l.frenteCadastro !== null && normalizarFrente(l.frenteCadastro) === normalizarFrente(frenteFiltro)),
+        )
+        .filter((l) => (statusFiltro === "todos" ? true : statusFiltro === "divergencias" ? l.conferencia !== "ok" : l.conferencia === statusFiltro)),
+    [conferidas, de, ate, frenteFiltro, statusFiltro],
+  );
+
   const filtradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return conferidas
-      .filter((l) => (!de || l.data >= de) && (!ate || l.data <= ate))
-      .filter(
-        (l) =>
-          frenteFiltro === "todas" ||
-          normalizarFrente(l.frente) === normalizarFrente(frenteFiltro) ||
-          (l.frenteCadastro !== null && normalizarFrente(l.frenteCadastro) === normalizarFrente(frenteFiltro)),
-      )
-      .filter((l) => (statusFiltro === "todos" ? true : statusFiltro === "divergencias" ? l.conferencia !== "ok" : l.conferencia === statusFiltro))
-      .filter(
-        (l) =>
-          !termo ||
-          l.eqp.toLowerCase().includes(termo) ||
-          l.eqpNome.toLowerCase().includes(termo) ||
-          l.fazendaNomeExibido.toLowerCase().includes(termo) ||
-          l.fazendaCodigo.includes(termo) ||
-          (l.ordemNumero ?? "").includes(termo),
-      )
+    return semBusca
+      .filter((l) => casaBusca(l, termo))
       .sort(
         (a, b) => a.data.localeCompare(b.data) || a.eqp.localeCompare(b.eqp, undefined, { numeric: true }) || a.fazendaCodigo.localeCompare(b.fazendaCodigo),
       );
-  }, [conferidas, de, ate, frenteFiltro, statusFiltro, busca]);
+  }, [semBusca, busca]);
+
+  /**
+   * A busca procura o texto contido (equipamento, fazenda e ordem são todos códigos numéricos: "101" também traz o 1010,
+   * a fazenda 1015 e a ordem 2101). O código da janela só vira link de busca quando, no período, frente e status da
+   * lista, a busca por ele traz só as linhas daquele equipamento (campo "eqp") ou daquela fazenda ("fazendaCodigo").
+   */
+  const buscaSo = useMemo(() => {
+    const cache = new Map();
+    return (campo, codigo) => {
+      const k = `${campo}|${codigo}`;
+      if (!cache.has(k)) {
+        const termo = String(codigo ?? "").trim().toLowerCase();
+        cache.set(k, termo !== "" && semBusca.every((l) => !casaBusca(l, termo) || l[campo] === codigo));
+      }
+      return cache.get(k);
+    };
+  }, [semBusca]);
 
   const chaveLinha = (l) => `${l.data}|${l.eqp}|${l.frente}|${l.fazendaCodigo}`;
   const correcaoDe = (l) => correcoes[chaveLinha(l)] ?? l.frenteCorrecao ?? "";
@@ -147,6 +176,40 @@ export default function ConferenciaClient({ linhas, equiptos, ordens, perfil, no
       divergencias: filtradas.filter((l) => l.conferencia !== "ok").length,
     };
   }, [filtradas]);
+
+  /** janela (detalhe) do card aberta: toneladas, equipamentos, conferir */
+  const [janela, setJanela] = useState(null);
+  const periodo = de && de === ate ? fmtDateBR(de) : de || ate ? `${de ? fmtDateBR(de) : "início"} a ${ate ? fmtDateBR(ate) : "hoje"}` : "todas as datas";
+  const baseJanela = {
+    // as janelas usam as linhas já filtradas da lista: o subtítulo mostra os mesmos filtros da impressão
+    subtitulo: filtrosTexto || "Todos os registros importados",
+    // nome do arquivo exportado sem barras (vira também o nome da aba da planilha)
+    prefixo: `Conferência de Pesagem ${periodo.replace(/\//g, "-")}`,
+    onFechar: () => setJanela(null),
+    // link de busca do equipamento/fazenda só quando a busca pelo código traz só ele (a busca ativa é trocada)
+    buscaSo,
+    buscaAtual: busca.trim(),
+    // clique numa linha da janela: aplica o filtro na lista e fecha a janela
+    filtrar: {
+      frente: (f) => {
+        setFrenteFiltro(f);
+        setJanela(null);
+      },
+      busca: (texto) => {
+        setBusca(texto);
+        setJanela(null);
+      },
+      dia: (d) => {
+        setDe(d);
+        setAte(d);
+        setJanela(null);
+      },
+      status: (s) => {
+        setStatusFiltro(s);
+        setJanela(null);
+      },
+    },
+  };
 
   return (
     <Pagina className="print-scroll">
@@ -230,10 +293,17 @@ export default function ConferenciaClient({ linhas, equiptos, ordens, perfil, no
           </BarraFiltros>
         )}
 
+        {/* cada card abre a janela com o detalhe do número (as mesmas linhas filtradas da lista) */}
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Indicador cor="azul" rotulo="Toneladas (t)" valor={fmtT(totais.toneladas)} />
-          <Indicador cor="cinza" rotulo="Equipamentos" valor={totais.equipamentos} />
-          <Indicador cor={totais.divergencias > 0 ? "vermelho" : "verde"} rotulo="Linhas a conferir" valor={totais.divergencias} />
+          <BotaoCartao onClick={() => setJanela("toneladas")}>
+            <Indicador cor="azul" rotulo="Toneladas (t)" valor={fmtT(totais.toneladas)} className="h-full" />
+          </BotaoCartao>
+          <BotaoCartao onClick={() => setJanela("equipamentos")}>
+            <Indicador cor="cinza" rotulo="Equipamentos" valor={totais.equipamentos} className="h-full" />
+          </BotaoCartao>
+          <BotaoCartao onClick={() => setJanela("conferir")}>
+            <Indicador cor={totais.divergencias > 0 ? "vermelho" : "verde"} rotulo="Linhas a conferir" valor={totais.divergencias} className="h-full" />
+          </BotaoCartao>
         </div>
 
         {linhas.length === 0 ? (
@@ -343,7 +413,322 @@ export default function ConferenciaClient({ linhas, equiptos, ordens, perfil, no
       </CorpoPagina>
 
       {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} />}
+      {janela === "toneladas" && <JanelaToneladas linhas={filtradas} totais={totais} base={baseJanela} />}
+      {janela === "equipamentos" && <JanelaEquipamentos linhas={filtradas} totais={totais} base={baseJanela} />}
+      {janela === "conferir" && (
+        <JanelaConferir linhas={filtradas} totais={totais} base={baseJanela} correcaoDe={correcaoDe} statusFiltro={statusFiltro} />
+      )}
     </Pagina>
+  );
+}
+
+/* ---------- Janelas dos cards: o detalhe calculado das mesmas linhas filtradas que formam o card ---------- */
+
+const MUTED = () => "text-muted";
+const FORTE = () => "font-semibold text-ink";
+const porToneladas = (a, b) => b.toneladas - a.toneladas || String(a.rotulo).localeCompare(String(b.rotulo), undefined, { numeric: true });
+const juntar = (conjunto) => Array.from(conjunto).sort((a, b) => a.localeCompare(b)).join(", ");
+const distintos = (linhas, valor) => new Set(linhas.map(valor)).size;
+
+/**
+ * Soma as linhas da conferência por uma chave: linhas, toneladas, linhas a conferir e os equipamentos, fazendas, dias e
+ * frentes (do relatório e do cadastro) distintos. `rotulo` vem da primeira linha do grupo.
+ */
+function agrupar(linhas, chaveDe, rotuloDe = chaveDe) {
+  const mapa = new Map();
+  for (const l of linhas) {
+    const k = chaveDe(l);
+    const x = mapa.get(k) ?? {
+      chave: k,
+      rotulo: rotuloDe(l),
+      linhas: 0,
+      toneladas: 0,
+      conferir: 0,
+      eqps: new Set(),
+      fazendas: new Set(),
+      dias: new Set(),
+      frentes: new Set(),
+      frentesCad: new Set(),
+    };
+    x.linhas += 1;
+    x.toneladas += l.toneladas;
+    if (l.conferencia !== "ok") x.conferir += 1;
+    x.eqps.add(l.eqp);
+    x.fazendas.add(l.fazendaCodigo);
+    x.dias.add(l.data);
+    x.frentes.add(l.frente);
+    if (l.frenteCadastro) x.frentesCad.add(l.frenteCadastro);
+    mapa.set(k, x);
+  }
+  return Array.from(mapa.values());
+}
+
+/**
+ * Código da janela que busca na lista (equipamento ou fazenda): link só quando a busca por ele, no período, frente e
+ * status da lista, traz só as linhas dele (`base.buscaSo`); senão fica texto, com o motivo no title. A busca da lista
+ * é um campo só: o clique troca a busca que estiver ativa (o title avisa).
+ */
+function LinkBusca({ base, campo, codigo, oque, children }) {
+  if (!codigo) return children;
+  if (!base.buscaSo(campo, codigo)) {
+    return (
+      <span title={`A busca da lista procura o texto contido em equipamento, fazenda e ordem: "${codigo}" também traria outras linhas`}>{children}</span>
+    );
+  }
+  const troca = base.buscaAtual && base.buscaAtual !== codigo ? ` (troca a busca atual "${base.buscaAtual}")` : "";
+  return (
+    <BotaoLink onClick={() => base.filtrar.busca(codigo)} title={`Buscar ${oque} ${codigo} na lista${troca}`}>
+      {children}
+    </BotaoLink>
+  );
+}
+
+const ABAS_TONELADAS = [
+  { id: "frente", label: "Por frente", nome: "frente" },
+  { id: "fazenda", label: "Por fazenda", nome: "fazenda" },
+  { id: "dia", label: "Por dia", nome: "dia" },
+];
+
+/**
+ * Card Toneladas: as toneladas da lista por frente do relatório, por fazenda e por dia. Clicar na frente ou no dia
+ * aplica o filtro na lista; na fazenda, busca o código dela (só quando a busca não traz outras linhas, ver LinkBusca).
+ */
+function JanelaToneladas({ linhas, totais, base }) {
+  const [aba, setAba] = useState("frente");
+  const quebras = useMemo(
+    () => ({
+      // frentes escritas com espaço ou maiúsculas diferentes são a mesma (como no filtro da lista)
+      frente: agrupar(linhas, (l) => normalizarFrente(l.frente), (l) => l.frente).sort(porToneladas),
+      fazenda: agrupar(linhas, (l) => l.fazendaCodigo, (l) => l.fazendaNomeExibido).sort(porToneladas),
+      dia: agrupar(linhas, (l) => l.data).sort((a, b) => a.chave.localeCompare(b.chave)),
+    }),
+    [linhas],
+  );
+  const nFazendas = useMemo(() => distintos(linhas, (l) => l.fazendaCodigo), [linhas]);
+  const atual = ABAS_TONELADAS.find((a) => a.id === aba);
+  const colLinhas = { rotulo: "Linhas", num: "int", valor: (x) => x.linhas, total: linhas.length };
+  const colEqp = { rotulo: "Equipamentos", num: "int", valor: (x) => x.eqps.size, total: totais.equipamentos };
+  const colFaz = { rotulo: "Fazendas", num: "int", valor: (x) => x.fazendas.size, total: nFazendas };
+  const colTon = { rotulo: "Toneladas (t)", num: "t", valor: (x) => r3(x.toneladas), total: totais.toneladas, classe: FORTE };
+  const colPct = {
+    rotulo: "% das toneladas",
+    num: "pct",
+    valor: (x) => r2(pct(x.toneladas, totais.toneladas)),
+    total: totais.toneladas > 0 ? 100 : null,
+    classe: MUTED,
+  };
+  const colunas = {
+    frente: [
+      {
+        rotulo: "Frente (Relatório)",
+        valor: (x) => x.rotulo,
+        exibir: (x) => (
+          <BotaoLink
+            onClick={() => base.filtrar.frente(x.rotulo)}
+            title={`Filtrar a lista pela frente ${x.rotulo} (o filtro também traz os equipamentos cadastrados nela)`}
+          >
+            {x.rotulo}
+          </BotaoLink>
+        ),
+      },
+      colLinhas,
+      colEqp,
+      colFaz,
+      colTon,
+      colPct,
+    ],
+    fazenda: [
+      { rotulo: "Fazenda", valor: (x) => x.chave, classe: () => "font-medium tabular text-ink" },
+      {
+        rotulo: "Descrição Fazenda",
+        valor: (x) => x.rotulo,
+        exibir: (x) => (
+          <LinkBusca base={base} campo="fazendaCodigo" codigo={x.chave} oque="a fazenda">
+            {x.rotulo || x.chave}
+          </LinkBusca>
+        ),
+      },
+      colLinhas,
+      colEqp,
+      colTon,
+      colPct,
+    ],
+    dia: [
+      {
+        rotulo: "Data",
+        valor: (x) => fmtDateBR(x.chave),
+        exibir: (x) => (
+          <BotaoLink onClick={() => base.filtrar.dia(x.chave)} title={`Mostrar na lista só o dia ${fmtDateBR(x.chave)}`}>
+            {fmtDateBR(x.chave)}
+          </BotaoLink>
+        ),
+      },
+      colLinhas,
+      colEqp,
+      colFaz,
+      colTon,
+      colPct,
+    ],
+  }[aba];
+  return (
+    <JanelaCard
+      titulo="Toneladas (t)"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      largura="4xl"
+      exportar={{ nome: `Toneladas por ${atual.nome}`, colunas, linhas: quebras[aba] }}
+      onFechar={base.onFechar}
+    >
+      <Nota>
+        {qtd(linhas.length, "linha", "linhas")} da lista, {fmtT(totais.toneladas)} t. No total, cada equipamento e cada fazenda contam uma vez. Clique na
+        frente ou no dia para filtrar a lista e na fazenda para buscá-la (só quando a busca pelo código dela não traz outras linhas).
+      </Nota>
+      <Abas itens={ABAS_TONELADAS} ativo={aba} onChange={setAba} className="mb-3" />
+      <TabelaJanela colunas={colunas} linhas={quebras[aba]} chave={(x) => x.chave} vazio="Nenhuma linha no filtro." />
+    </JanelaCard>
+  );
+}
+
+/**
+ * Card Equipamentos: um equipamento por linha, com as frentes, os dias, as fazendas e as toneladas no filtro. Clicar no
+ * código busca o equipamento na lista (só quando a busca não traz outras linhas, ver LinkBusca).
+ */
+function JanelaEquipamentos({ linhas, totais, base }) {
+  const eqps = useMemo(() => agrupar(linhas, (l) => l.eqp, (l) => l.eqpNome).sort(porToneladas), [linhas]);
+  const nDias = useMemo(() => distintos(linhas, (l) => l.data), [linhas]);
+  const nFazendas = useMemo(() => distintos(linhas, (l) => l.fazendaCodigo), [linhas]);
+  const colunas = [
+    {
+      rotulo: "Equipamento",
+      valor: (x) => x.chave,
+      exibir: (x) => (
+        <LinkBusca base={base} campo="eqp" codigo={x.chave} oque="o equipamento">
+          {x.chave}
+        </LinkBusca>
+      ),
+      classe: FORTE,
+    },
+    { rotulo: "Descrição", valor: (x) => x.rotulo, classe: MUTED },
+    { rotulo: "Frente (Relatório)", valor: (x) => juntar(x.frentes) },
+    { rotulo: "Frente (Cadastro)", valor: (x) => juntar(x.frentesCad) },
+    { rotulo: "Dias", num: "int", valor: (x) => x.dias.size, total: nDias },
+    { rotulo: "Fazendas", num: "int", valor: (x) => x.fazendas.size, total: nFazendas },
+    { rotulo: "Linhas", num: "int", valor: (x) => x.linhas, total: linhas.length },
+    { rotulo: "Toneladas (t)", num: "t", valor: (x) => r3(x.toneladas), total: totais.toneladas, classe: FORTE },
+    {
+      rotulo: "Linhas a conferir",
+      num: "int",
+      valor: (x) => x.conferir,
+      total: totais.divergencias,
+      classe: (x) => (x.conferir > 0 ? "font-semibold text-alert-600" : "text-muted"),
+    },
+  ];
+  return (
+    <JanelaCard
+      titulo="Equipamentos"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      largura="6xl"
+      exportar={{ nome: "Equipamentos", colunas, linhas: eqps }}
+      onFechar={base.onFechar}
+    >
+      <Nota>
+        {qtd(totais.equipamentos, "equipamento", "equipamentos")} nas {int(linhas.length)} linhas da lista. No total, cada dia e cada fazenda contam uma
+        vez. Clique no equipamento para buscá-lo na lista; fica sem link o código cuja busca também traria outros equipamentos, fazendas ou ordens.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={eqps}
+        chave={(x) => x.chave}
+        vazio="Nenhum equipamento no filtro."
+        rotuloTotal={`Total · ${qtd(totais.equipamentos, "equipamento", "equipamentos")}`}
+      />
+    </JanelaCard>
+  );
+}
+
+const ORDEM_STATUS = Object.keys(STATUS_CONFERENCIA_LABEL);
+
+function SeloStatus({ status }) {
+  return <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${COR_STATUS[status]}`}>{STATUS_CONFERENCIA_LABEL[status]}</span>;
+}
+
+/**
+ * Card Linhas a conferir: as linhas da lista com status diferente de OK, resumidas por status e uma a uma. Clicar no
+ * status filtra a lista por ele; o rodapé filtra "só o que precisa conferir".
+ */
+function JanelaConferir({ linhas, totais, base, correcaoDe, statusFiltro }) {
+  const aConferir = useMemo(() => linhas.filter((l) => l.conferencia !== "ok"), [linhas]);
+  const porStatus = useMemo(
+    () => agrupar(aConferir, (l) => l.conferencia).sort((a, b) => ORDEM_STATUS.indexOf(a.chave) - ORDEM_STATUS.indexOf(b.chave)),
+    [aConferir],
+  );
+  const toneladas = aConferir.reduce((s, l) => s + l.toneladas, 0);
+  const colunasStatus = [
+    {
+      rotulo: "Status",
+      valor: (x) => STATUS_CONFERENCIA_LABEL[x.chave],
+      exibir: (x) => (
+        <button type="button" onClick={() => base.filtrar.status(x.chave)} title="Filtrar a lista por este status" className="hover:underline">
+          <SeloStatus status={x.chave} />
+        </button>
+      ),
+    },
+    { rotulo: "Linhas", num: "int", valor: (x) => x.linhas, total: totais.divergencias, classe: FORTE },
+    { rotulo: "Equipamentos", num: "int", valor: (x) => x.eqps.size, total: distintos(aConferir, (l) => l.eqp) },
+    { rotulo: "Fazendas", num: "int", valor: (x) => x.fazendas.size, total: distintos(aConferir, (l) => l.fazendaCodigo) },
+    { rotulo: "Toneladas (t)", num: "t", valor: (x) => r3(x.toneladas), total: toneladas },
+  ];
+  const colunasLinhas = [
+    { rotulo: "Data", valor: (l) => fmtDateBR(l.data) },
+    { rotulo: "Equipamento", valor: (l) => l.eqp, classe: FORTE },
+    { rotulo: "Descrição", valor: (l) => l.eqpNome, classe: MUTED },
+    { rotulo: "Frente (Relatório)", valor: (l) => l.frente },
+    { rotulo: "Frente (Cadastro)", valor: (l) => l.frenteCadastro },
+    { rotulo: "Fazenda", valor: (l) => l.fazendaCodigo, classe: () => "tabular text-ink" },
+    { rotulo: "Descrição Fazenda", valor: (l) => l.fazendaNomeExibido },
+    { rotulo: "Ordem", valor: (l) => l.ordemNumero },
+    { rotulo: "Frente (Ordem)", valor: (l) => l.ordemFrente },
+    { rotulo: "Status Ordem", valor: (l) => l.ordemStatus, classe: MUTED },
+    { rotulo: "Toneladas (t)", num: "t", valor: (l) => r3(l.toneladas), total: toneladas, classe: FORTE },
+    { rotulo: "Status", valor: (l) => STATUS_CONFERENCIA_LABEL[l.conferencia], exibir: (l) => <SeloStatus status={l.conferencia} /> },
+    { rotulo: "Frente (correção)", valor: (l) => correcaoDe(l) },
+  ];
+  return (
+    <JanelaCard
+      titulo="Linhas a conferir"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      largura="6xl"
+      exportar={{ nome: "Linhas a conferir por status", colunas: colunasStatus, linhas: porStatus }}
+      onFechar={base.onFechar}
+      rodape={
+        statusFiltro === "todos" && totais.divergencias > 0 ? (
+          <button type="button" onClick={() => base.filtrar.status("divergencias")} className={CLASSE_LINK_RODAPE}>
+            Mostrar na lista só o que precisa conferir
+          </button>
+        ) : undefined
+      }
+    >
+      <Nota>
+        Linhas da lista com status diferente de OK: frente divergente (o relatório pôs o equipamento numa frente diferente do cadastro), ordem de outra
+        frente, sem ordem de corte na fazenda ou equipamento sem cadastro no Equipto Frente na data. Clique no status para filtrar a lista por ele.
+      </Nota>
+      <TabelaJanela colunas={colunasStatus} linhas={porStatus} chave={(x) => x.chave} vazio="Nenhuma linha a conferir no filtro." />
+      {aConferir.length > 0 && (
+        <Secao
+          titulo={`Linhas a conferir · ${int(aConferir.length)}`}
+          acoes={exportarTabela(base.prefixo, { nome: "Linhas a conferir", colunas: colunasLinhas, linhas: aConferir })}
+        >
+          <TabelaJanela
+            colunas={colunasLinhas}
+            linhas={aConferir}
+            chave={(l) => `${l.data}|${l.eqp}|${l.frente}|${l.fazendaCodigo}`}
+            rotuloTotal={`Total · ${qtd(aConferir.length, "linha", "linhas")}`}
+          />
+        </Secao>
+      )}
+    </JanelaCard>
   );
 }
 

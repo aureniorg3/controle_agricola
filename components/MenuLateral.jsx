@@ -30,9 +30,10 @@ const FILETE = "bg-[#3FBF83]";
 /**
  * Menu lateral no azul padrão da CRV (o mesmo da barra superior), com texto branco: seções com os módulos, grupos
  * que abrem e fecham, item da tela atual marcado com o filete verde. Recolhido, vira uma coluna de ícones; clicar
- * num grupo abre a lista dele ao lado. Na gaveta do celular aparece sempre aberto, com o botão de fechar.
+ * num grupo abre a lista dele ao lado. Na gaveta do celular aparece sempre aberto, com o botão de fechar. O Início fica
+ * no topo, fora das seções; `inicio` falso (não liberado em Parâmetros → Usuários) o tira do menu.
  */
-export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavigate, onAlternar, onFechar }) {
+export default function MenuLateral({ secoes, inicio = true, recolhido, gaveta = false, onNavigate, onAlternar, onFechar }) {
   const pathname = usePathname();
   const [abertos, setAbertos] = useState({});
   const [flyout, setFlyout] = useState(null);
@@ -168,9 +169,9 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
       )}
 
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2" aria-label="Menu do sistema">
-        {recolhido ? (
+        {!inicio ? null : recolhido ? (
           <Link
-            href="/painel"
+            href={ITEM_INICIO.href}
             onClick={onNavigate}
             title={ITEM_INICIO.label}
             aria-label={ITEM_INICIO.label}
@@ -183,7 +184,7 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
           </Link>
         ) : (
           <Link
-            href="/painel"
+            href={ITEM_INICIO.href}
             onClick={onNavigate}
             aria-current={inicioAtivo(pathname) ? "page" : undefined}
             className={`relative flex h-9 items-center gap-2.5 rounded-lg pl-3 pr-2 text-[13.5px] ${inicioAtivo(pathname) ? ITEM_ATIVO : ITEM_NORMAL}`}
@@ -196,8 +197,12 @@ export default function MenuLateral({ secoes, recolhido, gaveta = false, onNavig
           </Link>
         )}
 
-        {secoes.map((secao) => (
-          <div key={secao.title} className={recolhido ? "mt-1.5 border-t border-white/10 pt-1.5" : "mt-3"}>
+        {secoes.map((secao, i) => (
+          // sem o Início, a primeira seção abre o menu (sem o espaço e o filete que a separam dele)
+          <div
+            key={secao.title}
+            className={recolhido ? (i === 0 && !inicio ? "" : "mt-1.5 border-t border-white/10 pt-1.5") : i === 0 && !inicio ? "mt-1" : "mt-3"}
+          >
             {!recolhido && <div className="px-3 pb-1 text-[11.5px] font-semibold text-white/60">{secao.title}</div>}
             <div className="flex flex-col gap-0.5">
               {secao.items.map((item) => (recolhido ? icone(item, `${secao.title}/${item.label}`) : linha(item, 0, `${secao.title}/${item.label}`)))}

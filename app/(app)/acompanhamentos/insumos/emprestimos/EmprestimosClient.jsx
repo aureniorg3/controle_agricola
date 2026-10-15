@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BotaoCartao, BotaoLink, JanelaCard, Nota, Secao, TabelaJanela, exportarTabela, int } from "@/app/(app)/acompanhamentos/insumos/janela-detalhe";
 import { IconMais } from "@/components/icons";
 import JanelaFormulario, { Aviso, JanelaConfirmar, useAtalhoTela, useJanela } from "@/components/janela";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina } from "@/components/pagina";
@@ -25,6 +26,17 @@ const COR_STATUS = {
 };
 /** Cor do indicador de cada situação: em aberto é pendente (laranja), devolvido azul e pago verde, como os selos da tabela. */
 const COR_RESUMO = { Aberto: "laranja", Devolvido: "azul", Pago: "verde" };
+const NOME_RESUMO = { Aberto: "Em aberto", Devolvido: "Devolvidos", Pago: "Pagos" };
+
+/** O empréstimo bate com a busca da lista (fornecedor, fazenda, insumo ou nº)? */
+function casaBusca(e, busca) {
+  const q = busca.trim().toLowerCase();
+  if (!q) return true;
+  return [e.fornNm, e.fornCod, ...e.faz.map((f) => `${f.cod} ${f.nome}`), ...e.itens.map((i) => `${i.cod} ${i.nm}`), String(e.id)]
+    .join(" ")
+    .toLowerCase()
+    .includes(q);
+}
 
 const numero = (v) => (v.includes(",") ? Number(v.replace(/\./g, "").replace(",", ".")) : Number(v));
 const emTexto = (n) => (n === null || n === undefined ? "" : String(n).replace(".", ","));
@@ -127,17 +139,18 @@ export default function EmprestimosClient({ perfil }) {
     return { Aberto: por("Aberto"), Devolvido: por("Devolvido"), Pago: por("Pago") };
   }, [lista]);
 
-  const filtrada = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    return lista.filter((e) => {
-      if (filtroStatus && e.status !== filtroStatus) return false;
-      if (!q) return true;
-      return [e.fornNm, e.fornCod, ...e.faz.map((f) => `${f.cod} ${f.nome}`), ...e.itens.map((i) => `${i.cod} ${i.nm}`), String(e.id)]
-        .join(" ")
-        .toLowerCase()
-        .includes(q);
-    });
-  }, [lista, filtroStatus, busca]);
+  const filtrada = useMemo(() => lista.filter((e) => (!filtroStatus || e.status === filtroStatus) && casaBusca(e, busca)), [lista, filtroStatus, busca]);
+
+  /** janela (detalhe) do card aberta: a situação (Aberto, Devolvido, Pago) */
+  const [janela, setJanela] = useState(null);
+  /** Clique no boletim dentro da janela: a lista passa a mostrar o empréstimo, já aberto e à vista. */
+  function verNaLista(e) {
+    if (filtroStatus && filtroStatus !== e.status) setFiltroStatus(e.status);
+    if (!casaBusca(e, busca)) setBusca("");
+    setAberto(e.id);
+    setJanela(null);
+    setTimeout(() => document.getElementById(`emprestimo-${e.id}`)?.scrollIntoView({ block: "center", behavior: "smooth" }), 50);
+  }
 
   const sugestoesForn = useMemo(() => {
     const m = new Map();
@@ -732,22 +745,13 @@ export default function EmprestimosClient({ perfil }) {
           )}
         </JanelaFormulario>
 
+        {/* cada card abre a janela com os empréstimos que formam o valor; o filtro da lista pela situação (que o clique
+            no card fazia antes) fica no rodapé da janela. O contorno continua marcando a situação filtrada na lista. */}
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {["Aberto", "Devolvido", "Pago"].map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setFiltroStatus(filtroStatus === s ? "" : s)}
-              className={`rounded-xl2 text-left ${filtroStatus === s ? "ring-2 ring-navy-900 dark:ring-crv-acao" : ""}`}
-            >
-              <Indicador
-                cor={COR_RESUMO[s]}
-                rotulo={s === "Aberto" ? "Em aberto" : s === "Devolvido" ? "Devolvidos" : "Pagos"}
-                valor={brl(resumo[s].valor)}
-                apoio={`${resumo[s].n} empréstimo(s)`}
-                className="h-full"
-              />
-            </button>
+            <BotaoCartao key={s} onClick={() => setJanela(s)} className={filtroStatus === s ? "ring-2 ring-navy-900 dark:ring-crv-acao" : ""}>
+              <Indicador cor={COR_RESUMO[s]} rotulo={NOME_RESUMO[s]} valor={brl(resumo[s].valor)} apoio={`${resumo[s].n} empréstimo(s)`} className="h-full" />
+            </BotaoCartao>
           ))}
         </div>
 
@@ -802,7 +806,11 @@ export default function EmprestimosClient({ perfil }) {
               )}
               {filtrada.map((e) => (
                 <Fragment key={e.id}>
-                  <tr className="cursor-pointer border-b border-line hover:bg-surface/60" onClick={() => setAberto(aberto === e.id ? null : e.id)}>
+                  <tr
+                    id={`emprestimo-${e.id}`}
+                    className="cursor-pointer border-b border-line hover:bg-surface/60"
+                    onClick={() => setAberto(aberto === e.id ? null : e.id)}
+                  >
                     <td className="px-3 py-2 tabular font-medium text-ink">{e.boletim ?? <span className="text-muted">#{e.id}</span>}</td>
                     <td className="px-3 py-2 tabular">{e.dtSol ? fmtDateBR(e.dtSol) : <span className="text-muted/60">—</span>}</td>
                     <td className="px-3 py-2 tabular">{e.dt ? fmtDateBR(e.dt) : <span className="text-muted/60">—</span>}</td>
@@ -915,6 +923,35 @@ export default function EmprestimosClient({ perfil }) {
         </div>
       </CorpoPagina>
 
+      {janela && (
+        <JanelaSituacao
+          status={janela}
+          emprestimos={lista.filter((e) => e.status === janela)}
+          resumo={resumo[janela]}
+          onVer={verNaLista}
+          onFechar={() => setJanela(null)}
+          rodape={
+            <>
+              <span className="mr-auto text-[11.5px] text-muted">
+                {filtroStatus
+                  ? `A lista ${filtroStatus === janela ? "já " : ""}mostra só os ${NOME_RESUMO[filtroStatus].toLowerCase()}.`
+                  : "A lista mostra todas as situações."}
+              </span>
+              <button
+                type="button"
+                className={BOTAO}
+                onClick={() => {
+                  setFiltroStatus(filtroStatus === janela ? "" : janela);
+                  setJanela(null);
+                }}
+              >
+                {filtroStatus === janela ? "Mostrar todas as situações na lista" : `Mostrar só os ${NOME_RESUMO[janela].toLowerCase()} na lista`}
+              </button>
+            </>
+          }
+        />
+      )}
+
       {baixa && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div role="dialog" aria-modal="true" aria-label="Dar baixa no empréstimo" className="w-full max-w-md rounded-xl2 bg-card p-5 shadow-card">
@@ -971,5 +1008,129 @@ export default function EmprestimosClient({ perfil }) {
         />
       )}
     </Pagina>
+  );
+}
+
+/* ---------- Janela dos cards: os empréstimos da situação que formam o valor (todos os lançados, sem a busca da lista) ---------- */
+
+/** Dias corridos de `iso` até `hoje` (as duas em AAAA-MM-DD); sem data, nada. */
+const diasDesde = (iso, hoje) => (iso ? Math.round((Date.parse(hoje) - Date.parse(iso)) / 86400000) : null);
+
+const NOTA_SITUACAO = {
+  Aberto: "Empréstimos ainda sem baixa (nem devolução do insumo nem pagamento). Dias = desde a data de saída ou, sem ela, desde a solicitação.",
+  Devolvido: "Empréstimos baixados por devolução do insumo.",
+  Pago: "Empréstimos baixados por pagamento.",
+};
+
+/** Card de uma situação: os empréstimos que formam o valor e, abaixo, os mesmos valores por insumo e por fornecedor. */
+function JanelaSituacao({ status, emprestimos, resumo, onVer, onFechar, rodape }) {
+  const hoje = todayISO();
+  const porInsumo = useMemo(() => {
+    const m = new Map();
+    for (const e of emprestimos) {
+      for (const i of e.itens) {
+        const k = `${i.cod}|${i.um}`;
+        const x = m.get(k) ?? { cod: i.cod, nm: i.nm, um: i.um, qtd: 0, vt: 0, ids: new Set() };
+        x.qtd += i.qtd ?? 0;
+        x.vt += i.vt ?? 0;
+        x.ids.add(e.id);
+        m.set(k, x);
+      }
+    }
+    return Array.from(m.values())
+      .map((x) => ({ ...x, n: x.ids.size }))
+      .sort((a, b) => b.vt - a.vt);
+  }, [emprestimos]);
+  const porFornecedor = useMemo(() => {
+    const m = new Map();
+    for (const e of emprestimos) {
+      const k = `${e.fornCod}|${e.fornNm}`;
+      const x = m.get(k) ?? { fornCod: e.fornCod, fornNm: e.fornNm, n: 0, valor: 0 };
+      x.n += 1;
+      x.valor += e.total;
+      m.set(k, x);
+    }
+    return Array.from(m.values()).sort((a, b) => b.valor - a.valor);
+  }, [emprestimos]);
+  const somaInsumos = porInsumo.reduce((s, x) => s + x.vt, 0);
+  const nome = NOME_RESUMO[status];
+
+  const colunas = [
+    {
+      rotulo: "Boletim",
+      valor: (e) => e.boletim ?? `#${e.id}`,
+      exibir: (e) => (
+        <BotaoLink onClick={() => onVer(e)} title="Ver o empréstimo aberto na lista">
+          {e.boletim ?? `#${e.id}`}
+        </BotaoLink>
+      ),
+    },
+    { rotulo: "Data Solicitação", valor: (e) => (e.dtSol ? fmtDateBR(e.dtSol) : ""), classe: () => "whitespace-nowrap tabular text-ink" },
+    { rotulo: "Data Saída", valor: (e) => (e.dt ? fmtDateBR(e.dt) : ""), classe: () => "whitespace-nowrap tabular text-ink" },
+    status === "Aberto"
+      ? { rotulo: "Dias", num: "int", valor: (e) => diasDesde(e.dt || e.dtSol, hoje), classe: () => "text-muted" }
+      : { rotulo: "Data Baixa", valor: (e) => (e.dtBaixa ? fmtDateBR(e.dtBaixa) : ""), classe: () => "whitespace-nowrap tabular text-ink" },
+    { rotulo: "Fornecedor", valor: (e) => e.fornNm, classe: () => "font-medium text-ink" },
+    { rotulo: "Matrícula", valor: (e) => e.fornCod, classe: () => "text-muted" },
+    { rotulo: "Fazenda", valor: (e) => e.faz.map((f) => f.cod).join(" / "), classe: () => "tabular text-ink" },
+    {
+      rotulo: "Insumos",
+      valor: (e) => e.itens.map((i) => i.nm).join(", "),
+      classe: () => "max-w-[260px] truncate text-muted",
+      dica: (e) => e.itens.map((i) => i.nm).join(", "),
+    },
+    { rotulo: "Valor total (R$)", num: "dec", valor: (e) => e.total, total: resumo.valor, classe: () => "font-medium text-ink" },
+  ];
+  const colunasInsumo = [
+    { rotulo: "Código", valor: (x) => x.cod, classe: () => "tabular text-muted" },
+    { rotulo: "Descrição", valor: (x) => x.nm },
+    { rotulo: "U.M.", valor: (x) => x.um, classe: () => "text-muted" },
+    { rotulo: "Empréstimos", num: "int", valor: (x) => x.n },
+    { rotulo: "Qtd", num: "qtd", valor: (x) => x.qtd },
+    { rotulo: "Vl. total (R$)", num: "dec", valor: (x) => x.vt, total: somaInsumos },
+  ];
+  const colunasFornecedor = [
+    { rotulo: "Matrícula", valor: (x) => x.fornCod, classe: () => "text-muted" },
+    { rotulo: "Fornecedor", valor: (x) => x.fornNm, classe: () => "font-medium text-ink" },
+    { rotulo: "Empréstimos", num: "int", valor: (x) => x.n, total: resumo.n },
+    { rotulo: "Valor total (R$)", num: "dec", valor: (x) => x.valor, total: resumo.valor },
+  ];
+  return (
+    <JanelaCard
+      titulo={`Empréstimos · ${nome.toLowerCase()}`}
+      subtitulo={`${int(resumo.n)} empréstimo(s) · todos os lançados, sem a busca da lista`}
+      prefixo="Empréstimos"
+      onFechar={onFechar}
+      largura="6xl"
+      exportar={{ nome, colunas, linhas: emprestimos }}
+      rodape={rodape}
+    >
+      <Nota>{NOTA_SITUACAO[status]} Clique no boletim para ver o empréstimo aberto na lista.</Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={emprestimos}
+        chave={(e) => e.id}
+        vazio="Nenhum empréstimo nesta situação."
+        rotuloTotal={`Total · ${int(resumo.n)} empréstimo(s)`}
+      />
+      <Secao
+        titulo={`Por insumo · ${int(porInsumo.length)}`}
+        acoes={exportarTabela("Empréstimos", { nome: `${nome} por insumo`, colunas: colunasInsumo, linhas: porInsumo })}
+      >
+        <TabelaJanela colunas={colunasInsumo} linhas={porInsumo} chave={(x) => `${x.cod}|${x.um}`} vazio="Nenhum insumo nesta situação." />
+      </Secao>
+      <Secao
+        titulo={`Por fornecedor · ${int(porFornecedor.length)}`}
+        acoes={exportarTabela("Empréstimos", { nome: `${nome} por fornecedor`, colunas: colunasFornecedor, linhas: porFornecedor })}
+      >
+        <TabelaJanela
+          colunas={colunasFornecedor}
+          linhas={porFornecedor}
+          chave={(x) => `${x.fornCod}|${x.fornNm}`}
+          vazio="Nenhum fornecedor nesta situação."
+          rotuloTotal={`Total · ${int(porFornecedor.length)} fornecedor(es)`}
+        />
+      </Secao>
+    </JanelaCard>
   );
 }

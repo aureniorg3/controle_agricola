@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { BotaoCartao, BotaoLink, JanelaCard, Nota, Secao, TabelaJanela, corVariacao, exportarTabela, int, pct } from "@/app/(app)/acompanhamentos/insumos/janela-detalhe";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import { IconImportar, IconImprimir } from "@/components/icons";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina } from "@/components/pagina";
@@ -30,6 +31,8 @@ export default function EstoqueClient({ perfil, nomeUsuario }) {
   const [importar, setImportar] = useState(false);
   const [versao, setVersao] = useState(0);
   const [gerandoPdf, setGerandoPdf] = useState(false);
+  /** janela (detalhe) do card aberta: valor, hectares, produtos, diferenca */
+  const [janela, setJanela] = useState(null);
 
   useEffect(() => {
     const t = setTimeout(() => setTermo(busca), 300);
@@ -73,6 +76,19 @@ export default function EstoqueClient({ perfil, nomeUsuario }) {
   const filtroAtivo = !!(dt || emp || grupos !== GRUPOS_PADRAO || busca);
   const empresasTexto = emp ? nomeEmpresa(Number(emp)) : `Empresas ${(dados?.empresas ?? []).map(nomeEmpresa).join(" + ") || "—"}`;
   const gruposTexto = selecionados.length ? `Grupos ${selecionados.join(", ")}` : "Todos os grupos";
+
+  // janelas dos cards: a data, as empresas, os grupos e a busca que formaram os números; clicar no grupo dentro da
+  // janela deixa a página só com ele
+  const fechar = () => setJanela(null);
+  const baseJanela = {
+    subtitulo: [dados?.dt ? fmtDateBR(dados.dt) : "—", empresasTexto, gruposTexto, termo.trim() && `busca “${termo.trim()}”`].filter(Boolean).join(" · "),
+    prefixo: `Estoque Insumos ${dados?.dt ?? ""}`.trim(),
+    onFechar: fechar,
+    onGrupo: (g) => {
+      setGrupos(g);
+      fechar();
+    },
+  };
 
   async function gerarPdf() {
     if (!dados?.dt) return;
@@ -168,17 +184,34 @@ export default function EstoqueClient({ perfil, nomeUsuario }) {
 
         {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
 
+        {/* cada card abre a janela com o detalhe dos mesmos números (mesmos filtros) */}
         {dados?.dt && (
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Indicador cor="azul" rotulo="Valor em estoque" valor={brl(tot.vr)} apoio={`${fmtDateBR(dados.dt)} · ${empresasTexto}`} />
-            <Indicador cor="verde" rotulo="Hectares (estoque ÷ dose)" valor={nf(tot.ha)} unidade="ha" apoio="Soma dos produtos com dosagem" />
-            <Indicador cor="cinza" rotulo="Produtos" valor={String(linhas.length)} apoio={gruposTexto} />
-            <Indicador
-              cor={comDif > 0 ? "laranja" : "verde"}
-              rotulo="Real × disponível"
-              valor={comDif ? `${comDif} com diferença` : "Sem diferença"}
-              apoio={`Diferença total ${nf(tot.dif, 3)}`}
-            />
+            <BotaoCartao onClick={() => setJanela("valor")}>
+              <Indicador cor="azul" rotulo="Valor em estoque" valor={brl(tot.vr)} apoio={`${fmtDateBR(dados.dt)} · ${empresasTexto}`} className="h-full" />
+            </BotaoCartao>
+            <BotaoCartao onClick={() => setJanela("hectares")}>
+              <Indicador
+                cor="verde"
+                rotulo="Hectares (estoque ÷ dose)"
+                valor={nf(tot.ha)}
+                unidade="ha"
+                apoio="Soma dos produtos com dosagem"
+                className="h-full"
+              />
+            </BotaoCartao>
+            <BotaoCartao onClick={() => setJanela("produtos")}>
+              <Indicador cor="cinza" rotulo="Produtos" valor={String(linhas.length)} apoio={gruposTexto} className="h-full" />
+            </BotaoCartao>
+            <BotaoCartao onClick={() => setJanela("diferenca")}>
+              <Indicador
+                cor={comDif > 0 ? "laranja" : "verde"}
+                rotulo="Real × disponível"
+                valor={comDif ? `${comDif} com diferença` : "Sem diferença"}
+                apoio={`Diferença total ${nf(tot.dif, 3)}`}
+                className="h-full"
+              />
+            </BotaoCartao>
           </div>
         )}
 
@@ -283,6 +316,11 @@ export default function EstoqueClient({ perfil, nomeUsuario }) {
         </p>
       </CorpoPagina>
 
+      {dados?.dt && janela === "valor" && <JanelaValor linhas={linhas} tot={tot} base={baseJanela} />}
+      {dados?.dt && janela === "hectares" && <JanelaHectares linhas={linhas} tot={tot} base={baseJanela} />}
+      {dados?.dt && janela === "produtos" && <JanelaProdutos linhas={linhas} tot={tot} base={baseJanela} />}
+      {dados?.dt && janela === "diferenca" && <JanelaDiferenca linhas={linhas} tot={tot} base={baseJanela} />}
+
       {importar && (
         <ImportarEstoque
           onFechar={(importou) => {
@@ -295,6 +333,221 @@ export default function EstoqueClient({ perfil, nomeUsuario }) {
         />
       )}
     </Pagina>
+  );
+}
+
+/* ---------- Janelas dos cards: o detalhe calculado das mesmas linhas do relatório (mesmos filtros) que formam o card ---------- */
+
+/** Linhas do relatório somadas por grupo, na ordem do relatório. */
+function somarPorGrupo(linhas) {
+  const m = new Map();
+  for (const l of linhas) {
+    const g = m.get(l.grp) ?? { grp: l.grp, grpDs: l.grpDs, produtos: 0, vr: 0 };
+    g.produtos += 1;
+    g.vr += l.vr;
+    m.set(l.grp, g);
+  }
+  return Array.from(m.values());
+}
+
+const colGrupo = (onGrupo) => ({
+  rotulo: "Grupo",
+  valor: (l) => l.grp.trim(),
+  exibir: (l) => (
+    <BotaoLink onClick={() => onGrupo(l.grp)} title={`Mostrar na página só o grupo ${l.grp.trim()}${l.grpDs ? ` · ${l.grpDs}` : ""}`}>
+      {l.grp.trim()}
+    </BotaoLink>
+  ),
+});
+// um código pode vir em dois grupos (o relatório agrupa por grupo e código)
+const chaveProduto = (l) => `${l.grp}|${l.cod}`;
+const colCodigo = { rotulo: "Código", valor: (l) => l.cod, classe: () => "tabular text-muted" };
+const colDescricao = { rotulo: "Descrição", valor: (l) => l.ds };
+const colUn = { rotulo: "UN", valor: (l) => l.un, classe: () => "text-muted" };
+const colReal = { rotulo: "Est. Real", num: "qtd", valor: (l) => l.est };
+const colDisp = { rotulo: "Estoque Disp.", num: "qtd", valor: (l) => l.disp };
+
+/** Tabela por grupo (produtos e valor), com o clique no grupo filtrando a página. */
+function colunasPorGrupo(onGrupo, linhas, tot) {
+  return [
+    colGrupo(onGrupo),
+    { rotulo: "Descrição do grupo", valor: (g) => g.grpDs },
+    { rotulo: "Produtos", num: "int", valor: (g) => g.produtos, total: linhas.length },
+    { rotulo: "Vlr Total (R$)", num: "dec", valor: (g) => g.vr, total: tot.vr, classe: () => "font-medium text-ink" },
+    { rotulo: "% do total", num: "pct", valor: (g) => pct(g.vr, tot.vr), total: tot.vr > 0 ? 100 : null, classe: () => "text-muted" },
+  ];
+}
+
+/** Card Valor em estoque: o valor de cada grupo e de cada produto, do maior para o menor. */
+function JanelaValor({ linhas, tot, base }) {
+  const grupos = useMemo(() => somarPorGrupo(linhas), [linhas]);
+  const produtos = useMemo(() => {
+    let acum = 0;
+    return [...linhas].sort((a, b) => b.vr - a.vr).map((l) => ({ ...l, acum: (acum += l.vr) }));
+  }, [linhas]);
+  const colunas = colunasPorGrupo(base.onGrupo, linhas, tot);
+  const colunasProdutos = [
+    colCodigo,
+    colDescricao,
+    colGrupo(base.onGrupo),
+    colUn,
+    colReal,
+    { rotulo: "Vlr Unit. (R$)", num: "dec", valor: (l) => l.vlrUnit, classe: () => "text-muted" },
+    { rotulo: "Vlr Total (R$)", num: "dec", valor: (l) => l.vr, total: tot.vr, classe: () => "font-medium text-ink" },
+    { rotulo: "% do total", num: "pct", valor: (l) => pct(l.vr, tot.vr), total: tot.vr > 0 ? 100 : null, classe: () => "text-muted" },
+    { rotulo: "% acumulado", num: "pct", valor: (l) => pct(l.acum, tot.vr), classe: () => "text-muted" },
+  ];
+  return (
+    <JanelaCard
+      titulo="Valor em estoque"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      onFechar={base.onFechar}
+      largura="6xl"
+      exportar={{ nome: "Valor por grupo", colunas, linhas: grupos }}
+    >
+      <Nota>Vlr Total do Relatório de Estoque Físico na data, somando as empresas do filtro. Clique no grupo para deixar a página só com ele.</Nota>
+      <TabelaJanela colunas={colunas} linhas={grupos} chave={(g) => g.grp} vazio="Nenhum produto no filtro." rotuloTotal={`Total · ${int(grupos.length)} grupo(s)`} />
+      <Secao
+        titulo={`Valor por produto, do maior para o menor · ${int(produtos.length)}`}
+        acoes={exportarTabela(base.prefixo, { nome: "Valor por produto", colunas: colunasProdutos, linhas: produtos })}
+      >
+        <TabelaJanela colunas={colunasProdutos} linhas={produtos} chave={chaveProduto} vazio="Nenhum produto no filtro." />
+      </Secao>
+    </JanelaCard>
+  );
+}
+
+/** Card Hectares: estoque real ÷ dose de cada produto com dosagem; abaixo, os que ficam fora da soma (sem dosagem). */
+function JanelaHectares({ linhas, tot, base }) {
+  const comDose = useMemo(() => linhas.filter((l) => l.ha !== null).sort((a, b) => b.ha - a.ha), [linhas]);
+  const semDose = useMemo(() => linhas.filter((l) => l.ha === null), [linhas]);
+  const colunas = [
+    colCodigo,
+    colDescricao,
+    colGrupo(base.onGrupo),
+    colUn,
+    colReal,
+    {
+      rotulo: "Dosagem /ha",
+      num: "qtd",
+      valor: (l) => l.dose,
+      exibir: (l) => (
+        <>
+          {nf(l.dose, 3)}
+          {l.doseOrigem === "dosagens" && <span className="text-muted">*</span>}
+        </>
+      ),
+      dica: (l) => (l.doseOrigem === "dosagens" ? "Do cadastro Insumos › Dosagens (sem dose na planilha)" : undefined),
+    },
+    { rotulo: "Origem da dose", valor: (l) => (l.doseOrigem === "dosagens" ? "Insumos › Dosagens" : "Planilha de estoque"), soPlanilha: true },
+    { rotulo: "Hectares", num: "dec", valor: (l) => l.ha, total: tot.ha, classe: () => "font-medium text-ink" },
+  ];
+  const colunasSem = [colCodigo, colDescricao, colGrupo(base.onGrupo), colUn, colReal];
+  return (
+    <JanelaCard
+      titulo="Hectares (estoque ÷ dose)"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      onFechar={base.onFechar}
+      largura="6xl"
+      exportar={{ nome: "Hectares por produto", colunas, linhas: comDose }}
+    >
+      <Nota>
+        Hectares = estoque real ÷ dosagem por hectare, por produto. A dosagem é a da planilha de estoque; com *, do cadastro Insumos › Dosagens (produto sem
+        dose na planilha). Produtos sem dosagem não entram na soma.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={comDose}
+        chave={chaveProduto}
+        vazio="Nenhum produto com dosagem no filtro."
+        rotuloTotal={`Total · ${int(comDose.length)} produto(s) com dosagem`}
+      />
+      <Secao
+        titulo={`Produtos sem dosagem (fora da soma) · ${int(semDose.length)}`}
+        acoes={exportarTabela(base.prefixo, { nome: "Produtos sem dosagem", colunas: colunasSem, linhas: semDose })}
+      >
+        <TabelaJanela colunas={colunasSem} linhas={semDose} chave={chaveProduto} vazio="Todos os produtos do filtro têm dosagem." />
+      </Secao>
+    </JanelaCard>
+  );
+}
+
+/** Card Produtos: os produtos do relatório (na ordem da página) e quantos há em cada grupo. */
+function JanelaProdutos({ linhas, tot, base }) {
+  const grupos = useMemo(() => somarPorGrupo(linhas), [linhas]);
+  const colunas = [
+    colCodigo,
+    colDescricao,
+    colGrupo(base.onGrupo),
+    { rotulo: "Princípio Ativo", valor: (l) => l.principioAtivo, exibir: (l) => l.principioAtivo || "–", classe: () => "max-w-[240px] text-[12px] text-muted" },
+    colUn,
+    colReal,
+    colDisp,
+    { rotulo: "Vlr Total (R$)", num: "dec", valor: (l) => l.vr, total: tot.vr },
+  ];
+  const colunasGrupo = colunasPorGrupo(base.onGrupo, linhas, tot);
+  return (
+    <JanelaCard
+      titulo="Produtos"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      onFechar={base.onFechar}
+      largura="6xl"
+      exportar={{ nome: "Produtos", colunas, linhas }}
+    >
+      <Nota>Cada produto (código) do relatório na data, somando as empresas do filtro. Clique no grupo para deixar a página só com ele.</Nota>
+      <TabelaJanela colunas={colunas} linhas={linhas} chave={chaveProduto} vazio="Nenhum produto no filtro." rotuloTotal={`Total · ${int(linhas.length)} produto(s)`} />
+      <Secao
+        titulo={`Por grupo · ${int(grupos.length)}`}
+        acoes={exportarTabela(base.prefixo, { nome: "Produtos por grupo", colunas: colunasGrupo, linhas: grupos })}
+      >
+        <TabelaJanela
+          colunas={colunasGrupo}
+          linhas={grupos}
+          chave={(g) => g.grp}
+          vazio="Nenhum produto no filtro."
+          rotuloTotal={`Total · ${int(grupos.length)} grupo(s)`}
+        />
+      </Secao>
+    </JanelaCard>
+  );
+}
+
+/** Card Real × disponível: os produtos com diferença entre o estoque disponível e o real, da maior diferença para a menor. */
+function JanelaDiferenca({ linhas, tot, base }) {
+  const comDif = useMemo(() => linhas.filter((l) => Math.abs(l.dif) >= 0.0005).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif)), [linhas]);
+  const colunas = [
+    colCodigo,
+    colDescricao,
+    colGrupo(base.onGrupo),
+    colUn,
+    colReal,
+    colDisp,
+    { rotulo: "Dif. Real × Disp.", num: "qtdVar", valor: (l) => l.dif, total: tot.dif, classe: (l) => `font-medium ${corVariacao(l.dif, 3)}` },
+  ];
+  return (
+    <JanelaCard
+      titulo="Real × disponível"
+      subtitulo={base.subtitulo}
+      prefixo={base.prefixo}
+      onFechar={base.onFechar}
+      largura="6xl"
+      exportar={{ nome: "Real × disponível", colunas, linhas: comDif }}
+    >
+      <Nota>
+        Dif. = estoque disponível − estoque real, por produto, somando as empresas do filtro: positiva, há mais disponível que real; negativa, menos. O
+        total é a Diferença total do card (os demais produtos não têm diferença). Clique no grupo para deixar a página só com ele.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={comDif}
+        chave={chaveProduto}
+        vazio="Nenhum produto com diferença entre o estoque real e o disponível."
+        rotuloTotal={`Total · ${int(comDif.length)} produto(s) com diferença`}
+      />
+    </JanelaCard>
   );
 }
 

@@ -2,12 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { CabecalhoPagina, CorpoPagina, Pagina, Painel } from "@/components/pagina";
-import { telasDoMenu } from "@/lib/menu";
+import { MARCA_ACESSOS, telasDoMenu, telasMarcadas } from "@/lib/menu";
 import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIS } from "@/lib/permissoes";
 
+// o Início / Dashboard vem primeiro, numa seção só dele
 const TELAS = telasDoMenu();
 const SECOES = Array.from(new Set(TELAS.map((t) => t.secao)));
 const TODAS = TELAS.map((t) => t.href);
+
+/** Telas marcadas do usuário, como a tela mostra: sem a marca de versão gravada e, na lista antiga, com o Início. */
+const marcadasDe = (u) => telasMarcadas(u?.acessos ?? null);
 
 const COR_PERFIL = {
   leitura: "bg-surface text-muted",
@@ -32,15 +36,16 @@ export default function ParametrosUsuariosClient({ usuariosIniciais, idLogado })
   // rascunho do usuário escolhido
   const [perfil, setPerfil] = useState(sel?.perfil ?? "leitura");
   const [todas, setTodas] = useState(sel ? sel.acessos === null : true);
-  const [marcadas, setMarcadas] = useState(new Set(sel?.acessos ?? TODAS));
+  const [marcadas, setMarcadas] = useState(new Set(marcadasDe(sel) ?? TODAS));
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState(null);
 
+  const selMarcadas = marcadasDe(sel);
   const alterado =
     !!sel &&
     (perfil !== sel.perfil ||
       todas !== (sel.acessos === null) ||
-      (!todas && (sel.acessos === null || sel.acessos.length !== marcadas.size || sel.acessos.some((h) => !marcadas.has(h)))));
+      (!todas && (selMarcadas === null || selMarcadas.length !== marcadas.size || selMarcadas.some((h) => !marcadas.has(h)))));
 
   function escolher(u) {
     if (u.id === selId) return;
@@ -48,7 +53,7 @@ export default function ParametrosUsuariosClient({ usuariosIniciais, idLogado })
     setSelId(u.id);
     setPerfil(u.perfil);
     setTodas(u.acessos === null);
-    setMarcadas(new Set(u.acessos ?? TODAS));
+    setMarcadas(new Set(marcadasDe(u) ?? TODAS));
     setMsg(null);
   }
 
@@ -90,16 +95,19 @@ export default function ParametrosUsuariosClient({ usuariosIniciais, idLogado })
       if (perfil !== "admin") {
         const acessos = todas ? null : TODAS.filter((h) => marcadas.has(h));
         const mudouAcesso =
-          todas !== (sel.acessos === null) || (!todas && (sel.acessos?.length !== acessos.length || acessos.some((h) => !sel.acessos.includes(h))));
+          todas !== (sel.acessos === null) || (!todas && (selMarcadas?.length !== acessos.length || acessos.some((h) => !selMarcadas.includes(h))));
         if (mudouAcesso) {
+          // a marca de versão na frente diz à API que esta lista já traz o Início como tela marcável (fora dela, desmarcado)
+          const enviar = acessos && [MARCA_ACESSOS, ...acessos];
           const res = await fetch("/api/parametros/acessos", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: sel.id, acessos }),
+            body: JSON.stringify({ id: sel.id, acessos: enviar }),
           });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json.error ?? "Não foi possível salvar as telas liberadas.");
-          atualizado = { ...atualizado, acessos };
+          // a lista volta como foi gravada (com a marca de versão na frente)
+          atualizado = { ...atualizado, acessos: json.acessos === undefined ? enviar : json.acessos };
         }
       }
       setUsuarios((us) => us.map((u) => (u.id === sel.id ? atualizado : u)));
@@ -150,7 +158,7 @@ export default function ParametrosUsuariosClient({ usuariosIniciais, idLogado })
                             {u.id === idLogado && <span className="ml-1 text-[11px] font-normal text-muted">(você)</span>}
                           </span>
                           <span className="block truncate text-[11.5px] text-muted">
-                            {u.perfil === "admin" ? "Todas as telas" : u.acessos === null ? "Todas as telas" : `${u.acessos.length} de ${TODAS.length} telas`}
+                            {u.perfil === "admin" ? "Todas as telas" : u.acessos === null ? "Todas as telas" : `${marcadasDe(u).length} de ${TODAS.length} telas`}
                             {u.ativo ? "" : " · inativo"}
                           </span>
                         </span>
@@ -222,7 +230,10 @@ export default function ParametrosUsuariosClient({ usuariosIniciais, idLogado })
                       </label>
                     </div>
                   )}
-                  <p className="mt-1 text-[11.5px] text-muted">O Início fica sempre liberado. Cadastros de usuários e Parâmetros são só do administrador.</p>
+                  <p className="mt-1 text-[11.5px] text-muted">
+                    Sem o Início / Dashboard, o usuário entra direto na primeira tela liberada do menu. Cadastros de usuários e Parâmetros são só do
+                    administrador.
+                  </p>
                 </div>
 
                 <div className={`mt-4 space-y-5 ${desabilitado ? "pointer-events-none opacity-45" : ""}`} aria-disabled={desabilitado}>
@@ -236,24 +247,27 @@ export default function ParametrosUsuariosClient({ usuariosIniciais, idLogado })
                           <span className="text-[11.5px] text-muted">
                             {n} de {telas.length}
                           </span>
-                          <span className="ml-auto flex gap-3 text-[11.5px]">
-                            <button
-                              type="button"
-                              className="text-muted hover:text-ink"
-                              onClick={() => marcarSecao(secao, true)}
-                              tabIndex={desabilitado ? -1 : 0}
-                            >
-                              Marcar todas
-                            </button>
-                            <button
-                              type="button"
-                              className="text-muted hover:text-ink"
-                              onClick={() => marcarSecao(secao, false)}
-                              tabIndex={desabilitado ? -1 : 0}
-                            >
-                              Desmarcar
-                            </button>
-                          </span>
+                          {/* seção de uma tela só (o Início): basta a própria caixa */}
+                          {telas.length > 1 && (
+                            <span className="ml-auto flex gap-3 text-[11.5px]">
+                              <button
+                                type="button"
+                                className="text-muted hover:text-ink"
+                                onClick={() => marcarSecao(secao, true)}
+                                tabIndex={desabilitado ? -1 : 0}
+                              >
+                                Marcar todas
+                              </button>
+                              <button
+                                type="button"
+                                className="text-muted hover:text-ink"
+                                onClick={() => marcarSecao(secao, false)}
+                                tabIndex={desabilitado ? -1 : 0}
+                              >
+                                Desmarcar
+                              </button>
+                            </span>
+                          )}
                         </div>
                         <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
                           {telas.map((t) => (

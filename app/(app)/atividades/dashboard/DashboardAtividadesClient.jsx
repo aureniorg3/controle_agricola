@@ -3,11 +3,13 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import { IconAjustes, IconImprimir, IconSetaDireita, IconSetaEsquerda } from "@/components/icons";
-import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
+import { JanelaInfo } from "@/components/janela";
+import { Abas, BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
 import { GRUPO_OUTRAS } from "@/lib/dashboard-atividades";
 import { fmtDateBR } from "@/lib/format";
 import { addDays } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
+import { BotaoExportar } from "@/app/(app)/acompanhamentos/os-agricola/comum";
 
 const FILTRO = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
 const nf = (n) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -25,6 +27,8 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }) {
   const [gruposAberto, setGruposAberto] = useState(false);
   const [versao, setVersao] = useState(0);
   const [gerandoPdf, setGerandoPdf] = useState(false);
+  /** janela (detalhe) do card aberta: { tipo: "moagem" | "operacoes", periodo: "dia" | "semana" | "mes" | "safra" } */
+  const [janela, setJanela] = useState(null);
 
   async function gerarPdf() {
     if (!dados) return;
@@ -60,6 +64,53 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }) {
   const maxima = dados?.ultimoLancamento ?? "";
   const mudarDia = (delta) => ref && (delta < 0 || ref < maxima) && setDt(addDays(ref, delta));
   const mesRotulo = ref ? `${MESES[Number(ref.slice(5, 7)) - 1]}/${ref.slice(2, 4)}` : "";
+
+  // caixas do topo: cada uma abre a janela com o detalhe que forma o número (mesma data de referência)
+  const iDia = dados ? dados.semana.indexOf(dados.dt) : -1;
+  const cards = dados
+    ? [
+        { tipo: "moagem", periodo: "dia", rotulo: `Moagem do dia · ${dm(dados.dt)}`, valor: dados.moagem.total.dias[iDia] ?? 0, unidade: "t", tom: "azul" },
+        { tipo: "moagem", periodo: "semana", rotulo: "Moagem na semana", valor: dados.moagem.total.semana, unidade: "t", tom: "azul" },
+        { tipo: "moagem", periodo: "mes", rotulo: `Moagem no mês · ${mesRotulo}`, valor: dados.moagem.total.mes, unidade: "t", tom: "azul" },
+        {
+          tipo: "moagem",
+          periodo: "safra",
+          rotulo: `Moagem na safra${dados.safraMoagem ? ` · ${dados.safraMoagem.rotulo}` : ""}`,
+          valor: dados.moagem.total.safra,
+          unidade: "t",
+          tom: "azul",
+        },
+        {
+          tipo: "operacoes",
+          periodo: "dia",
+          rotulo: `Operações no dia · ${dm(dados.dt)}`,
+          valor: dados.operacoes.total.dias[iDia] ?? 0,
+          unidade: "ha",
+          tom: "verde",
+        },
+        { tipo: "operacoes", periodo: "semana", rotulo: "Operações na semana", valor: dados.operacoes.total.semana, unidade: "ha", tom: "verde" },
+        { tipo: "operacoes", periodo: "mes", rotulo: `Operações no mês · ${mesRotulo}`, valor: dados.operacoes.total.mes, unidade: "ha", tom: "verde" },
+        {
+          tipo: "operacoes",
+          periodo: "safra",
+          rotulo: `Operações na safra${dados.safraOperacoes ? ` · ${dados.safraOperacoes.rotulo}` : ""}`,
+          valor: dados.operacoes.total.safra,
+          unidade: "ha",
+          tom: "verde",
+        },
+      ]
+    : [];
+  const cardAberto = janela && cards.find((c) => c.tipo === janela.tipo && c.periodo === janela.periodo);
+  const baseJanela = dados && {
+    dados,
+    mesRotulo,
+    onFechar: () => setJanela(null),
+    // clique num dia dentro da janela: o dashboard passa a ter esse dia como data de referência
+    onData: (d) => {
+      setDt(d);
+      setJanela(null);
+    },
+  };
 
   return (
     <Pagina>
@@ -126,30 +177,19 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }) {
 
         {dados && (
           <div className={carregando ? "opacity-60 transition-opacity" : ""}>
+            {/* cada card abre a janela com o detalhe do mesmo número (mesma data de referência) */}
             <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Kpi rotulo={`Moagem do dia · ${dm(dados.dt)}`} valor={dados.moagem.total.dias[dados.semana.indexOf(dados.dt)] ?? 0} unidade="t" tom="azul" />
-              <Kpi rotulo="Moagem na semana" valor={dados.moagem.total.semana} unidade="t" tom="azul" />
-              <Kpi rotulo={`Moagem no mês · ${mesRotulo}`} valor={dados.moagem.total.mes} unidade="t" tom="azul" />
-              <Kpi
-                rotulo={`Moagem na safra${dados.safraMoagem ? ` · ${dados.safraMoagem.rotulo}` : ""}`}
-                valor={dados.moagem.total.safra}
-                unidade="t"
-                tom="azul"
-              />
-              <Kpi
-                rotulo={`Operações no dia · ${dm(dados.dt)}`}
-                valor={dados.operacoes.total.dias[dados.semana.indexOf(dados.dt)] ?? 0}
-                unidade="ha"
-                tom="verde"
-              />
-              <Kpi rotulo="Operações na semana" valor={dados.operacoes.total.semana} unidade="ha" tom="verde" />
-              <Kpi rotulo={`Operações no mês · ${mesRotulo}`} valor={dados.operacoes.total.mes} unidade="ha" tom="verde" />
-              <Kpi
-                rotulo={`Operações na safra${dados.safraOperacoes ? ` · ${dados.safraOperacoes.rotulo}` : ""}`}
-                valor={dados.operacoes.total.safra}
-                unidade="ha"
-                tom="verde"
-              />
+              {cards.map((c) => (
+                <button
+                  key={`${c.tipo}-${c.periodo}`}
+                  type="button"
+                  onClick={() => setJanela({ tipo: c.tipo, periodo: c.periodo })}
+                  className="min-w-0 rounded-xl2 text-left transition hover:-translate-y-px focus:outline-none focus-visible:ring-2 focus-visible:ring-navy-500"
+                  title={`Ver o detalhe · ${c.rotulo}`}
+                >
+                  <Kpi rotulo={c.rotulo} valor={c.valor} unidade={c.unidade} tom={c.tom} />
+                </button>
+              ))}
             </div>
 
             <Tabela
@@ -216,13 +256,16 @@ export default function DashboardAtividadesClient({ perfil, nomeUsuario }) {
         )}
       </CorpoPagina>
 
+      {cardAberto?.tipo === "moagem" && <JanelaMoagem key={cardAberto.periodo} card={cardAberto} base={baseJanela} />}
+      {cardAberto?.tipo === "operacoes" && <JanelaOperacoes key={cardAberto.periodo} card={cardAberto} base={baseJanela} />}
       {gruposAberto && <GruposModal onFechar={() => setGruposAberto(false)} onAlterado={() => setVersao((v) => v + 1)} />}
     </Pagina>
   );
 }
 
+/** Caixa do topo (dentro do botão que abre a janela; o rótulo inteiro vai no title do botão). */
 function Kpi({ rotulo, valor, unidade, tom }) {
-  return <Indicador cor={tom} rotulo={rotulo} valor={nf(valor)} unidade={unidade} title={rotulo} />;
+  return <Indicador cor={tom} rotulo={rotulo} valor={nf(valor)} unidade={unidade} className="h-full" />;
 }
 
 function Tabela({ titulo, descricao, rotulo, dados, mesRotulo, safraRotulo, children }) {
@@ -313,6 +356,447 @@ function Vazio({ texto }) {
         {texto}
       </td>
     </tr>
+  );
+}
+
+/* ---------- Janelas dos cards: o detalhe que forma o número de cada caixa, na mesma data de referência ---------- */
+
+const int = (n) => (n ?? 0).toLocaleString("pt-BR");
+const pct = (v, total) => (total > 0 ? Math.round((v / total) * 1000) / 10 : null);
+const temValor = (n) => Math.abs(n ?? 0) >= 0.005;
+const NO_PERIODO = { dia: "no dia", semana: "na semana", mes: "no mês", safra: "na safra" };
+/** dia da semana (seg…dom) de uma data ISO */
+const diaDaSemana = (iso) => DIAS[(new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7];
+/** valor de uma linha do dashboard no período do card: o dia da referência ou o acumulado (semana, mês, safra) */
+const doPeriodo = (v, periodo, iDia) => (periodo === "dia" ? (v.dias[iDia] ?? 0) : v[periodo]);
+
+/** Período do card (subtítulo da janela): de quando a quando vai o número — sempre até a data de referência. */
+function periodoDoCard(dados, tipo, periodo, mesRotulo) {
+  const ref = fmtDateBR(dados.dt);
+  if (periodo === "dia") return `Dia ${ref} (data de referência)`;
+  const safra = tipo === "moagem" ? dados.safraMoagem : dados.safraOperacoes;
+  const de = { semana: dados.semana[0], mes: dados.mesInicio, safra: safra?.inicio ?? `${dados.dt.slice(0, 4)}-01-01` }[periodo];
+  const nome = {
+    semana: "Semana",
+    mes: `Mês ${mesRotulo}`,
+    safra: safra?.rotulo ?? (tipo === "moagem" ? "Sem safra em produção" : "Sem safra cadastrada"),
+  }[periodo];
+  return `${nome} · de ${fmtDateBR(de)} até a data de referência ${ref}`;
+}
+
+/** Valor na tela: toneladas e hectares (2 casas), contagem, percentual (1 casa), código ou texto. */
+function formatar(num, v) {
+  if (num === "int") return int(v);
+  if (num === "pct") return v === null || v === undefined ? "–" : `${v.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  if (num === "t" || num === "ha") return nf(v ?? 0);
+  return v ?? "";
+}
+
+/**
+ * Tabela das janelas: cabeçalho, números à direita e linha de total (fica no fim ao ordenar pelo título da coluna).
+ * Coluna: { rotulo, valor(l) (o que vai para a planilha), num ("t", "ha", "int", "pct", "cod" = à direita), exibir(l)
+ * (o que aparece, se diferente do valor), classe(l), dica(l), total }.
+ */
+function TabelaJanela({ colunas, linhas, chave, vazio }) {
+  const inicioTotal = colunas.findIndex((c) => c.total !== undefined);
+  return (
+    <div className="overflow-x-auto rounded-lg border border-line">
+      <table className="w-full text-[12.5px]">
+        <thead>
+          <tr className="whitespace-nowrap border-b border-line bg-surface text-left text-muted">
+            {colunas.map((c) => (
+              <th key={c.rotulo} className={`px-3 py-2 font-medium ${c.num ? "text-right" : ""}`}>
+                {c.rotulo}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {linhas.map((l) => (
+            <tr key={chave(l)} className="border-t border-line/60 hover:bg-surface/60">
+              {colunas.map((c) => (
+                <td key={c.rotulo} className={`px-3 py-1.5 ${c.num ? "text-right tabular" : ""} ${c.classe?.(l) ?? "text-ink"}`} title={c.dica?.(l)}>
+                  {c.exibir ? c.exibir(l) : formatar(c.num, c.valor(l))}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {linhas.length === 0 && (
+            <tr>
+              <td colSpan={colunas.length} className="px-4 py-8 text-center text-muted">
+                {vazio}
+              </td>
+            </tr>
+          )}
+          {linhas.length > 0 && inicioTotal > 0 && (
+            <tr className="bg-navy-900 font-semibold text-white">
+              <td colSpan={inicioTotal} className="px-3 py-2">
+                Total
+              </td>
+              {colunas.slice(inicioTotal).map((c) => (
+                <td key={c.rotulo} className={`px-3 py-2 ${c.num ? "text-right tabular" : ""}`}>
+                  {c.total === undefined ? "" : formatar(c.num, c.total)}
+                </td>
+              ))}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Nota({ children, aviso = false }) {
+  return (
+    <p
+      className={`mb-3 text-[12px] leading-relaxed ${aviso ? "rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-amber-800" : "text-muted"}`}
+    >
+      {children}
+    </p>
+  );
+}
+
+/** Detalhe do card que vem do servidor (quebras por dia e por fazenda, viagens ou apontamentos), na data de referência. */
+function useDetalhe(dt, tipo, periodo) {
+  const [det, setDet] = useState(null);
+  const [erro, setErro] = useState(null);
+  useEffect(() => {
+    let ativo = true;
+    fetch(`/api/atividades/dashboard?dt=${dt}&detalhe=${tipo}&periodo=${periodo}`, { cache: "no-store" })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ativo) return;
+        if (!ok) return setErro(j.error ?? "Não foi possível carregar o detalhe.");
+        setDet(j);
+      })
+      .catch(() => ativo && setErro("Não foi possível carregar o detalhe."));
+    return () => {
+      ativo = false;
+    };
+  }, [dt, tipo, periodo]);
+  return { det, erro };
+}
+
+/** Coluna Data das quebras por dia: o clique leva o dashboard para esse dia (data de referência). */
+const colData = (onData) => ({
+  rotulo: "Data",
+  valor: (x) => fmtDateBR(x.d),
+  exibir: (x) => (
+    <button
+      type="button"
+      onClick={() => onData(x.d)}
+      className="text-left font-medium text-[#2E5FA8] hover:underline"
+      title={`Ver o dashboard com a data de referência ${fmtDateBR(x.d)}`}
+    >
+      {fmtDateBR(x.d)}
+    </button>
+  ),
+});
+const colDiaSemana = { rotulo: "Dia", valor: (x) => diaDaSemana(x.d), classe: () => "text-muted" };
+
+/**
+ * Moldura das janelas dos cards: o número da caixa no título, o período no subtítulo, as abas (as quebras do número) e
+ * o exportar da aba aberta no topo. Tabela da aba: { nome, colunas, linhas, chave, vazio }; linhas nulas = ainda
+ * carregando do servidor (ou erro). O erro do detalhe aparece acima das abas em todas elas, inclusive nas que usam só
+ * os dados do dashboard (mas têm colunas do servidor, como as viagens por frente).
+ */
+function JanelaCard({ card, base, titulo, abas, aba, onAba, tabela, erro, notas }) {
+  const { dados } = base;
+  return (
+    <JanelaInfo
+      titulo={`${titulo} · ${nf(card.valor)} ${card.unidade}`}
+      subtitulo={periodoDoCard(dados, card.tipo, card.periodo, base.mesRotulo)}
+      largura="6xl"
+      onFechar={base.onFechar}
+      acoes={
+        tabela.linhas?.length > 0 && (
+          <BotaoExportar
+            nome={`Dashboard Atividades ${dados.dt} - ${titulo} ${tabela.nome}`}
+            colunas={tabela.colunas.map(({ rotulo, valor }) => ({ rotulo, valor }))}
+            buscar={async () => tabela.linhas}
+          />
+        )
+      }
+    >
+      {notas}
+      {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">{erro}</p>}
+      <Abas itens={abas} ativo={aba} onChange={onAba} className="mb-3" />
+      {tabela.linhas ? (
+        <TabelaJanela colunas={tabela.colunas} linhas={tabela.linhas} chave={tabela.chave} vazio={tabela.vazio} />
+      ) : erro ? (
+        <div className="py-8 text-center text-[13px] text-muted">Esta aba depende do detalhe, que não carregou. Feche e abra a janela de novo.</div>
+      ) : (
+        <div className="py-8 text-center text-[13px] text-muted">Carregando…</div>
+      )}
+    </JanelaInfo>
+  );
+}
+
+/** Aviso quando o detalhe (lido agora) não soma o número da caixa (lido ao abrir a tela), além do arredondamento das linhas. */
+function AvisoDivergencia({ det, valor, unidade, linhas }) {
+  if (!det || Math.abs(det.total - valor) <= 0.01 + 0.005 * linhas) return null;
+  return (
+    <Nota aviso>
+      Os lançamentos mudaram depois que o dashboard foi carregado: o detalhe soma {nf(det.total)} {unidade}. Atualize a tela para os números baterem.
+    </Nota>
+  );
+}
+
+/**
+ * Card de moagem: toneladas por frente (do próprio dashboard), por dia, por fazenda e, no dia, cada viagem — as mesmas
+ * viagens da pesagem que formam o número.
+ */
+function JanelaMoagem({ card, base }) {
+  const { dados } = base;
+  const { periodo, valor } = card;
+  const { det, erro } = useDetalhe(dados.dt, "moagem", periodo);
+  const [aba, setAba] = useState("frente");
+  const iDia = dados.semana.indexOf(dados.dt);
+  const viagensDaFrente = useMemo(() => new Map((det?.porFrente ?? []).map((f) => [f.frente, f.viagens])), [det]);
+  // toneladas do próprio dashboard; com o detalhe, entram também as frentes só com viagens de 0 t (pesagem sem
+  // tonelagem), que não aparecem no dashboard mas estão nas abas Por dia e Por fazenda — assim as viagens batem
+  const frentes = useMemo(() => {
+    const lista = dados.moagem.frentes.map((f) => ({ frente: f.frente, t: doPeriodo(f, periodo, iDia) })).filter((f) => temValor(f.t));
+    const mostradas = new Set(lista.map((f) => f.frente));
+    for (const f of det?.porFrente ?? []) {
+      if (!mostradas.has(f.frente) && f.viagens > 0 && !temValor(f.t)) lista.push({ frente: f.frente, t: 0, semTonelagem: true });
+    }
+    return lista.sort((a, b) => b.t - a.t || a.frente.localeCompare(b.frente));
+  }, [dados, periodo, iDia, det]);
+  // total da coluna Viagens: a soma das linhas mostradas (sem o detalhe, fica em branco)
+  const nViagensFrentes = det ? frentes.reduce((s, f) => s + (viagensDaFrente.get(f.frente) ?? 0), 0) : undefined;
+  const colT = { rotulo: "Toneladas (t)", num: "t", valor: (x) => x.t, total: valor };
+  const colPct = { rotulo: "% do total", num: "pct", valor: (x) => pct(x.t, valor), total: valor > 0 ? 100 : null, classe: () => "text-muted" };
+  const colViagens = { rotulo: "Viagens", num: "int", valor: (x) => x.viagens, total: det ? det.porDia.reduce((s, x) => s + x.viagens, 0) : undefined };
+  const semEntrada = "Sem entrada de cana no período.";
+  const tabelas = {
+    frente: {
+      nome: "por frente",
+      colunas: [
+        {
+          rotulo: "Frente",
+          valor: (f) => f.frente,
+          classe: (f) => (f.semTonelagem ? "font-medium text-muted" : "font-medium text-ink"),
+          dica: (f) => (f.semTonelagem ? "Só viagens sem tonelagem (0 t) no período: não somam no número da caixa." : undefined),
+        },
+        {
+          ...colViagens,
+          total: nViagensFrentes,
+          valor: (f) => (det ? (viagensDaFrente.get(f.frente) ?? 0) : null),
+          exibir: (f) => (det ? int(viagensDaFrente.get(f.frente) ?? 0) : erro ? "–" : "…"),
+        },
+        colT,
+        colPct,
+      ],
+      linhas: frentes,
+      chave: (f) => f.frente,
+      vazio: semEntrada,
+    },
+    dia: {
+      nome: "por dia",
+      colunas: [colData(base.onData), colDiaSemana, colViagens, colT, colPct],
+      linhas: det?.porDia ?? null,
+      chave: (x) => x.d,
+      vazio: semEntrada,
+    },
+    fazenda: {
+      nome: "por fazenda",
+      colunas: [
+        { rotulo: "Fazenda", num: "cod", valor: (z) => z.cod, classe: () => "font-medium text-ink" },
+        { rotulo: "Descrição", valor: (z) => z.nome },
+        { rotulo: "Frentes", valor: (z) => z.frentes.join(", "), classe: () => "text-muted" },
+        colViagens,
+        colT,
+        colPct,
+      ],
+      linhas: det?.porFazenda ?? null,
+      chave: (z) => z.cod,
+      vazio: semEntrada,
+    },
+    viagens: {
+      nome: "viagens",
+      colunas: [
+        { rotulo: "Hora", valor: (v) => v.hora, classe: () => "tabular text-muted" },
+        { rotulo: "Controle", num: "cod", valor: (v) => v.controle },
+        { rotulo: "Ordem", num: "cod", valor: (v) => v.ordem },
+        { rotulo: "Frente", valor: (v) => v.frente },
+        { rotulo: "Fazenda", num: "cod", valor: (v) => v.fazenda, classe: () => "font-medium text-ink" },
+        { rotulo: "Descrição", valor: (v) => v.fazendaNome },
+        { rotulo: "Talhão", num: "cod", valor: (v) => v.talhao },
+        { rotulo: "Veículo", valor: (v) => v.veiculo, classe: () => "text-muted" },
+        colT,
+      ],
+      linhas: det?.viagens ?? null,
+      chave: (v) => `${v.ordem}|${v.controle}`,
+      vazio: "Nenhuma viagem no dia.",
+    },
+  };
+  const abas = [
+    { id: "frente", label: "Por frente" },
+    periodo !== "dia" && { id: "dia", label: "Por dia" },
+    { id: "fazenda", label: "Por fazenda" },
+    periodo === "dia" && { id: "viagens", label: det?.viagens ? `Viagens · ${int(det.viagens.length)}` : "Viagens" },
+  ].filter(Boolean);
+  const notas = (
+    <>
+      <Nota>
+        Toneladas de todas as viagens da pesagem (com ou sem ordem de corte, como a CMAA), sem as viagens com tara zerada; a frente é a da ordem de corte
+        e, sem ordem, a do relatório de pesagem.
+        {periodo !== "dia" && " Na aba Por dia, clique na data para ver o dashboard naquele dia."}
+        {frentes.some((f) => f.semTonelagem) && " Na aba Por frente, as frentes em cinza só tiveram viagens sem tonelagem (0 t)."}
+      </Nota>
+      {det && det.ate < dados.dt && (
+        <Nota aviso>A produção da safra de moagem terminou em {fmtDateBR(det.ate)}: entradas de cana depois dessa data não contam.</Nota>
+      )}
+      <AvisoDivergencia det={det} valor={valor} unidade="t" linhas={dados.moagem.frentes.length} />
+    </>
+  );
+  return (
+    <JanelaCard
+      card={card}
+      base={base}
+      titulo={`Moagem ${NO_PERIODO[periodo]}`}
+      abas={abas}
+      aba={aba}
+      onAba={setAba}
+      tabela={tabelas[aba]}
+      erro={erro}
+      notas={notas}
+    />
+  );
+}
+
+/**
+ * Card de operações: área por grupo e por operação (do próprio dashboard), por dia, por fazenda e cada apontamento (no
+ * dia, na semana e no mês; na safra a lista seria grande demais) — os mesmos apontamentos que formam o número.
+ */
+function JanelaOperacoes({ card, base }) {
+  const { dados } = base;
+  const { periodo, valor } = card;
+  const { det, erro } = useDetalhe(dados.dt, "operacoes", periodo);
+  const [aba, setAba] = useState("grupo");
+  const iDia = dados.semana.indexOf(dados.dt);
+  const { grupos, operacoes } = useMemo(() => {
+    const g = [];
+    const o = [];
+    for (const x of dados.operacoes.grupos) {
+      const linhas = x.linhas.map((l) => ({ grupo: x.grupo, cod: l.cod, ds: l.ds, ha: doPeriodo(l, periodo, iDia) })).filter((l) => temValor(l.ha));
+      const ha = doPeriodo(x.subtotal, periodo, iDia);
+      if (!temValor(ha) && linhas.length === 0) continue;
+      g.push({ grupo: x.grupo, operacoes: linhas.length, ha });
+      o.push(...linhas);
+    }
+    return { grupos: g, operacoes: o.sort((a, b) => b.ha - a.ha || a.ds.localeCompare(b.ds)) };
+  }, [dados, periodo, iDia]);
+  const soma = (lista, campo) => (lista ? lista.reduce((s, x) => s + x[campo], 0) : undefined);
+  const colHa = { rotulo: "Área (ha)", num: "ha", valor: (x) => x.ha, total: valor };
+  const colPct = { rotulo: "% do total", num: "pct", valor: (x) => pct(x.ha, valor), total: valor > 0 ? 100 : null, classe: () => "text-muted" };
+  // talhões de cada apontamento (o mesmo talhão em dois apontamentos conta duas vezes)
+  const colTalhoes = (lista) => ({ rotulo: "Talhões", num: "int", valor: (x) => x.talhoes, total: soma(lista, "talhoes") });
+  const semApontamento = "Sem apontamento de operação no período.";
+  const tabelas = {
+    grupo: {
+      nome: "por grupo",
+      colunas: [
+        { rotulo: "Grupo", valor: (g) => g.grupo, classe: () => "font-medium text-ink" },
+        { rotulo: "Operações", num: "int", valor: (g) => g.operacoes, total: operacoes.length },
+        colHa,
+        colPct,
+      ],
+      linhas: grupos,
+      chave: (g) => g.grupo,
+      vazio: semApontamento,
+    },
+    operacao: {
+      nome: "por operação",
+      colunas: [
+        { rotulo: "Grupo", valor: (o) => o.grupo, classe: () => "text-muted" },
+        { rotulo: "Cód.", num: "cod", valor: (o) => o.cod, classe: () => "text-muted" },
+        { rotulo: "Operação", valor: (o) => o.ds, classe: () => "font-medium text-ink" },
+        colHa,
+        colPct,
+      ],
+      linhas: operacoes,
+      chave: (o) => `${o.cod}-${o.ds}`,
+      vazio: semApontamento,
+    },
+    dia: {
+      nome: "por dia",
+      colunas: [
+        colData(base.onData),
+        colDiaSemana,
+        { rotulo: "Apontamentos", num: "int", valor: (x) => x.apontamentos, total: soma(det?.porDia, "apontamentos") },
+        colTalhoes(det?.porDia),
+        colHa,
+        colPct,
+      ],
+      linhas: det?.porDia ?? null,
+      chave: (x) => x.d,
+      vazio: semApontamento,
+    },
+    fazenda: {
+      nome: "por fazenda",
+      colunas: [
+        { rotulo: "Fazenda", num: "cod", valor: (z) => z.cod, classe: () => "font-medium text-ink" },
+        { rotulo: "Descrição", valor: (z) => z.nome },
+        // sem total: um apontamento pode ter talhões de mais de uma fazenda
+        { rotulo: "Apontamentos", num: "int", valor: (z) => z.apontamentos },
+        colTalhoes(det?.porFazenda),
+        colHa,
+        colPct,
+      ],
+      linhas: det?.porFazenda ?? null,
+      chave: (z) => z.cod,
+      vazio: semApontamento,
+    },
+    apontamentos: {
+      nome: "apontamentos",
+      colunas: [
+        periodo !== "dia" && { rotulo: "Data", valor: (a) => fmtDateBR(a.d) },
+        { rotulo: "Boletim", num: "cod", valor: (a) => a.bol ?? "" },
+        { rotulo: "O.S.", num: "cod", valor: (a) => a.os },
+        { rotulo: "Cód.", num: "cod", valor: (a) => a.cod, classe: () => "text-muted" },
+        { rotulo: "Operação", valor: (a) => a.ds, classe: () => "font-medium text-ink" },
+        { rotulo: "Grupo", valor: (a) => a.grupo, classe: () => "text-muted" },
+        { rotulo: "Fazenda", valor: (a) => a.fazendas.map((f) => (f.nome ? `${f.cod} · ${f.nome}` : f.cod)).join("; ") },
+        colTalhoes(det?.apontamentos),
+        colHa,
+      ].filter(Boolean),
+      linhas: det?.apontamentos ?? null,
+      chave: (a) => a.id,
+      vazio: semApontamento,
+    },
+  };
+  const abas = [
+    { id: "grupo", label: "Por grupo" },
+    { id: "operacao", label: "Por operação" },
+    periodo !== "dia" && { id: "dia", label: "Por dia" },
+    { id: "fazenda", label: "Por fazenda" },
+    periodo !== "safra" && { id: "apontamentos", label: det?.apontamentos ? `Apontamentos · ${int(det.apontamentos.length)}` : "Apontamentos" },
+  ].filter(Boolean);
+  const notas = (
+    <>
+      <Nota>
+        Área dos talhões dos apontamentos diários lançados; o grupo de cada operação vem do cadastro Grupos de Operações
+        (sem grupo, &quot;{GRUPO_OUTRAS}&quot;).
+        {periodo !== "dia" && " Na aba Por dia, clique na data para ver o dashboard naquele dia."}
+        {periodo === "safra" && " A lista dos apontamentos fica nas janelas do dia, da semana e do mês."}
+      </Nota>
+      <AvisoDivergencia det={det} valor={valor} unidade="ha" linhas={dados.operacoes.grupos.reduce((s, g) => s + g.linhas.length + 1, 0)} />
+    </>
+  );
+  return (
+    <JanelaCard
+      card={card}
+      base={base}
+      titulo={`Operações ${NO_PERIODO[periodo]}`}
+      abas={abas}
+      aba={aba}
+      onAba={setAba}
+      tabela={tabelas[aba]}
+      erro={erro}
+      notas={notas}
+    />
   );
 }
 

@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import {
   addDays,
+  calcAcumSafraT,
   calcAreaAColherHa,
   calcAreaColhidaHa,
   calcProducaoAreaColhida,
@@ -52,9 +54,12 @@ import {
   IconTch,
 } from "@/components/icons";
 import { Abas, BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel, Selo } from "@/components/pagina";
+import { JanelaInfo } from "@/components/janela";
+import { podeAcessar } from "@/lib/menu";
 import { ehAdmin, podeEditar } from "@/lib/permissoes";
 import { agruparClimaPorEstacao, codigoFazendaBase, itensClima, janelaClima, rotuloClima } from "@/lib/clima";
 import { ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
+import { BotaoExportar } from "@/app/(app)/acompanhamentos/os-agricola/comum";
 
 const PERIODOS = [
   { key: "dia", label: "Dia" },
@@ -72,6 +77,9 @@ function ultimaDataComMovimento(ordens) {
 /** Acima desta diferença (em %) entre o TCH realizado (ton entregue ÷ área
  * medida) e o estimado, Gravação e Administrador recebem um aviso. */
 const LIMITE_DIVERGENCIA_TCH_PCT = 20;
+
+/** Tela de onde vem o TCH estimado (link na janela do indicador TCH estimado). */
+const HISTORICO_SAFRAS = "/acompanhamentos/colheita/historico-safras";
 
 /** Meta do período + % atingido, embaixo do valor realizado. */
 function MetaLinha({ real, meta }) {
@@ -218,7 +226,11 @@ function periodoTexto(period, referencia, safraLabel) {
   return `Safra ${safraLabel} · acumulado`;
 }
 
-export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis, metas, historicoTch, producao, perfil, nomeUsuario }) {
+/**
+ * `acessos` (telas liberadas do usuário, opcional): sem ele não dá para saber no navegador se o Histórico de Safras
+ * está liberado, e o link para ele (janela do TCH estimado) aparece sempre (podeAcessar com acessos nulo).
+ */
+export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis, metas, historicoTch, producao, perfil, nomeUsuario, acessos = null }) {
   const podeGravar = podeEditar(perfil);
   const [ordensBrutas, setOrdens] = useState(initialOrdens);
   // a data abre sempre na última entrada de cana importada (os demais filtros ficam lembrados)
@@ -262,6 +274,8 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
   const [frentesCfgCarregada, setFrentesCfgCarregada] = useState(false);
   const [statusFiltro, setStatusFiltro] = usarPersistido("ordens.status", "todas", ehUmDe(["todas", "Aberta", "Encerrada"]));
   const [busca, setBusca] = usarPersistido("ordens.busca", "", ehTexto);
+  // ordem escolhida pelo número dentro de uma janela de indicador: a tela mostra só ela (número exato, não trecho como a busca)
+  const [ordemFoco, setOrdemFoco] = useState(null);
   const [importarAberto, setImportarAberto] = useState(false);
   const [aba, setAba] = usarPersistido("ordens.aba", "painel", ehUmDe(["painel", "apontamento"]));
   // pedido do cartão da ordem ({ numero }): a aba abre a janela de lançamento já com a ordem e limpa o pedido
@@ -269,6 +283,10 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState(null);
   const [colapsadas, setColapsadas] = useState(new Set());
   const [gerandoPdf, setGerandoPdf] = useState(false);
+  /** janela (detalhe) do indicador aberta: abertas, encerradas, area, colhida, prodAnterior, prodAtual, tchEst, tchReal */
+  const [janelaKpi, setJanelaKpi] = useState(null);
+  // a janela só existe na aba Painel: ao trocar de aba (inclusive pelo teclado, com ela aberta) ela fecha de vez
+  useEffect(() => setJanelaKpi(null), [aba]);
 
   function atualizarOrdemLocal(atualizada) {
     setOrdens((prev) => prev.map((o) => (o.numero === atualizada.numero ? atualizada : o)));
@@ -390,7 +408,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
     setFrentesCfg({ ordem: [], ocultas: [] });
   }
 
-  // "Limpar filtros": período Dia, data na última entrada de cana, dia atual até 06:00, todas as frentes e status, sem busca
+  // "Limpar filtros": período Dia, data na última entrada de cana, dia atual até 06:00, todas as frentes e status, sem busca nem ordem escolhida
   const referenciaPadrao = useMemo(
     () =>
       ultimaDataComMovimento(
@@ -409,7 +427,8 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
     horaCorte !== 6 ||
     frentesVisiveis.size < frentesOrdenadas.length ||
     statusFiltro !== "todas" ||
-    busca !== "";
+    busca !== "" ||
+    ordemFoco !== null;
   function limparFiltros() {
     setPeriod("dia");
     setReferencia(referenciaPadrao);
@@ -417,6 +436,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
     mostrarTodasFrentes();
     setStatusFiltro("todas");
     setBusca("");
+    setOrdemFoco(null);
   }
 
   // Cards automáticos: toda ordem aberta; a encerrada só enquanto teve entrada de cana no dia atual ou no dia anterior
@@ -475,17 +495,18 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
     return (o) => {
       if (!frentesVisiveis.has(o.frente)) return false;
       if (statusFiltro !== "todas" && o.status !== statusFiltro) return false;
+      if (ordemFoco !== null && o.numero !== ordemFoco) return false;
       if (termo) {
         const alvo = `${o.numero} ${o.fazendaCodigo} ${o.fazendaNome}`.toLowerCase();
         if (!alvo.includes(termo)) return false;
       }
       return true;
     };
-  }, [frentesVisiveis, statusFiltro, busca]);
+  }, [frentesVisiveis, statusFiltro, busca, ordemFoco]);
 
   const ordensFiltradas = useMemo(() => ordensSelecionadas.filter(filtroFrenteStatusBusca), [ordensSelecionadas, filtroFrenteStatusBusca]);
 
-  // Mesmos filtros de frente/status/busca, mas sobre TODAS as ordens
+  // Mesmos filtros de frente/status/busca/ordem escolhida, mas sobre TODAS as ordens
   // importadas — não só as marcadas pra aparecer nos cards. O resumo por
   // frente e o resumo detalhado usam essa lista (o retrato real da frente
   // inteira); só os cards abaixo deles usam `ordensFiltradas` (a seleção).
@@ -820,6 +841,53 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
   }, [ordensFiltradas, historicoTch, referencia]);
   const divergenciaPorOrdem = useMemo(() => new Map(divergencias.map((d) => [d.numero, d.pct])), [divergencias]);
 
+  // janelas dos indicadores: as mesmas listas e filtros das caixas; o subtítulo diz a data, o corte e os filtros
+  const numerosNosCards = useMemo(() => new Set(ordensFiltradas.map((o) => o.numero)), [ordensFiltradas]);
+  const filtrosJanela = [
+    frentesVisiveis.size < frentesOrdenadas.length && `frentes ${[...frentesVisiveis].join(", ") || "nenhuma"}`,
+    statusFiltro !== "todas" && (statusFiltro === "Aberta" ? "só abertas" : "só encerradas"),
+    busca.trim() && `busca “${busca.trim()}”`,
+    ordemFoco !== null && `só a ordem ${ordemFoco}`,
+  ].filter(Boolean);
+  const baseJanela = {
+    subtitulo: `Safra ${safraLabel} · data ${fmtDateBR(referencia)} · dia atual até ${rotuloHora} · ${
+      filtrosJanela.length ? `filtro: ${filtrosJanela.join(" · ")}` : "sem filtro"
+    }`,
+    // nome do arquivo exportado (sem "/" nem ":", que a planilha não aceita no nome)
+    arquivo: `Ordens de Corte ${referencia}`,
+    referencia,
+    rotuloHora,
+    podeGravar,
+    statusFiltro,
+    safraTch: historicoTch.safraAtual,
+    veHistorico: podeAcessar(HISTORICO_SAFRAS, perfil, acessos),
+    nosCards: numerosNosCards,
+    automatica: (numero) => ordensAuto.has(numero),
+    posicaoFrente,
+    tchEstimadoDe,
+    onFechar: () => setJanelaKpi(null),
+    // clique numa ordem dentro da janela: a tela passa a mostrar só ela (número exato; a busca por trecho pegaria também
+    // 12496 ou a fazenda 2496), com a frente aberta; a busca digitada fica como está, a ordem já passa por ela
+    onOrdem: (o) => {
+      setOrdemFoco(o.numero);
+      setColapsadas((prev) => {
+        const next = new Set(prev);
+        next.delete(o.frente);
+        return next;
+      });
+      setJanelaKpi(null);
+    },
+    // botão da janela das caixas Ordens abertas/encerradas: aplica o filtro de status da tela
+    onStatus: (status) => {
+      setStatusFiltro(status);
+      setJanelaKpi(null);
+    },
+    onApontamento: () => {
+      setJanelaKpi(null);
+      setAba("apontamento");
+    },
+  };
+
   function toggleColapso(frente) {
     setColapsadas((prev) => {
       const next = new Set(prev);
@@ -960,6 +1028,18 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
                 onChange={(e) => setBusca(e.target.value)}
                 className="min-w-[220px] flex-1 rounded-lg border border-line bg-card px-3 py-1.5 text-[13px] text-ink placeholder:text-muted"
               />
+              {/* ordem escolhida numa janela de indicador: só aparece com ela ativa; o × volta a mostrar todas */}
+              {ordemFoco !== null && (
+                <button
+                  type="button"
+                  onClick={() => setOrdemFoco(null)}
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[#2E5FA8]/40 bg-[#2E5FA8]/[0.06] px-2.5 py-1 text-[12px] font-semibold text-[#2E5FA8] hover:bg-[#2E5FA8]/[0.12]"
+                  title={`A tela mostra só a ordem ${ordemFoco} (escolhida numa janela de indicador). Clique para voltar a mostrar todas.`}
+                >
+                  Só a ordem {ordemFoco}
+                  <IconFechar size={12} />
+                </button>
+              )}
               <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
 
               <span className="ml-auto pb-1.5 text-[12.5px] font-medium text-muted">{periodoTexto(period, referencia, safraLabel)}</span>
@@ -1004,15 +1084,23 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
               </div>
             )}
 
-            {/* KPIs */}
+            {/* KPIs — cada caixa abre a janela com o detalhe dos mesmos números (mesmas ordens e filtros) */}
             <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-flow-col lg:grid-cols-4 lg:grid-rows-2">
-              <KpiCard tone="verde" icon={<IconOrdemCorte size={18} />} label="Ordens abertas" value={kpisTopo.abertas.toString()} sub="Ordens selecionadas" />
+              <KpiCard
+                tone="verde"
+                icon={<IconOrdemCorte size={18} />}
+                label="Ordens abertas"
+                value={kpisTopo.abertas.toString()}
+                sub="Ordens selecionadas"
+                onClick={() => setJanelaKpi("abertas")}
+              />
               <KpiCard
                 tone="amarelo"
                 icon={<IconOrdemEncerrada size={18} />}
                 label="Ordens encerradas"
                 value={kpisTopo.encerradas.toString()}
                 sub="Ordens selecionadas"
+                onClick={() => setJanelaKpi("encerradas")}
               />
               <KpiCard
                 tone="azul"
@@ -1021,6 +1109,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
                 value={fmtHa(kpisTopo.areaSelecionadaHa)}
                 unidade="ha"
                 sub={`Ordens selecionadas · encerradas: ${fmtHa(kpisTopo.areaEncerradaHa)} ha`}
+                onClick={() => setJanelaKpi("area")}
               />
               <KpiCard
                 tone="verde"
@@ -1029,6 +1118,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
                 value={fmtHa(kpisTopo.areaColhidaHa)}
                 unidade="ha"
                 sub="Pela medição apontada"
+                onClick={() => setJanelaKpi("colhida")}
               />
               <KpiCard
                 tone="azul"
@@ -1037,6 +1127,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
                 value={fmtT(kpisTopo.prodDiaAnteriorT)}
                 unidade="t"
                 sub={`Entrada de ${fmtDateBR(addDays(referencia, -1))} · todas as ordens`}
+                onClick={() => setJanelaKpi("prodAnterior")}
               />
               <KpiCard
                 tone="azul"
@@ -1045,6 +1136,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
                 value={fmtT(kpisTopo.prodDiaAtualAte6hT)}
                 unidade="t"
                 sub={`Entrada de ${fmtDateBR(referencia)} até ${rotuloHora} · todas as ordens`}
+                onClick={() => setJanelaKpi("prodAtual")}
               />
               <KpiCard
                 tone="azul"
@@ -1052,6 +1144,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
                 label="TCH estimado"
                 value={kpisTopo.tchEstimado !== null ? fmtTch(kpisTopo.tchEstimado) : "—"}
                 sub={kpisTopo.tchEstimado !== null ? "Pelas ordens abertas selecionadas" : "Importe a safra atual em Histórico de Safras"}
+                onClick={() => setJanelaKpi("tchEst")}
               />
               <KpiCard
                 tone="verde"
@@ -1059,6 +1152,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
                 label="TCH médio realizado"
                 value={kpisTopo.tchRealizado !== null ? fmtTch(kpisTopo.tchRealizado) : "—"}
                 sub="Ton entregue ÷ área medida lançada"
+                onClick={() => setJanelaKpi("tchReal")}
                 aviso={
                   podeGravar && kpisTopo.divergenciaPct !== null && Math.abs(kpisTopo.divergenciaPct) > LIMITE_DIVERGENCIA_TCH_PCT
                     ? `${kpisTopo.divergenciaPct >= 0 ? "▲" : "▼"} ${Math.abs(kpisTopo.divergenciaPct).toFixed(0)}% vs. estimado`
@@ -1442,6 +1536,45 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
         )}
       </CorpoPagina>
 
+      {aba === "painel" && janelaKpi === "abertas" && <JanelaOrdensStatus status="Aberta" ordens={ordensFiltradas} total={kpisTopo.abertas} base={baseJanela} />}
+      {aba === "painel" && janelaKpi === "encerradas" && (
+        <JanelaOrdensStatus status="Encerrada" ordens={ordensFiltradas} total={kpisTopo.encerradas} base={baseJanela} />
+      )}
+      {aba === "painel" && janelaKpi === "area" && (
+        <JanelaAreaOrdens ordens={ordensFiltradas} total={kpisTopo.areaSelecionadaHa} encerradas={kpisTopo.areaEncerradaHa} base={baseJanela} />
+      )}
+      {aba === "painel" && janelaKpi === "colhida" && <JanelaAreaColhida ordens={ordensFiltradas} total={kpisTopo.areaColhidaHa} base={baseJanela} />}
+      {aba === "painel" && janelaKpi === "prodAnterior" && (
+        <JanelaProducaoDia
+          titulo="Produção dia anterior"
+          dia={addDays(referencia, -1)}
+          campo="toneladas"
+          ordens={ordensFiltradasTodas}
+          total={kpisTopo.prodDiaAnteriorT}
+          base={baseJanela}
+        />
+      )}
+      {aba === "painel" && janelaKpi === "prodAtual" && (
+        <JanelaProducaoDia
+          titulo={`Produção dia atual até ${rotuloHora}`}
+          dia={referencia}
+          campo="toneladasAte6h"
+          diaCompleto={horaCorte !== 24}
+          ordens={ordensFiltradasTodas}
+          total={kpisTopo.prodDiaAtualAte6hT}
+          base={baseJanela}
+        />
+      )}
+      {aba === "painel" && janelaKpi === "tchEst" && <JanelaTchEstimado ordens={ordensFiltradas} tch={kpisTopo.tchEstimado} base={baseJanela} />}
+      {aba === "painel" && janelaKpi === "tchReal" && (
+        <JanelaTchRealizado
+          ordens={ordensFiltradas}
+          tch={kpisTopo.tchRealizado}
+          tchEstimado={kpisTopo.tchEstimado}
+          divergenciaPct={kpisTopo.divergenciaPct}
+          base={baseJanela}
+        />
+      )}
       {importarAberto && <ImportarModal onFechar={() => setImportarAberto(false)} onImportado={() => refetch(true)} admin={ehAdmin(perfil)} />}
     </Pagina>
   );
@@ -1480,14 +1613,681 @@ function CelulasResumoDetalhado({ v, total, tchEstimadoNoAColher }) {
   );
 }
 
-/** Indicador do topo do painel; com aviso (TCH fora do estimado), o filete e o número ficam em laranja. */
-function KpiCard({ label, value, unidade, sub, icon, tone, aviso }) {
+/**
+ * Indicador do topo do painel; com aviso (TCH fora do estimado), o filete e o número ficam em laranja. A caixa inteira
+ * é um botão: abre a janela com o detalhe que forma o número.
+ */
+function KpiCard({ label, value, unidade, sub, icon, tone, aviso, onClick }) {
   return (
-    <Indicador cor={aviso ? "laranja" : tone} icone={icon} rotulo={label} valor={value} unidade={unidade} apoio={sub} title={sub ? `${label} — ${sub}` : label}>
-      {aviso && (
-        <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700">⚠ {aviso}</div>
+    <button
+      type="button"
+      onClick={onClick}
+      className="min-w-0 rounded-xl2 text-left transition hover:-translate-y-px focus:outline-none focus-visible:ring-2 focus-visible:ring-navy-500"
+      title={`Ver o detalhe · ${label}${sub ? ` — ${sub}` : ""}`}
+    >
+      <Indicador cor={aviso ? "laranja" : tone} icone={icon} rotulo={label} valor={value} unidade={unidade} apoio={sub} className="h-full">
+        {aviso && (
+          <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700">⚠ {aviso}</div>
+        )}
+      </Indicador>
+    </button>
+  );
+}
+
+/* ---------- Janelas dos indicadores: o detalhe calculado das mesmas ordens (e filtros) que formam cada caixa ---------- */
+
+const r2 = (n) => Math.round(n * 100) / 100;
+const int = (n) => (n ?? 0).toLocaleString("pt-BR");
+const qtd = (n, um, varios) => `${int(n)} ${n === 1 ? um : varios}`;
+const pctDe = (v, total) => (total > 0 ? Math.round((v / total) * 1000) / 10 : null);
+const somaDe = (linhas, campo) => linhas.reduce((s, l) => s + (l[campo] ?? 0), 0);
+const porNumero = (a, b) => a.o.numero.localeCompare(b.o.numero, undefined, { numeric: true });
+const BOTAO_RODAPE = "rounded-md px-2 py-1 text-[12.5px] font-medium text-[#2E5FA8] hover:bg-[#2E5FA8]/[0.06]";
+
+/** Valor na tela: área (ha), toneladas (t), TCH, contagem, percentual (1 casa), Δ% (▲/▼ sem casas), código ou texto. */
+function formatar(num, v) {
+  if (num && (v === null || v === undefined || Number.isNaN(v))) return "–";
+  if (num === "int") return int(v);
+  if (num === "ha") return fmtHa(v);
+  if (num === "t") return fmtT(v);
+  if (num === "tch") return fmtTch(v);
+  if (num === "pct") return `${v.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  if (num === "delta") return `${v >= 0 ? "▲" : "▼"} ${Math.abs(v).toFixed(0)}%`;
+  return v ?? "";
+}
+
+/** Fazenda da ordem (a do cadastro) e, se os talhões forem de mais de uma, quantas mais. */
+function fazendaDaOrdem(o) {
+  const n = new Set(o.talhoes.map((t) => t.fazendaCodigo)).size;
+  return `${o.fazendaCodigo} · ${o.fazendaNome}${n > 1 ? ` (+${n - 1})` : ""}`;
+}
+
+const nomeFazenda = (o, codigo) => o.talhoes.find((t) => t.fazendaCodigo === codigo)?.fazendaNome ?? (codigo === o.fazendaCodigo ? o.fazendaNome : "");
+
+/** Número da ordem: nos cards, o clique filtra a tela só por ela (número exato); fora dos cards, só o número. */
+function BotaoOrdem({ o, base }) {
+  if (!base.nosCards.has(o.numero))
+    return (
+      <span className="text-ink" title="Ordem fora dos cards (encerrada, sem entrada de cana no dia nem no anterior)">
+        {o.numero}
+      </span>
+    );
+  return (
+    <button
+      type="button"
+      onClick={() => base.onOrdem(o)}
+      className="text-left font-medium text-[#2E5FA8] hover:underline"
+      title={`Mostrar na tela só a ordem ${o.numero}`}
+    >
+      {o.numero}
+    </button>
+  );
+}
+
+// colunas comuns: linhas por ordem ({ o, ... }) e por talhão ({ o, fazendaCodigo, fazendaNome, talhao, ... })
+const colOrdem = (base) => ({ rotulo: "Ordem", valor: (l) => l.o.numero, exibir: (l) => <BotaoOrdem o={l.o} base={base} /> });
+const colFrente = { rotulo: "Frente", valor: (l) => l.o.frente, classe: () => "whitespace-nowrap text-ink" };
+const colStatus = { rotulo: "Status", valor: (l) => l.o.status, classe: (l) => (l.o.status === "Aberta" ? "text-good-600" : "text-amber-600") };
+const colFazenda = { rotulo: "Fazenda", valor: (l) => fazendaDaOrdem(l.o) };
+const colFazendaTalhao = { rotulo: "Fazenda", valor: (l) => `${l.fazendaCodigo ?? ""} · ${l.fazendaNome ?? ""}` };
+const colTalhao = { rotulo: "Talhão", num: "cod", valor: (l) => l.talhao ?? null, classe: () => "font-medium text-ink" };
+const colFrenteGrupo = { rotulo: "Frente", valor: (g) => g.frente, classe: () => "font-medium text-ink" };
+const colOrdensGrupo = (total) => ({ rotulo: "Ordens", num: "int", valor: (g) => g.ordens, total });
+
+/** Linhas por ordem na ordem das frentes da tela e, dentro da frente, pelo número. */
+const ordenarPorFrente = (base) => (a, b) => base.posicaoFrente(a.o.frente) - base.posicaoFrente(b.o.frente) || porNumero(a, b);
+
+/** Soma as linhas (uma por ordem) por frente, na ordem das frentes da tela, com a contagem de ordens. */
+function somarPorFrente(linhas, campos, posicaoFrente) {
+  const mapa = new Map();
+  for (const l of linhas) {
+    const g = mapa.get(l.o.frente) ?? { frente: l.o.frente, ordens: 0, ...Object.fromEntries(campos.map((c) => [c, 0])) };
+    g.ordens += 1;
+    for (const c of campos) g[c] += l[c] ?? 0;
+    mapa.set(l.o.frente, g);
+  }
+  return [...mapa.values()].sort((a, b) => posicaoFrente(a.frente) - posicaoFrente(b.frente));
+}
+
+/**
+ * Tabela das janelas: cabeçalho, números à direita e linha de total (fica no fim ao ordenar pelo título da coluna).
+ * Coluna: { rotulo, valor(l) (o que vai para a planilha), num ("ha", "t", "tch", "int", "pct", "delta", "cod" = à
+ * direita), exibir(l) (o que aparece, se diferente do valor), classe(l), dica(l), total, dicaTotal }.
+ */
+function TabelaJanela({ colunas, linhas, chave, vazio = "Nenhuma ordem no filtro.", rotuloTotal = "Total" }) {
+  const inicioTotal = colunas.findIndex((c) => c.total !== undefined);
+  return (
+    <div className="overflow-x-auto rounded-lg border border-line">
+      <table className="w-full text-[12.5px]">
+        <thead>
+          <tr className="whitespace-nowrap border-b border-line bg-surface text-left text-muted">
+            {colunas.map((c) => (
+              <th key={c.rotulo} className={`px-3 py-2 font-medium ${c.num ? "text-right" : ""}`}>
+                {c.rotulo}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {linhas.map((l) => (
+            <tr key={chave(l)} className="border-t border-line/60 hover:bg-surface/60">
+              {colunas.map((c) => (
+                <td
+                  key={c.rotulo}
+                  className={`px-3 py-1.5 ${c.num ? "whitespace-nowrap text-right tabular" : ""} ${c.classe?.(l) ?? "text-ink"}`}
+                  title={c.dica?.(l)}
+                >
+                  {c.exibir ? c.exibir(l) : formatar(c.num, c.valor(l))}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {linhas.length === 0 && (
+            <tr>
+              <td colSpan={colunas.length} className="px-4 py-8 text-center text-muted">
+                {vazio}
+              </td>
+            </tr>
+          )}
+          {linhas.length > 0 && inicioTotal > 0 && (
+            <tr className="bg-navy-900 font-semibold text-white">
+              <td colSpan={inicioTotal} className="whitespace-nowrap px-3 py-2">
+                {rotuloTotal}
+              </td>
+              {colunas.slice(inicioTotal).map((c) => (
+                <td key={c.rotulo} className={`px-3 py-2 ${c.num ? "whitespace-nowrap text-right tabular" : ""}`} title={c.dicaTotal}>
+                  {c.total === undefined ? "" : formatar(c.num, c.total)}
+                </td>
+              ))}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Nota({ children }) {
+  return <p className="mb-3 text-[12px] leading-relaxed text-muted">{children}</p>;
+}
+
+function Secao({ titulo, acoes, children }) {
+  return (
+    <div className="mt-5">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <div className="text-[12.5px] font-medium text-ink">{titulo}</div>
+        {acoes}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Botão de exportar uma tabela da janela (só o rótulo e o valor de cada coluna); sem linhas, nada. */
+const exportarTabela = (arquivo, { nome, colunas, linhas }) =>
+  linhas.length > 0 && (
+    <BotaoExportar nome={`${arquivo} - ${nome}`} colunas={colunas.map(({ rotulo, valor }) => ({ rotulo, valor }))} buscar={async () => linhas} />
+  );
+
+/** Moldura das janelas dos indicadores: data, corte e filtros no subtítulo; exportar a tabela principal no topo. */
+function JanelaKpi({ titulo, base, exportar, rodape, largura = "6xl", children }) {
+  return (
+    <JanelaInfo
+      titulo={titulo}
+      subtitulo={base.subtitulo}
+      largura={largura}
+      onFechar={base.onFechar}
+      acoes={exportar && exportarTabela(base.arquivo, exportar)}
+      rodape={rodape}
+    >
+      {children}
+    </JanelaInfo>
+  );
+}
+
+/** Rodapé com o atalho para a aba Apontamento · Área colhida (onde a área colhida é lançada). */
+function RodapeApontamento({ base }) {
+  return (
+    <>
+      <span className="mr-auto text-[11.5px] text-muted">A área colhida é a medição de campo lançada no Apontamento.</span>
+      <button type="button" onClick={base.onApontamento} className={BOTAO_RODAPE}>
+        Abrir o Apontamento · Área colhida
+      </button>
+    </>
+  );
+}
+
+/** Caixas Ordens abertas / Ordens encerradas: as ordens dos cards com aquele status, com área, colhida e produção. */
+function JanelaOrdensStatus({ status, ordens, total, base }) {
+  const aberta = status === "Aberta";
+  const nome = aberta ? "Ordens abertas" : "Ordens encerradas";
+  const linhas = ordens
+    .filter((o) => o.status === status)
+    .map((o) => {
+      let ultima = "";
+      for (const e of o.entradas) if (e.toneladas > 0 && e.data <= base.referencia && e.data > ultima) ultima = e.data;
+      return {
+        o,
+        talhoes: o.talhoes.length,
+        areaHa: calcAreaTotalHa(o),
+        colhidaHa: calcAreaColhidaHa(o),
+        aColherHa: calcAreaAColherHa(o),
+        acumT: calcAcumSafraT(o, base.referencia),
+        ultima,
+      };
+    })
+    .sort(ordenarPorFrente(base));
+  const totArea = r2(somaDe(linhas, "areaHa"));
+  const totColhida = r2(somaDe(linhas, "colhidaHa"));
+  const totAcum = r2(somaDe(linhas, "acumT"));
+  const dicaAcum = () => `Entrada da safra até ${fmtDateBR(base.referencia)} (o dia só até ${base.rotuloHora})`;
+  const colunas = [
+    colOrdem(base),
+    colFrente,
+    colFazenda,
+    { rotulo: "Tipo de cana", valor: (l) => l.o.tipoCana ?? "", classe: () => "text-muted" },
+    { rotulo: "Talhões", num: "int", valor: (l) => l.talhoes, total: somaDe(linhas, "talhoes") },
+    { rotulo: "Área da ordem (ha)", num: "ha", valor: (l) => r2(l.areaHa), total: totArea },
+    { rotulo: "Área colhida (ha)", num: "ha", valor: (l) => r2(l.colhidaHa), total: totColhida },
+    aberta && { rotulo: "A colher (ha)", num: "ha", valor: (l) => r2(l.aColherHa), total: r2(somaDe(linhas, "aColherHa")) },
+    { rotulo: "Acumulado safra (t)", num: "t", valor: (l) => r2(l.acumT), total: totAcum, dica: dicaAcum },
+    { rotulo: "Última entrada", valor: (l) => (l.ultima ? fmtDateBR(l.ultima) : ""), classe: () => "text-muted" },
+    !aberta && { rotulo: "Nos cards", valor: (l) => (base.automatica(l.o.numero) ? "Automático" : "Inserida à mão"), classe: () => "text-muted" },
+  ].filter(Boolean);
+  const grupos = somarPorFrente(linhas, ["areaHa", "colhidaHa", "acumT"], base.posicaoFrente);
+  const colunasFrente = [
+    colFrenteGrupo,
+    colOrdensGrupo(linhas.length),
+    { rotulo: "Área da ordem (ha)", num: "ha", valor: (g) => r2(g.areaHa), total: totArea },
+    { rotulo: "Área colhida (ha)", num: "ha", valor: (g) => r2(g.colhidaHa), total: totColhida },
+    { rotulo: "Acumulado safra (t)", num: "t", valor: (g) => r2(g.acumT), total: totAcum },
+  ];
+  return (
+    <JanelaKpi
+      titulo={nome}
+      base={base}
+      exportar={{ nome, colunas, linhas }}
+      rodape={
+        base.statusFiltro !== status && linhas.length > 0 ? (
+          <>
+            <span className="mr-auto text-[11.5px] text-muted">O filtro de status vale para a tela toda (resumos e cards).</span>
+            <button type="button" onClick={() => base.onStatus(status)} className={BOTAO_RODAPE}>
+              Filtrar a tela: só as {aberta ? "abertas" : "encerradas"}
+            </button>
+          </>
+        ) : undefined
+      }
+    >
+      <Nota>
+        {qtd(total, aberta ? "ordem aberta" : "ordem encerrada", aberta ? "ordens abertas" : "ordens encerradas")} nos cards.{" "}
+        {aberta
+          ? "Toda ordem aberta aparece nos cards."
+          : `A ordem encerrada aparece nos cards enquanto teve entrada de cana em ${fmtDateBR(base.referencia)} ou no dia anterior (Automático), ou quando foi inserida à mão (Inserir Ordem).`}{" "}
+        Clique no número da ordem para ver só ela na tela.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={linhas}
+        chave={(l) => l.o.numero}
+        rotuloTotal={`Total · ${qtd(linhas.length, "ordem", "ordens")}`}
+        vazio={`Nenhuma ordem ${aberta ? "aberta" : "encerrada"} nos cards.`}
+      />
+      {grupos.length > 1 && (
+        <Secao titulo="Por frente" acoes={exportarTabela(base.arquivo, { nome: `${nome} por frente`, colunas: colunasFrente, linhas: grupos })}>
+          <TabelaJanela colunas={colunasFrente} linhas={grupos} chave={(g) => g.frente} />
+        </Secao>
       )}
-    </Indicador>
+    </JanelaKpi>
+  );
+}
+
+/** Caixa Área aberta: a área (soma dos talhões) de todas as ordens dos cards, abertas e encerradas. */
+function JanelaAreaOrdens({ ordens, total, encerradas, base }) {
+  const linhas = ordens
+    .map((o) => {
+      const areaHa = calcAreaTotalHa(o);
+      const aberta = o.status === "Aberta";
+      return { o, talhoes: o.talhoes.length, areaHa, abertaHa: aberta ? areaHa : 0, encerradaHa: aberta ? 0 : areaHa };
+    })
+    .sort(ordenarPorFrente(base));
+  const talhoes = linhas.flatMap(({ o }) =>
+    o.talhoes.map((t) => ({ o, fazendaCodigo: t.fazendaCodigo, fazendaNome: t.fazendaNome, talhao: t.talhao, areaHa: t.areaHa })),
+  );
+  const colunas = [
+    colOrdem(base),
+    colFrente,
+    colStatus,
+    colFazenda,
+    { rotulo: "Talhões", num: "int", valor: (l) => l.talhoes, total: talhoes.length },
+    { rotulo: "Área da ordem (ha)", num: "ha", valor: (l) => r2(l.areaHa), total: r2(total) },
+    { rotulo: "% da área", num: "pct", valor: (l) => pctDe(l.areaHa, total), total: total > 0 ? 100 : null, classe: () => "text-muted" },
+  ];
+  const grupos = somarPorFrente(linhas, ["abertaHa", "encerradaHa", "areaHa"], base.posicaoFrente);
+  const colunasFrente = [
+    colFrenteGrupo,
+    colOrdensGrupo(linhas.length),
+    { rotulo: "Abertas (ha)", num: "ha", valor: (g) => r2(g.abertaHa), total: r2(total - encerradas) },
+    { rotulo: "Encerradas (ha)", num: "ha", valor: (g) => r2(g.encerradaHa), total: r2(encerradas) },
+    { rotulo: "Total (ha)", num: "ha", valor: (g) => r2(g.areaHa), total: r2(total) },
+  ];
+  const colunasTalhoes = [
+    colOrdem(base),
+    colFazendaTalhao,
+    colTalhao,
+    { rotulo: "Área do talhão (ha)", num: "ha", valor: (l) => r2(l.areaHa), total: r2(somaDe(talhoes, "areaHa")) },
+  ];
+  return (
+    <JanelaKpi titulo="Área aberta" base={base} exportar={{ nome: "Área aberta por ordem", colunas, linhas }}>
+      <Nota>
+        Soma da área dos talhões de {qtd(linhas.length, "ordem", "ordens")} dos cards, abertas e encerradas: {fmtHa(total)} ha, dos quais {fmtHa(encerradas)}{" "}
+        ha em ordens encerradas. Clique no número da ordem para ver só ela na tela.
+      </Nota>
+      <TabelaJanela colunas={colunas} linhas={linhas} chave={(l) => l.o.numero} rotuloTotal={`Total · ${qtd(linhas.length, "ordem", "ordens")}`} />
+      {grupos.length > 0 && (
+        <Secao titulo="Por frente" acoes={exportarTabela(base.arquivo, { nome: "Área aberta por frente", colunas: colunasFrente, linhas: grupos })}>
+          <TabelaJanela colunas={colunasFrente} linhas={grupos} chave={(g) => g.frente} />
+        </Secao>
+      )}
+      {talhoes.length > 0 && (
+        <Secao
+          titulo={`Por talhão · ${int(talhoes.length)}`}
+          acoes={exportarTabela(base.arquivo, { nome: "Área aberta por talhão", colunas: colunasTalhoes, linhas: talhoes })}
+        >
+          <TabelaJanela colunas={colunasTalhoes} linhas={talhoes} chave={(l) => `${l.o.numero}|${l.fazendaCodigo}|${l.talhao}`} />
+        </Secao>
+      )}
+    </JanelaKpi>
+  );
+}
+
+/** Caixa Área colhida: a medição apontada nas ordens dos cards, por ordem e por talhão. */
+function JanelaAreaColhida({ ordens, total, base }) {
+  const linhas = ordens
+    .map((o) => {
+      const areaHa = calcAreaTotalHa(o);
+      const colhidaHa = calcAreaColhidaHa(o);
+      return { o, areaHa, colhidaHa, aColherHa: calcAreaAColherHa(o), pct: pctDe(colhidaHa, areaHa) };
+    })
+    .sort(ordenarPorFrente(base));
+  const talhoes = linhas.flatMap(({ o }) =>
+    o.talhoes
+      .filter((t) => t.areaColhidaHa > 0)
+      .map((t) => ({
+        o,
+        fazendaCodigo: t.fazendaCodigo,
+        fazendaNome: t.fazendaNome,
+        talhao: t.talhao,
+        areaHa: t.areaHa,
+        colhidaHa: t.areaColhidaHa,
+        pct: pctDe(t.areaColhidaHa, t.areaHa),
+      })),
+  );
+  const totArea = somaDe(linhas, "areaHa");
+  const colunas = [
+    colOrdem(base),
+    colFrente,
+    colStatus,
+    colFazenda,
+    { rotulo: "Área da ordem (ha)", num: "ha", valor: (l) => r2(l.areaHa), total: r2(totArea) },
+    { rotulo: "Área colhida (ha)", num: "ha", valor: (l) => r2(l.colhidaHa), total: r2(total), classe: () => "font-medium text-ink" },
+    { rotulo: "A colher (ha)", num: "ha", valor: (l) => r2(l.aColherHa), total: r2(somaDe(linhas, "aColherHa")) },
+    { rotulo: "% colhido", num: "pct", valor: (l) => l.pct, total: pctDe(total, totArea), classe: () => "text-muted" },
+  ];
+  const totTalhoesArea = somaDe(talhoes, "areaHa");
+  const totTalhoesColhida = somaDe(talhoes, "colhidaHa");
+  const colunasTalhoes = [
+    colOrdem(base),
+    colFazendaTalhao,
+    colTalhao,
+    { rotulo: "Área do talhão (ha)", num: "ha", valor: (l) => r2(l.areaHa), total: r2(totTalhoesArea) },
+    { rotulo: "Área colhida (ha)", num: "ha", valor: (l) => r2(l.colhidaHa), total: r2(totTalhoesColhida), classe: () => "font-medium text-ink" },
+    { rotulo: "% colhido", num: "pct", valor: (l) => l.pct, total: pctDe(totTalhoesColhida, totTalhoesArea), classe: () => "text-muted" },
+  ];
+  return (
+    <JanelaKpi
+      titulo="Área colhida"
+      base={base}
+      exportar={{ nome: "Área colhida por ordem", colunas, linhas }}
+      rodape={<RodapeApontamento base={base} />}
+    >
+      <Nota>
+        Medição de campo apontada nos talhões de {qtd(linhas.length, "ordem", "ordens")} dos cards, com os lançamentos por dia até{" "}
+        {fmtDateBR(base.referencia)}. A colher = área da ordem − área colhida (0 na ordem encerrada). Clique no número da ordem para ver só ela na tela.
+      </Nota>
+      <TabelaJanela colunas={colunas} linhas={linhas} chave={(l) => l.o.numero} rotuloTotal={`Total · ${qtd(linhas.length, "ordem", "ordens")}`} />
+      <Secao
+        titulo={`Talhões com área colhida · ${int(talhoes.length)}`}
+        acoes={exportarTabela(base.arquivo, { nome: "Área colhida por talhão", colunas: colunasTalhoes, linhas: talhoes })}
+      >
+        <TabelaJanela
+          colunas={colunasTalhoes}
+          linhas={talhoes}
+          chave={(l) => `${l.o.numero}|${l.fazendaCodigo}|${l.talhao}`}
+          vazio="Nenhum talhão com área colhida apontada nas ordens dos cards."
+        />
+      </Secao>
+    </JanelaKpi>
+  );
+}
+
+/**
+ * Caixas Produção dia anterior / dia atual: a entrada de cana do dia de todas as ordens que batem com os filtros (não só
+ * as dos cards), por ordem, por frente e por talhão. `campo`: "toneladas" (dia inteiro) ou "toneladasAte6h" (até o
+ * horário de corte); `diaCompleto` mostra também o dia inteiro ao lado.
+ */
+function JanelaProducaoDia({ titulo, dia, campo, diaCompleto = false, ordens, total, base }) {
+  const anterior = campo === "toneladas";
+  const conta = (x) => x.t !== 0 || (diaCompleto && x.completoT !== 0);
+  const linhas = [];
+  const talhoes = [];
+  for (const o of ordens) {
+    const l = { o, t: 0, completoT: 0, viagens: 0 };
+    const porTalhao = new Map();
+    for (const e of o.entradas) {
+      if (e.data !== dia) continue;
+      l.t += e[campo];
+      l.completoT += e.toneladas;
+      l.viagens += e.viagens ?? 0;
+      const k = `${e.fazendaCodigo}|${e.talhao}`;
+      const x = porTalhao.get(k) ?? { o, fazendaCodigo: e.fazendaCodigo, fazendaNome: nomeFazenda(o, e.fazendaCodigo), talhao: e.talhao, t: 0, completoT: 0 };
+      x.t += e[campo];
+      x.completoT += e.toneladas;
+      porTalhao.set(k, x);
+    }
+    if (!conta(l)) continue;
+    linhas.push(l);
+    talhoes.push(...[...porTalhao.values()].filter(conta));
+  }
+  linhas.sort((a, b) => b.t - a.t || porNumero(a, b));
+  talhoes.sort((a, b) => b.t - a.t || porNumero(a, b));
+  const rotuloT = anterior ? "Entrada (t)" : `Até ${base.rotuloHora} (t)`;
+  const colunasValores = (lista, totalT) =>
+    [
+      anterior && { rotulo: "Viagens", num: "int", valor: (l) => l.viagens, total: somaDe(lista, "viagens") },
+      { rotulo: rotuloT, num: "t", valor: (l) => r2(l.t), total: r2(totalT), classe: () => "font-medium text-ink" },
+      diaCompleto && { rotulo: "Dia completo (t)", num: "t", valor: (l) => r2(l.completoT), total: r2(somaDe(lista, "completoT")), classe: () => "text-muted" },
+    ].filter(Boolean);
+  const colunas = [
+    colOrdem(base),
+    colFrente,
+    colStatus,
+    colFazenda,
+    { rotulo: "Nos cards", valor: (l) => (base.nosCards.has(l.o.numero) ? "Sim" : "Não"), classe: () => "text-muted" },
+    ...colunasValores(linhas, total),
+  ];
+  const grupos = somarPorFrente(linhas, ["t", "completoT", "viagens"], base.posicaoFrente);
+  const colunasFrente = [colFrenteGrupo, colOrdensGrupo(linhas.length), ...colunasValores(grupos, total)];
+  // viagens por talhão não fecham (a entrada rateada leva as viagens no primeiro talhão): ficam só por ordem e por frente
+  const colunasTalhoes = [
+    colOrdem(base),
+    colFazendaTalhao,
+    colTalhao,
+    ...colunasValores(talhoes, somaDe(talhoes, "t")).filter((c) => c.rotulo !== "Viagens"),
+  ];
+  const nome = anterior ? "Produção dia anterior" : "Produção dia atual";
+  return (
+    <JanelaKpi titulo={`${titulo} · ${fmtDateBR(dia)}`} base={base} exportar={{ nome: `${nome} por ordem`, colunas, linhas }}>
+      <Nota>
+        Entrada de cana de {fmtDateBR(dia)}
+        {anterior ? " (dia inteiro)" : ` até ${base.rotuloHora}`} em {qtd(linhas.length, "ordem", "ordens")}: todas as ordens importadas que batem com os
+        filtros de frente, status e busca, não só as dos cards (a mesma base do Resumo por frente e do Resumo diário). A entrada ainda sem talhão aparece
+        rateada entre os talhões da ordem. Clique no número da ordem (as que estão nos cards) para ver só ela na tela.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={linhas}
+        chave={(l) => l.o.numero}
+        rotuloTotal={`Total · ${qtd(linhas.length, "ordem", "ordens")}`}
+        vazio={`Nenhuma entrada de cana em ${fmtDateBR(dia)} nas ordens do filtro.`}
+      />
+      {grupos.length > 0 && (
+        <Secao titulo="Por frente" acoes={exportarTabela(base.arquivo, { nome: `${nome} por frente`, colunas: colunasFrente, linhas: grupos })}>
+          <TabelaJanela colunas={colunasFrente} linhas={grupos} chave={(g) => g.frente} />
+        </Secao>
+      )}
+      {talhoes.length > 0 && (
+        <Secao
+          titulo={`Por talhão · ${int(talhoes.length)}`}
+          acoes={exportarTabela(base.arquivo, { nome: `${nome} por talhão`, colunas: colunasTalhoes, linhas: talhoes })}
+        >
+          <TabelaJanela colunas={colunasTalhoes} linhas={talhoes} chave={(l) => `${l.o.numero}|${l.fazendaCodigo}|${l.talhao}`} />
+        </Secao>
+      )}
+    </JanelaKpi>
+  );
+}
+
+/** Caixa TCH estimado: média do TCH estimado das ordens abertas dos cards, ponderada pela área de cada uma. */
+function JanelaTchEstimado({ ordens, tch, base }) {
+  const linhas = [];
+  const fora = [];
+  for (const o of ordens) {
+    if (o.status !== "Aberta") continue;
+    const areaHa = calcAreaTotalHa(o);
+    const est = base.tchEstimadoDe(o.numero);
+    if (est !== null && areaHa > 0) linhas.push({ o, areaHa, est, tonEst: est * areaHa });
+    else fora.push({ o, areaHa, motivo: est === null ? `Sem TCH estimado da safra ${base.safraTch}` : "Ordem sem área de talhão" });
+  }
+  linhas.sort(ordenarPorFrente(base));
+  fora.sort(ordenarPorFrente(base));
+  const totArea = somaDe(linhas, "areaHa");
+  const colunas = [
+    colOrdem(base),
+    colFrente,
+    colFazenda,
+    { rotulo: "Área da ordem (ha)", num: "ha", valor: (l) => r2(l.areaHa), total: r2(totArea) },
+    {
+      rotulo: "TCH est. (t/ha)",
+      num: "tch",
+      valor: (l) => r2(l.est),
+      total: tch === null ? null : r2(tch),
+      classe: () => "font-medium text-ink",
+      dicaTotal: "Média ponderada pela área: ton estimada ÷ área",
+    },
+    { rotulo: "Ton est. (t)", num: "t", valor: (l) => r2(l.tonEst), total: r2(somaDe(linhas, "tonEst")) },
+    { rotulo: "Peso na média", num: "pct", valor: (l) => pctDe(l.areaHa, totArea), total: totArea > 0 ? 100 : null, classe: () => "text-muted" },
+  ];
+  const colunasFora = [
+    colOrdem(base),
+    colFrente,
+    colFazenda,
+    { rotulo: "Área da ordem (ha)", num: "ha", valor: (l) => r2(l.areaHa), total: r2(somaDe(fora, "areaHa")) },
+    { rotulo: "Motivo", valor: (l) => l.motivo, classe: () => "text-muted" },
+  ];
+  const abertas = linhas.length + fora.length;
+  return (
+    <JanelaKpi
+      titulo="TCH estimado"
+      base={base}
+      exportar={{ nome: "TCH estimado por ordem", colunas, linhas }}
+      rodape={
+        base.veHistorico ? (
+          <>
+            <span className="mr-auto text-[11.5px] text-muted">O TCH estimado vem do Histórico de Safras (safra {base.safraTch}).</span>
+            <Link href={HISTORICO_SAFRAS} className={BOTAO_RODAPE}>
+              Abrir o Histórico de Safras
+            </Link>
+          </>
+        ) : undefined
+      }
+    >
+      <Nota>
+        Média do TCH estimado da safra {base.safraTch} (Histórico de Safras) de {qtd(abertas, "ordem aberta", "ordens abertas")} dos cards, ponderada pela
+        área de cada ordem: Σ (TCH est. × área) ÷ Σ área. Ordens encerradas não entram.
+        {fora.length > 0 && ` ${qtd(fora.length, "ordem aberta fica", "ordens abertas ficam")} fora da média (lista abaixo).`}
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={linhas}
+        chave={(l) => l.o.numero}
+        rotuloTotal={`Total · ${qtd(linhas.length, "ordem", "ordens")}`}
+        vazio="Nenhuma ordem aberta dos cards com TCH estimado. Importe a safra atual em Histórico de Safras."
+      />
+      {fora.length > 0 && (
+        <Secao
+          titulo={`Abertas fora da média · ${int(fora.length)}`}
+          acoes={exportarTabela(base.arquivo, { nome: "TCH estimado - abertas fora da média", colunas: colunasFora, linhas: fora })}
+        >
+          <TabelaJanela colunas={colunasFora} linhas={fora} chave={(l) => l.o.numero} rotuloTotal={`Total · ${qtd(fora.length, "ordem", "ordens")}`} />
+        </Secao>
+      )}
+    </JanelaKpi>
+  );
+}
+
+/**
+ * Caixa TCH médio realizado: só os talhões com área colhida apontada — a produção da safra que entrou neles ÷ a área
+ * colhida deles (a mesma conta do quadro de cada card), por ordem e por talhão.
+ */
+function JanelaTchRealizado({ ordens, tch, tchEstimado, divergenciaPct, base }) {
+  const linhas = [];
+  const talhoes = [];
+  let semColhida = 0;
+  for (const o of ordens) {
+    const pc = calcProducaoAreaColhida(o, base.referencia);
+    if (!(pc.areaHa > 0)) {
+      semColhida += 1;
+      continue;
+    }
+    const est = base.tchEstimadoDe(o.numero);
+    linhas.push({ o, areaHa: pc.areaHa, t: pc.t, tch: pc.tch, est, delta: est !== null && est > 0 && pc.tch > 0 ? (pc.tch / est - 1) * 100 : null });
+    for (const tl of o.talhoes) {
+      if (!(tl.areaColhidaHa > 0)) continue;
+      const t = calcTalhaoEntradaPeriodo(o, tl, "safra", base.referencia);
+      talhoes.push({ o, fazendaCodigo: tl.fazendaCodigo, fazendaNome: tl.fazendaNome, talhao: tl.talhao, areaHa: tl.areaColhidaHa, t, tch: t / tl.areaColhidaHa });
+    }
+  }
+  linhas.sort(ordenarPorFrente(base));
+  talhoes.sort(ordenarPorFrente(base));
+  const totArea = somaDe(linhas, "areaHa");
+  const totT = somaDe(linhas, "t");
+  const corDelta = (d) =>
+    d === null ? "text-muted" : Math.abs(d) > LIMITE_DIVERGENCIA_TCH_PCT ? "font-semibold text-amber-700" : d >= 0 ? "text-good-600" : "text-alert-600";
+  const colunas = [
+    colOrdem(base),
+    colFrente,
+    colStatus,
+    colFazenda,
+    { rotulo: "Área colhida (ha)", num: "ha", valor: (l) => r2(l.areaHa), total: r2(totArea) },
+    { rotulo: "Produção nos talhões colhidos (t)", num: "t", valor: (l) => r2(l.t), total: r2(totT) },
+    { rotulo: "TCH realizado (t/ha)", num: "tch", valor: (l) => r2(l.tch), total: tch === null ? null : r2(tch), classe: () => "font-medium text-ink" },
+    {
+      rotulo: "TCH est. (t/ha)",
+      num: "tch",
+      valor: (l) => (l.est === null ? null : r2(l.est)),
+      total: tchEstimado === null ? null : r2(tchEstimado),
+      classe: () => "text-muted",
+      dicaTotal: "TCH estimado das ordens abertas dos cards (caixa TCH estimado)",
+    },
+    base.podeGravar && {
+      rotulo: "Δ% vs. estimado",
+      num: "delta",
+      valor: (l) => (l.delta === null ? null : r2(l.delta)),
+      total: divergenciaPct === null ? null : r2(divergenciaPct),
+      classe: (l) => corDelta(l.delta),
+    },
+  ].filter(Boolean);
+  const totTalhoesArea = somaDe(talhoes, "areaHa");
+  const totTalhoesT = somaDe(talhoes, "t");
+  const colunasTalhoes = [
+    colOrdem(base),
+    colFazendaTalhao,
+    colTalhao,
+    { rotulo: "Área colhida (ha)", num: "ha", valor: (l) => r2(l.areaHa), total: r2(totTalhoesArea) },
+    { rotulo: "Produção safra (t)", num: "t", valor: (l) => r2(l.t), total: r2(totTalhoesT) },
+    { rotulo: "TCH (t/ha)", num: "tch", valor: (l) => r2(l.tch), total: totTalhoesArea > 0 ? r2(totTalhoesT / totTalhoesArea) : null, classe: () => "font-medium text-ink" },
+  ];
+  return (
+    <JanelaKpi
+      titulo="TCH médio realizado"
+      base={base}
+      exportar={{ nome: "TCH realizado por ordem", colunas, linhas }}
+      rodape={<RodapeApontamento base={base} />}
+    >
+      <Nota>
+        Só entram os talhões com área colhida apontada: a produção da safra que entrou neles (até {fmtDateBR(base.referencia)}, o dia só até{" "}
+        {base.rotuloHora}) ÷ a área colhida deles, nas ordens dos cards.
+        {semColhida > 0 &&
+          ` ${qtd(semColhida, "ordem dos cards sem área colhida apontada não entra", "ordens dos cards sem área colhida apontada não entram")}.`}
+        {base.podeGravar && ` Δ% acima de ${LIMITE_DIVERGENCIA_TCH_PCT}% em laranja: confira a área medida lançada ou a entrada de cana.`} Clique no número
+        da ordem para ver só ela na tela.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={linhas}
+        chave={(l) => l.o.numero}
+        rotuloTotal={`Total · ${qtd(linhas.length, "ordem", "ordens")}`}
+        vazio="Nenhuma ordem dos cards com área colhida apontada."
+      />
+      {talhoes.length > 0 && (
+        <Secao
+          titulo={`Talhões com área colhida · ${int(talhoes.length)}`}
+          acoes={exportarTabela(base.arquivo, { nome: "TCH realizado por talhão", colunas: colunasTalhoes, linhas: talhoes })}
+        >
+          <TabelaJanela colunas={colunasTalhoes} linhas={talhoes} chave={(l) => `${l.o.numero}|${l.fazendaCodigo}|${l.talhao}`} />
+        </Secao>
+      )}
+    </JanelaKpi>
   );
 }
 

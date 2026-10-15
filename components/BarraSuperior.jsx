@@ -19,9 +19,10 @@ function iniciais(nome) {
  * Barra superior azul CRV com o filete verde: botão do menu, nome do sistema, busca de telas (Ctrl K), tema, menu do
  * usuário e, à direita, o logo branco da CRV (padrão visual CRV: logo sempre branco e do lado direito).
  * No celular e em tela baixa ela fica mais baixa (48px), sai de cena ao rolar o conteúdo para baixo e ganha o botão
- * que recolhe as barras do topo (`onRecolher`); o AppShell cuida de mostrar e esconder.
+ * que recolhe as barras do topo (`onRecolher`); o AppShell cuida de mostrar e esconder. O nome do sistema e o logo levam
+ * à página inicial do usuário (`inicio`: o Início ou, sem ele liberado, a primeira tela liberada do menu).
  */
-export default function BarraSuperior({ usuario, onMenu, onBuscar, onRecolher }) {
+export default function BarraSuperior({ usuario, inicio = "/", onMenu, onBuscar, onRecolher }) {
   const router = useRouter();
   const [menuAberto, setMenuAberto] = useState(false);
   const [saindo, setSaindo] = useState(false);
@@ -64,9 +65,9 @@ export default function BarraSuperior({ usuario, onMenu, onBuscar, onRecolher })
         <IconMenu size={20} />
       </button>
       <Link
-        href="/painel"
+        href={inicio}
         className="barra-crv-marca flex min-w-0 flex-shrink-0 items-baseline gap-2.5 rounded-lg px-1.5 py-1 hover:bg-white/[0.06]"
-        aria-label="Controle Agrícola · ir para o Início"
+        aria-label="Controle Agrícola · ir para a página inicial"
       >
         <span className="barra-crv-nome whitespace-nowrap font-display text-[20px] font-semibold leading-none tracking-[0.01em]">Controle Agrícola</span>
         <span className="hidden whitespace-nowrap text-[12px] text-white/65 lg:inline">Unidade Capinópolis-MG</span>
@@ -157,7 +158,7 @@ export default function BarraSuperior({ usuario, onMenu, onBuscar, onRecolher })
       </button>
 
       <span className="mx-1.5 hidden h-6 w-px bg-white/20 sm:block" aria-hidden="true" />
-      <Link href="/painel" className="hidden flex-shrink-0 sm:block" aria-label="CRV Industrial · ir para o Início">
+      <Link href={inicio} className="hidden flex-shrink-0 sm:block" aria-label="CRV Industrial · ir para a página inicial">
         <img src="/logo-crv-branca-pdf.png" alt="CRV Industrial" className="h-[33px] w-auto" />
       </Link>
     </header>

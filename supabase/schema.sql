@@ -51,6 +51,30 @@ create table if not exists usr (
 );
 create unique index if not exists idx_usr_usr_lower on usr (lower(usr));
 
+-- Perfis aceitos em base já existente: bases criadas com a tabela `usuarios`
+-- ficaram com a constraint `usuarios_perfil_check` (só leitura/gravacao/admin),
+-- que barra Analista I e II. Remove todo check da coluna prf que não seja o
+-- usr_prf_check completo e refaz ele (o app faz o mesmo sozinho ao conectar —
+-- lib/db.js, ajustarConstraintPerfil).
+do $$
+declare r record;
+begin
+  for r in
+    select c.conname
+      from pg_constraint c
+      join pg_attribute a on a.attrelid = c.conrelid and a.attname = 'prf'
+     where c.conrelid = 'usr'::regclass and c.contype = 'c' and c.conkey = array[a.attnum]
+       and (c.conname <> 'usr_prf_check'
+            or pg_get_constraintdef(c.oid) not like '%''analista1''%'
+            or pg_get_constraintdef(c.oid) not like '%''analista2''%')
+  loop
+    execute format('alter table usr drop constraint %I', r.conname);
+  end loop;
+  if not exists (select 1 from pg_constraint where conrelid = 'usr'::regclass and conname = 'usr_prf_check') then
+    alter table usr add constraint usr_prf_check check (prf in ('leitura', 'analista1', 'analista2', 'gravacao', 'admin'));
+  end if;
+end $$;
+
 -- Ordens de corte — 100% derivadas da importação das planilhas do CHBWEB
 -- (nunca cadastradas nem editadas manualmente, exceto área colhida)
 create table if not exists ord (

@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Campo, ModalShell } from "@/components/ui";
 import { IconImportar, IconTrocar } from "@/components/icons";
-import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel, Selo } from "@/components/pagina";
+import { JanelaInfo } from "@/components/janela";
+import { Abas, BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel, Selo } from "@/components/pagina";
 import { BotaoExportar } from "@/app/(app)/acompanhamentos/os-agricola/comum";
 import { fmtDateBR, fmtHa } from "@/lib/format";
 import { podeEditar } from "@/lib/permissoes";
@@ -51,6 +52,14 @@ export default function ResumoClient({ perfil }) {
   const [erro, setErro] = useState(null);
   const [importarAberto, setImportarAberto] = useState(false);
   const [padronizarAberto, setPadronizarAberto] = useState(false);
+  /** janela (detalhe) do card aberta: boletins, linhas, area, rodadas */
+  const [janela, setJanela] = useState(null);
+  /** todas as linhas do filtro para as janelas dos cards: { chave, linhas, erro } (vale até o filtro ou a carga mudar) */
+  const [detalhe, setDetalhe] = useState(null);
+  /** chave da última busca do detalhe: só a resposta dela é gravada (mesmo com a janela fechada ou trocada no meio) */
+  const pedidoDetalhe = useRef(null);
+  /** cada carga da página conta uma: a janela aberta depois dela busca de novo, para bater com os cards */
+  const [geracao, setGeracao] = useState(0);
 
   const carregar = useCallback(
     async (comOpcoes = false) => {
@@ -75,6 +84,7 @@ export default function ResumoClient({ perfil }) {
         setAreaHa(json.areaHa);
         setTamanho(json.tamanho);
         if (json.opcoes) setOpcoes(json.opcoes);
+        setGeracao((g) => g + 1);
       } catch (e) {
         setErro(e instanceof Error ? e.message : "Não foi possível carregar o resumo.");
       } finally {
@@ -95,8 +105,8 @@ export default function ResumoClient({ perfil }) {
     }
   }
 
-  /** todas as linhas do filtro atual (para exportar) */
-  async function todasAsLinhas() {
+  /** os filtros da página para pedir todas as linhas (sem paginar) */
+  function parametrosTodos() {
     const p = new URLSearchParams({ todos: "1" });
     if (rod) p.set("rod", rod);
     if (reg) p.set("reg", reg);
@@ -105,10 +115,29 @@ export default function ResumoClient({ perfil }) {
     if (termo) p.set("q", termo);
     if (usr) p.set("usr", usr);
     filtroData(p);
-    const res = await fetch(`/api/rodadas/resumo?${p}`, { cache: "no-store" });
+    return p;
+  }
+
+  /** todas as linhas do filtro atual (para exportar) */
+  async function todasAsLinhas() {
+    const res = await fetch(`/api/rodadas/resumo?${parametrosTodos()}`, { cache: "no-store" });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error ?? "Não foi possível exportar.");
     return json.linhas;
+  }
+
+  /**
+   * Detalhe das janelas dos cards: todas as linhas do filtro e, na mesma busca, as opções (rodadas, regiões, semanas,
+   * usuários). Assim o card Rodadas, o select de Rodada e a janela contam a mesma lista, mesmo com boletins de rodada
+   * nova lançados pelo Apontamento ou pelo Lançamento Mobile depois que a tela abriu.
+   */
+  async function linhasEOpcoes() {
+    const p = parametrosTodos();
+    p.set("opcoes", "1");
+    const res = await fetch(`/api/rodadas/resumo?${p}`, { cache: "no-store" });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar o detalhe.");
+    return json;
   }
 
   useEffect(() => {
@@ -128,6 +157,86 @@ export default function ResumoClient({ perfil }) {
     fn();
     setPagina(1);
   };
+
+  // janelas dos cards: todas as linhas do filtro (a página só tem 100), buscadas ao abrir a primeira janela. Uma busca
+  // por filtro: fechar ou trocar de janela durante a carga não a descarta (a resposta fica para a próxima janela); só
+  // quando o filtro ou a carga mudam a resposta antiga é ignorada. Depois de um erro, abrir a janela tenta de novo.
+  const chaveDetalhe = `${geracao}|${JSON.stringify([rod, reg, sem, ori, termo, modoData, de, ate, usr])}`;
+  // filtro ou carga nova: a busca em andamento perde a vez (nem as linhas nem as opções antigas sobrescrevem as novas)
+  useEffect(
+    () => () => {
+      pedidoDetalhe.current = null;
+    },
+    [chaveDetalhe],
+  );
+  useEffect(() => {
+    if (!janela || (detalhe?.chave === chaveDetalhe && !detalhe.erro)) return;
+    const chave = chaveDetalhe;
+    pedidoDetalhe.current = chave;
+    setDetalhe({ chave, linhas: null, erro: null });
+    linhasEOpcoes()
+      .then((json) => {
+        if (pedidoDetalhe.current !== chave) return;
+        setDetalhe({ chave, linhas: json.linhas, erro: null });
+        if (json.opcoes) setOpcoes(json.opcoes);
+      })
+      .catch((e) => {
+        if (pedidoDetalhe.current !== chave) return;
+        setDetalhe({ chave, linhas: null, erro: e instanceof Error ? e.message : "Não foi possível carregar o detalhe." });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [janela, chaveDetalhe]);
+  const linhasJanela = detalhe?.chave === chaveDetalhe ? detalhe.linhas : null;
+  const totaisJanela = useMemo(() => totaisDe(linhasJanela ?? []), [linhasJanela]);
+
+  /** clique numa rodada, semana, data, região, origem ou usuário dentro da janela: a página passa a filtrar por ele */
+  function aplicarFiltro(tipo, v) {
+    setJanela(null);
+    mudar(() => {
+      if (tipo === "rod") setRod(String(v));
+      else if (tipo === "reg") setReg(String(v));
+      else if (tipo === "sem") setSem(String(v));
+      else if (tipo === "ori") setOri(v);
+      else if (tipo === "usr") setUsr(v);
+      else if (tipo === "dia") {
+        setModoData("dia");
+        setDe(v);
+      }
+    });
+  }
+
+  // subtítulo das janelas dos cards: os filtros que formaram os números
+  const filtrosAtivos = [
+    rod && `rodada ${rod}`,
+    reg && `região ${reg}`,
+    sem && `semana ${sem}`,
+    ori && `origem ${ori === "apontamento" ? "Apontamento" : "Importação"}`,
+    modoData === "dia" && de && `data ${fmtDateBR(de)}`,
+    modoData === "periodo" &&
+      (de || ate) &&
+      (de && ate ? `de ${fmtDateBR(de)} a ${fmtDateBR(ate)}` : de ? `a partir de ${fmtDateBR(de)}` : `até ${fmtDateBR(ate)}`),
+    usr && `lançado por ${usr}`,
+    termo && `busca “${termo}”`,
+  ].filter(Boolean);
+  const baseJanela = {
+    subtitulo: `Levantamento de campo · ${filtrosAtivos.length ? `filtro: ${filtrosAtivos.join(" · ")}` : "sem filtro"}`,
+    linhas: linhasJanela,
+    erro: detalhe?.chave === chaveDetalhe ? detalhe.erro : null,
+    onFechar: () => setJanela(null),
+    filtrar: aplicarFiltro,
+  };
+  const cards = [
+    { k: "boletins", rotulo: "Boletins", valor: boletins.toLocaleString("pt-BR"), cor: "azul" },
+    { k: "linhas", rotulo: "Linhas lançadas", valor: total.toLocaleString("pt-BR"), cor: "cinza" },
+    { k: "area", rotulo: "Área (ha)", valor: fmtHa(areaHa), cor: "verde" },
+    {
+      k: "rodadas",
+      rotulo: "Rodadas",
+      valor: String(opcoes?.rodadas.length ?? 0),
+      cor: "cinza",
+      title: "Ver o detalhe · conta as rodadas com boletim lançado, sem os filtros da página",
+    },
+  ];
 
   return (
     <Pagina>
@@ -213,11 +322,19 @@ export default function ResumoClient({ perfil }) {
           <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
         </BarraFiltros>
 
+        {/* cada card abre a janela com o detalhe dos mesmos números (mesmos filtros) */}
         <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Indicador cor="azul" rotulo="Boletins" valor={boletins.toLocaleString("pt-BR")} />
-          <Indicador cor="cinza" rotulo="Linhas lançadas" valor={total.toLocaleString("pt-BR")} />
-          <Indicador cor="verde" rotulo="Área (ha)" valor={fmtHa(areaHa)} />
-          <Indicador cor="cinza" rotulo="Rodadas" valor={String(opcoes?.rodadas.length ?? 0)} />
+          {cards.map((c) => (
+            <button
+              key={c.k}
+              type="button"
+              onClick={() => setJanela(c.k)}
+              className="min-w-0 rounded-xl2 text-left transition hover:-translate-y-px focus:outline-none focus-visible:ring-2 focus-visible:ring-navy-500"
+              title={c.title ?? "Ver o detalhe"}
+            >
+              <Indicador cor={c.cor} rotulo={c.rotulo} valor={c.valor} className="h-full" />
+            </button>
+          ))}
         </div>
 
         <Painel
@@ -340,6 +457,10 @@ export default function ResumoClient({ perfil }) {
         </Painel>
       </CorpoPagina>
 
+      {janela === "boletins" && <JanelaBoletins base={baseJanela} totais={totaisJanela} />}
+      {janela === "linhas" && <JanelaQuebras titulo="Linhas lançadas" foco="linhas" base={baseJanela} totais={totaisJanela} />}
+      {janela === "area" && <JanelaQuebras titulo="Área (ha)" foco="area" base={baseJanela} totais={totaisJanela} />}
+      {janela === "rodadas" && <JanelaRodadas base={baseJanela} totais={totaisJanela} rodadas={opcoes?.rodadas} />}
       {padronizarAberto && (
         <PadronizarModal
           onFechar={() => {
@@ -357,6 +478,471 @@ export default function ResumoClient({ perfil }) {
         />
       )}
     </Pagina>
+  );
+}
+
+/* ---------- Janelas dos cards: o detalhe calculado das mesmas linhas filtradas que formam o card ---------- */
+
+const int = (n) => (n ?? 0).toLocaleString("pt-BR");
+const pct = (v, total) => (total > 0 ? Math.round((v / total) * 1000) / 10 : null);
+const qtd = (n, um, varios) => `${int(n)} ${n === 1 ? um : varios}`;
+const semArea = (l) => l.area === null || l.area === undefined;
+const data = (iso) => (iso ? fmtDateBR(iso) : "");
+const textoRegiao = (reg, nm) => (reg ? (nm ? `${reg} · ${nm}` : reg) : "");
+const natural = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
+/** as tabelas das janelas mostram até tantas linhas; o Exportar leva todas e o total conta todas */
+const LIMITE_JANELA = 1000;
+
+/** os números dos cards, refeitos com todas as linhas do filtro (área: soma das linhas que têm área) */
+function totaisDe(linhas) {
+  const bols = new Set();
+  let area = 0;
+  let semAreaN = 0;
+  for (const l of linhas) {
+    bols.add(l.bol);
+    if (semArea(l)) semAreaN++;
+    else area += l.area;
+  }
+  return { boletins: bols.size, linhas: linhas.length, area, semArea: semAreaN };
+}
+
+/** Valor na tela: área em ha (2 casas), contagem, percentual (1 casa), código ou texto; total null = "–". */
+function formatar(num, v) {
+  if ((v === null || v === undefined) && (num === "ha" || num === "int" || num === "pct")) return "–";
+  if (num === "int") return int(v);
+  if (num === "pct") return `${v.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  if (num === "ha") return fmtHa(v);
+  return v ?? "";
+}
+const DIREITA = new Set(["ha", "int", "pct", "cod"]);
+
+/** Valor clicável dentro da janela (aplica um filtro da página ou abre o detalhe). */
+function BotaoLink({ texto, dica, onClick }) {
+  return (
+    <button type="button" onClick={onClick} className="text-left text-[#2E5FA8] hover:underline" title={dica}>
+      {texto}
+    </button>
+  );
+}
+
+/**
+ * Tabela das janelas: cabeçalho, números à direita e linha de total (fica no fim ao ordenar pelo título da coluna).
+ * Coluna: { rotulo, valor(l) (o que vai para a planilha), num ("ha", "int", "pct", "cod" = à direita), exibir(l) (o
+ * que aparece, se diferente do valor), classe(l), total (null = "–"), soPlanilha (só na exportação) }.
+ */
+function TabelaJanela({ colunas, linhas, chave, vazio = "Nenhum levantamento no filtro.", rotuloTotal = "Total" }) {
+  const vis = colunas.filter((c) => !c.soPlanilha);
+  const inicioTotal = vis.findIndex((c) => c.total !== undefined);
+  const lado = (c) => (DIREITA.has(c.num) ? "text-right tabular" : "");
+  return (
+    <div className="overflow-x-auto rounded-lg border border-line">
+      <table className="w-full text-[12.5px]">
+        <thead>
+          <tr className="whitespace-nowrap border-b border-line bg-surface text-left text-muted">
+            {vis.map((c) => (
+              <th key={c.rotulo} className={`px-3 py-2 font-medium ${DIREITA.has(c.num) ? "text-right" : ""}`}>
+                {c.rotulo}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {linhas.map((l, i) => (
+            <tr key={chave(l, i)} className="border-t border-line/60 hover:bg-surface/60">
+              {vis.map((c) => (
+                <td key={c.rotulo} className={`px-3 py-1.5 ${lado(c)} ${c.classe?.(l) ?? "text-ink"}`}>
+                  {c.exibir ? c.exibir(l) : formatar(c.num, c.valor(l))}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {linhas.length === 0 && (
+            <tr>
+              <td colSpan={vis.length} className="px-4 py-8 text-center text-muted">
+                {vazio}
+              </td>
+            </tr>
+          )}
+          {linhas.length > 0 && inicioTotal > 0 && (
+            <tr className="bg-navy-900 font-semibold text-white">
+              <td colSpan={inicioTotal} className="whitespace-nowrap px-3 py-2">
+                {rotuloTotal}
+              </td>
+              {vis.slice(inicioTotal).map((c) => (
+                <td key={c.rotulo} className={`px-3 py-2 ${lado(c)}`}>
+                  {c.total === undefined ? "" : formatar(c.num, c.total)}
+                </td>
+              ))}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Nota({ children }) {
+  return <p className="mb-3 text-[12px] leading-relaxed text-muted">{children}</p>;
+}
+
+/** Aviso de lista cortada na tela (o total e o Exportar contam todas). */
+function Corte({ n, nome }) {
+  if (n <= LIMITE_JANELA) return null;
+  return (
+    <p className="mt-2 text-[11.5px] text-muted">
+      Mostrando {int(LIMITE_JANELA)} de {int(n)} {nome}; o total conta todos e o Exportar leva a lista inteira.
+    </p>
+  );
+}
+
+/** Botão de exportar uma tabela da janela (só o rótulo e o valor de cada coluna); sem linhas, nada. */
+const exportarTabela = ({ nome, colunas, linhas }) =>
+  linhas.length > 0 && (
+    <BotaoExportar
+      nome={`Resumo Rodadas de Campo - ${nome}`}
+      colunas={colunas.map(({ rotulo, valor }) => ({ rotulo, valor }))}
+      buscar={async () => linhas}
+    />
+  );
+
+/** Moldura das janelas: filtros no subtítulo, exportar no topo; enquanto as linhas do filtro chegam, o aviso. */
+function JanelaCard({ titulo, base, exportar, largura = "5xl", children }) {
+  return (
+    <JanelaInfo
+      titulo={titulo}
+      subtitulo={base.subtitulo}
+      largura={largura}
+      onFechar={base.onFechar}
+      acoes={base.linhas && exportar ? exportarTabela(exportar) : undefined}
+    >
+      {base.erro ? (
+        <p className="rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">{base.erro}</p>
+      ) : !base.linhas ? (
+        <p className="py-8 text-center text-[12.5px] text-muted">Carregando o detalhe…</p>
+      ) : (
+        children
+      )}
+    </JanelaInfo>
+  );
+}
+
+/** Card Boletins: um boletim por linha (linhas e área de cada um); clicar no número mostra as linhas (talhões) dele. */
+function JanelaBoletins({ base, totais }) {
+  const [aberto, setAberto] = useState(null);
+  const lista = useMemo(() => {
+    const m = new Map();
+    for (const l of base.linhas ?? []) {
+      let b = m.get(l.bol);
+      if (!b) {
+        b = { ...l, linhas: 0, semArea: 0, area: 0, itens: [] };
+        m.set(l.bol, b);
+      }
+      b.linhas++;
+      b.itens.push(l);
+      if (semArea(l)) b.semArea++;
+      else b.area += l.area;
+    }
+    return Array.from(m.values());
+  }, [base.linhas]);
+  const sel = aberto === null ? null : lista.find((b) => b.bol === aberto);
+
+  if (sel) {
+    const colunasItens = [
+      { rotulo: "Talhão", num: "cod", valor: (l) => l.tlh, classe: () => "font-medium text-ink" },
+      { rotulo: "Área (ha)", num: "ha", valor: (l) => l.area, total: sel.area },
+      { rotulo: "Ocorrência", valor: (l) => l.ocorrencia, classe: () => "min-w-[180px] text-ink" },
+      { rotulo: "Presença", valor: (l) => l.presenca },
+      { rotulo: "Nível", valor: (l) => l.nivel },
+      { rotulo: "Prioridade", valor: (l) => l.prioridade },
+      { rotulo: "Recomendação / Diagnóstico", valor: (l) => l.rec, classe: () => "min-w-[220px] text-ink" },
+      { rotulo: "Atividade", valor: (l) => l.atividade },
+      { rotulo: "Executado", valor: (l) => l.executado },
+    ];
+    const ficha = [
+      ["Rodada", sel.rod],
+      ["Data", data(sel.dt)],
+      ["Semana", sel.sem || "–"],
+      ["Região", textoRegiao(sel.reg, sel.regNm) || "–"],
+      ["Fazenda", sel.fazNm ? `${sel.faz} · ${sel.fazNm}` : sel.faz],
+      ["Responsável", sel.resp || "–"],
+      ["Origem", sel.origem],
+      ["Lançado por", sel.lancadoPor || "–"],
+    ];
+    return (
+      <JanelaCard titulo={`Boletim ${sel.bol}`} base={base} largura="6xl" exportar={{ nome: `Boletim ${sel.bol}`, colunas: colunasItens, linhas: sel.itens }}>
+        <button
+          type="button"
+          onClick={() => setAberto(null)}
+          className="mb-2 rounded-md px-2 py-1 text-[12.5px] font-medium text-[#2E5FA8] hover:bg-[#2E5FA8]/[0.06]"
+        >
+          ← Voltar aos boletins
+        </button>
+        <dl className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px] sm:grid-cols-4">
+          {ficha.map(([r, v]) => (
+            <div key={r} className="min-w-0">
+              <dt className="text-muted">{r}</dt>
+              <dd className="truncate text-ink" title={String(v)}>
+                {v}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <TabelaJanela
+          colunas={colunasItens}
+          linhas={sel.itens}
+          chave={(l, i) => `${l.tlh}|${i}`}
+          rotuloTotal={`Total · ${qtd(sel.linhas, "linha", "linhas")}`}
+          vazio="Nenhuma linha neste boletim."
+        />
+      </JanelaCard>
+    );
+  }
+
+  const colunas = [
+    {
+      rotulo: "Boletim",
+      num: "cod",
+      valor: (b) => b.bol,
+      exibir: (b) => <BotaoLink texto={b.bol} dica={`Ver as linhas do boletim ${b.bol}`} onClick={() => setAberto(b.bol)} />,
+      classe: () => "font-medium",
+    },
+    { rotulo: "Rodada", num: "cod", valor: (b) => b.rod },
+    { rotulo: "Data", valor: (b) => data(b.dt), classe: () => "whitespace-nowrap text-ink" },
+    { rotulo: "Semana", num: "cod", valor: (b) => b.sem || "" },
+    { rotulo: "Região", valor: (b) => b.reg, exibir: (b) => textoRegiao(b.reg, b.regNm), classe: () => "whitespace-nowrap text-ink" },
+    { rotulo: "Descrição da Região", valor: (b) => b.regNm, soPlanilha: true },
+    { rotulo: "Fazenda", num: "cod", valor: (b) => b.faz },
+    { rotulo: "Descrição Fazenda", valor: (b) => b.fazNm },
+    { rotulo: "Responsável", valor: (b) => b.resp, classe: () => "whitespace-nowrap text-ink" },
+    { rotulo: "Origem", valor: (b) => b.origem },
+    { rotulo: "Lançado por", valor: (b) => b.lancadoPor, classe: () => "whitespace-nowrap text-ink" },
+    { rotulo: "Linhas", num: "int", valor: (b) => b.linhas, total: totais.linhas },
+    { rotulo: "Área (ha)", num: "ha", valor: (b) => b.area, total: totais.area },
+  ];
+  return (
+    <JanelaCard titulo="Boletins" base={base} largura="6xl" exportar={{ nome: "Boletins", colunas, linhas: lista }}>
+      <Nota>
+        {qtd(totais.boletins, "boletim", "boletins")} com {qtd(totais.linhas, "linha", "linhas")} e {fmtHa(totais.area)} ha. Cada boletim é uma rodada,
+        data, região, semana e fazenda; clique no número do boletim para ver as linhas (talhões) dele.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={lista.slice(0, LIMITE_JANELA)}
+        chave={(b) => b.bol}
+        rotuloTotal={`Total · ${qtd(totais.boletins, "boletim", "boletins")}`}
+      />
+      <Corte n={lista.length} nome="boletins" />
+    </JanelaCard>
+  );
+}
+
+const ORIGEM_FILTRO = { Apontamento: "apontamento", Importação: "importacao" };
+
+/**
+ * Quebras dos cards Linhas lançadas e Área: cada aba agrupa as linhas por um campo do boletim (rodada, semana, data,
+ * região, fazenda, origem, lançado por) ou da linha (prioridade). `filtro`: clicar no valor aplica esse filtro na
+ * página. `daLinha`: um boletim pode cair em mais de um grupo, então a coluna Boletins não tem total.
+ */
+const QUEBRAS = [
+  { id: "rodada", label: "Por rodada", coluna: "Rodada", num: "cod", chave: (l) => l.rod ?? "", vazio: "Sem rodada", filtro: "rod" },
+  { id: "semana", label: "Por semana", coluna: "Semana", num: "cod", chave: (l) => (l.sem > 0 ? l.sem : ""), vazio: "Sem semana", filtro: "sem" },
+  { id: "data", label: "Por data", coluna: "Data", chave: (l) => l.dt ?? "", texto: (x) => data(x.chave), vazio: "Sem data", filtro: "dia" },
+  {
+    id: "regiao",
+    label: "Por região",
+    coluna: "Região",
+    chave: (l) => l.reg ?? "",
+    nm: (l) => l.regNm,
+    colunaNm: { rotulo: "Descrição da Região", soPlanilha: true },
+    texto: (x) => textoRegiao(x.chave, x.nm),
+    vazio: "Sem região",
+    filtro: "reg",
+  },
+  {
+    id: "fazenda",
+    label: "Por fazenda",
+    coluna: "Fazenda",
+    num: "cod",
+    chave: (l) => l.faz ?? "",
+    nm: (l) => l.fazNm,
+    colunaNm: { rotulo: "Descrição Fazenda" },
+    vazio: "Sem fazenda",
+  },
+  { id: "prioridade", label: "Por prioridade", coluna: "Prioridade", chave: (l) => l.prioridade ?? "", vazio: "Sem prioridade", daLinha: true, porValor: true },
+  { id: "origem", label: "Por origem", coluna: "Origem", chave: (l) => l.origem ?? "", vazio: "Sem origem", filtro: "ori", porValor: true },
+  { id: "usuario", label: "Por usuário", coluna: "Lançado por", chave: (l) => l.lancadoPor ?? "", vazio: "Sem usuário", filtro: "usr", porValor: true },
+];
+
+/** valor do filtro da página para a chave do grupo (origem: o rótulo da linha volta ao código do filtro) */
+const valorFiltro = (q, k) => (q.filtro === "ori" ? ORIGEM_FILTRO[k] : k);
+
+/**
+ * Cards Linhas lançadas (foco "linhas") e Área (foco "area"): as linhas do filtro agrupadas pela aba escolhida, com
+ * boletins, linhas e área; a soma de cada coluna bate com o card. Na Área, a fazenda e a região vêm da maior área.
+ */
+function JanelaQuebras({ titulo, foco, base, totais }) {
+  const [aba, setAba] = useState(foco === "area" ? "fazenda" : "rodada");
+  const q = QUEBRAS.find((x) => x.id === aba);
+  const grupos = useMemo(() => {
+    const m = new Map();
+    for (const l of base.linhas ?? []) {
+      const k = q.chave(l);
+      let x = m.get(k);
+      if (!x) {
+        x = { chave: k, nm: q.nm?.(l) ?? "", bols: new Set(), linhas: 0, semArea: 0, area: 0 };
+        m.set(k, x);
+      }
+      if (!x.nm && q.nm) x.nm = q.nm(l) ?? "";
+      x.bols.add(l.bol);
+      x.linhas++;
+      if (semArea(l)) x.semArea++;
+      else x.area += l.area;
+    }
+    const porValor = q.porValor || (foco === "area" && (q.id === "fazenda" || q.id === "regiao"));
+    const met = foco === "area" ? "area" : "linhas";
+    return Array.from(m.values())
+      .map(({ bols, ...x }) => ({ ...x, boletins: bols.size }))
+      .sort((a, b) => (a.chave === "") - (b.chave === "") || (porValor ? b[met] - a[met] : natural.compare(String(a.chave), String(b.chave))));
+  }, [base.linhas, q, foco]);
+
+  const colGrupo = {
+    rotulo: q.coluna,
+    num: q.num,
+    valor: (x) => (x.chave === "" ? "" : q.id === "data" ? data(x.chave) : x.chave),
+    exibir: (x) => {
+      if (x.chave === "") return <span className="text-amber-700">{q.vazio}</span>;
+      const txt = q.texto ? q.texto(x) : x.chave;
+      if (!q.filtro) return txt;
+      return (
+        <BotaoLink texto={txt} dica={`Filtrar a página: ${q.coluna.toLowerCase()} ${txt}`} onClick={() => base.filtrar(q.filtro, valorFiltro(q, x.chave))} />
+      );
+    },
+    classe: () => "whitespace-nowrap font-medium text-ink",
+  };
+  const colunas = [
+    colGrupo,
+    q.colunaNm && { ...q.colunaNm, valor: (x) => x.nm },
+    { rotulo: "Boletins", num: "int", valor: (x) => x.boletins, total: q.daLinha ? null : totais.boletins },
+    { rotulo: "Linhas", num: "int", valor: (x) => x.linhas, total: totais.linhas },
+    foco === "linhas" && {
+      rotulo: "% das linhas",
+      num: "pct",
+      valor: (x) => pct(x.linhas, totais.linhas),
+      total: totais.linhas > 0 ? 100 : null,
+      classe: () => "text-muted",
+    },
+    foco === "area" && {
+      rotulo: "Linhas sem área",
+      num: "int",
+      valor: (x) => x.semArea,
+      total: totais.semArea,
+      classe: (x) => (x.semArea > 0 ? "text-amber-700" : "text-muted"),
+    },
+    { rotulo: "Área (ha)", num: "ha", valor: (x) => x.area, total: totais.area },
+    foco === "area" && {
+      rotulo: "% da área",
+      num: "pct",
+      valor: (x) => pct(x.area, totais.area),
+      total: totais.area > 0 ? 100 : null,
+      classe: () => "text-muted",
+    },
+  ].filter(Boolean);
+  const nomeAba = q.label.replace(/^Por /, "");
+
+  return (
+    <JanelaCard titulo={titulo} base={base} largura="5xl" exportar={{ nome: `${titulo.replace(" (ha)", "")} por ${nomeAba}`, colunas, linhas: grupos }}>
+      {foco === "linhas" ? (
+        <Nota>
+          {qtd(totais.linhas, "linha", "linhas")} em {qtd(totais.boletins, "boletim", "boletins")}: cada linha é um talhão lançado num boletim, com a
+          ocorrência, a prioridade e a recomendação. Clique na rodada, semana, data, região, origem ou usuário para filtrar a página por ele.
+        </Nota>
+      ) : (
+        <Nota>
+          {fmtHa(totais.area)} ha em {qtd(totais.linhas, "linha", "linhas")}: a área soma a área de cada linha lançada, então um talhão levantado em mais
+          de um boletim conta em cada um.
+          {totais.semArea > 0 ? ` ${qtd(totais.semArea, "linha sem área não soma", "linhas sem área não somam")}.` : ""}
+        </Nota>
+      )}
+      <Abas itens={QUEBRAS} ativo={aba} onChange={setAba} className="mb-3" />
+      <TabelaJanela colunas={colunas} linhas={grupos.slice(0, LIMITE_JANELA)} chave={(x) => String(x.chave) || "sem"} />
+      <Corte n={grupos.length} nome="grupos" />
+      {q.daLinha && (
+        <p className="mt-2 text-[11.5px] leading-relaxed text-muted">
+          A prioridade é de cada linha: um boletim com linhas de prioridades diferentes conta em cada uma, por isso a coluna Boletins não tem total.
+        </p>
+      )}
+    </JanelaCard>
+  );
+}
+
+/**
+ * Card Rodadas: as rodadas com boletim lançado (o card não segue os filtros) e, de cada uma, o que cai no filtro atual:
+ * boletins, linhas, área, primeira e última data e semanas. Clicar na rodada filtra a página por ela.
+ */
+function JanelaRodadas({ base, totais, rodadas }) {
+  const lista = useMemo(() => {
+    const novo = (rod) => ({ rod, bols: new Set(), linhas: 0, area: 0, primeira: "", ultima: "", sems: new Set() });
+    const m = new Map((rodadas ?? []).map((r) => [r, novo(r)]));
+    for (const l of base.linhas ?? []) {
+      let x = m.get(l.rod);
+      if (!x) {
+        x = novo(l.rod);
+        m.set(l.rod, x);
+      }
+      x.bols.add(l.bol);
+      x.linhas++;
+      if (!semArea(l)) x.area += l.area;
+      if (l.dt && (!x.primeira || l.dt < x.primeira)) x.primeira = l.dt;
+      if (l.dt && l.dt > x.ultima) x.ultima = l.dt;
+      if (l.sem > 0) x.sems.add(l.sem);
+    }
+    return Array.from(m.values())
+      .map(({ bols, sems, ...x }) => ({
+        ...x,
+        boletins: bols.size,
+        semanas: Array.from(sems)
+          .sort((a, b) => a - b)
+          .join(", "),
+      }))
+      .sort((a, b) => a.rod - b.rod);
+  }, [rodadas, base.linhas]);
+  const datas = lista.filter((x) => x.primeira);
+  const primeira = datas.reduce((s, x) => (!s || x.primeira < s ? x.primeira : s), "");
+  const ultima = datas.reduce((s, x) => (x.ultima > s ? x.ultima : s), "");
+  const foraDoFiltro = lista.filter((x) => x.linhas === 0).length;
+  const apagada = (x) => (x.linhas > 0 ? "text-ink" : "text-muted");
+
+  const colunas = [
+    {
+      rotulo: "Rodada",
+      num: "cod",
+      valor: (x) => x.rod,
+      exibir: (x) => <BotaoLink texto={x.rod} dica={`Filtrar a página pela rodada ${x.rod}`} onClick={() => base.filtrar("rod", x.rod)} />,
+      classe: () => "font-medium",
+    },
+    { rotulo: "Boletins", num: "int", valor: (x) => x.boletins, total: totais.boletins, classe: apagada },
+    { rotulo: "Linhas", num: "int", valor: (x) => x.linhas, total: totais.linhas, classe: apagada },
+    { rotulo: "Área (ha)", num: "ha", valor: (x) => x.area, total: totais.area, classe: apagada },
+    { rotulo: "Primeira data", valor: (x) => data(x.primeira), total: data(primeira), classe: apagada },
+    { rotulo: "Última data", valor: (x) => data(x.ultima), total: data(ultima), classe: apagada },
+    { rotulo: "Semanas", valor: (x) => x.semanas, total: "", classe: apagada },
+  ];
+  return (
+    <JanelaCard titulo="Rodadas" base={base} largura="4xl" exportar={{ nome: "Rodadas", colunas, linhas: lista }}>
+      <Nota>
+        O card conta as rodadas com boletim lançado, sem os filtros da página ({qtd(lista.length, "rodada", "rodadas")}). As colunas mostram o que cai no
+        filtro atual
+        {foraDoFiltro > 0 ? ` (${qtd(foraDoFiltro, "rodada fica", "rodadas ficam")} sem linhas nele)` : ""}; clique na rodada para filtrar a página por
+        ela.
+      </Nota>
+      <TabelaJanela
+        colunas={colunas}
+        linhas={lista}
+        chave={(x) => x.rod}
+        rotuloTotal={`Total · ${qtd(lista.length, "rodada", "rodadas")}`}
+        vazio="Nenhuma rodada com boletim lançado."
+      />
+    </JanelaCard>
   );
 }
 

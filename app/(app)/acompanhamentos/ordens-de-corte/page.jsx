@@ -23,6 +23,7 @@ export default async function OrdensDeCortePage() {
       producao={producao}
       perfil={usuario?.perfil ?? "leitura"}
       nomeUsuario={usuario?.nome ?? "Usuário"}
+      acessos={usuario?.acessos ?? null}
     />
   );
 }

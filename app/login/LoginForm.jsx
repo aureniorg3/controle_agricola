@@ -28,8 +28,8 @@ export default function LoginForm() {
         setCarregando(false);
         return;
       }
-      // ao entrar, sempre o Início / Dashboard
-      router.push("/painel");
+      // ao entrar, a página inicial do usuário: "/" leva ao Início ou, sem ele liberado, à primeira tela liberada
+      router.push("/");
       router.refresh();
     } catch {
       setErro("Não foi possível conectar ao servidor.");

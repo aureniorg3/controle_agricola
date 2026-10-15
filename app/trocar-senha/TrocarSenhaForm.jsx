@@ -36,7 +36,8 @@ export default function TrocarSenhaForm({ nomeCompleto }) {
         setCarregando(false);
         return;
       }
-      router.push("/painel");
+      // "/" leva à página inicial do usuário (o Início ou a primeira tela liberada)
+      router.push("/");
       router.refresh();
     } catch {
       setErro("Não foi possível conectar ao servidor.");

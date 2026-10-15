@@ -38,13 +38,19 @@ export async function POST(req) {
     return NextResponse.json({ error: "Nível de acesso inválido." }, { status: 400 });
   }
 
-  const resultado = await insertUsuario({
-    nome: body.nome,
-    sobrenome: body.sobrenome,
-    email: body.email,
-    usuario: body.usuario,
-    perfil: body.perfil,
-  });
+  let resultado;
+  try {
+    resultado = await insertUsuario({
+      nome: body.nome,
+      sobrenome: body.sobrenome,
+      email: body.email,
+      usuario: body.usuario,
+      perfil: body.perfil,
+    });
+  } catch (err) {
+    // erro do banco (ex.: constraint) volta com o motivo — sem isso a tela só dizia "verifique a conexão"
+    return NextResponse.json({ error: `Não foi possível gravar o usuário: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 });
+  }
   if ("erro" in resultado) {
     return NextResponse.json({ error: resultado.erro }, { status: 409 });
   }
