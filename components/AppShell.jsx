@@ -90,7 +90,8 @@ export default function AppShell({ usuario, children }) {
 
   return (
     <ContextoVoltar.Provider value={contexto}>
-      <div className="app-shell-root flex h-screen w-full flex-col overflow-hidden bg-surface">
+      {/* h-dvh: no celular a altura não conta a barra do navegador (o rodapé fixo das telas fica à vista); sem dvh vale o h-screen */}
+      <div className="app-shell-root flex h-screen h-dvh w-full flex-col overflow-hidden bg-surface">
         {/* clicar no título de uma coluna ordena qualquer tabela */}
         <OrdenarTabelas />
         <BarraSuperior usuario={usuario} onMenu={botaoMenu} onBuscar={() => setBuscaAberta(true)} />

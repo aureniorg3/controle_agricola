@@ -186,6 +186,17 @@ export function IconAtividades(p) {
   );
 }
 
+/** Lançamento Mobile: celular (aparelho de campo). */
+export function IconCelular(p) {
+  return (
+    <Svg {...p}>
+      <rect x="6.5" y="2.5" width="11" height="19" rx="2.2" />
+      <path d="M10.5 5.5h3" />
+      <circle cx="12" cy="18" r="0.9" fill="currentColor" />
+    </Svg>
+  );
+}
+
 export function IconMapa(p) {
   return (
     <Svg {...p}>
@@ -506,6 +517,25 @@ export function IconEditar(p) {
     <Svg {...p}>
       <path d="M14.5 5.5l4 4" />
       <path d="M4 20l1-4.5L15.8 4.7a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19 4 20Z" />
+    </Svg>
+  );
+}
+
+export function IconCopiar(p) {
+  return (
+    <Svg {...p}>
+      <rect x="8.5" y="8.5" width="11.5" height="11.5" rx="1.8" />
+      <path d="M15.5 8.5V5.8A1.8 1.8 0 0 0 13.7 4H5.8A1.8 1.8 0 0 0 4 5.8v7.9a1.8 1.8 0 0 0 1.8 1.8h2.7" />
+    </Svg>
+  );
+}
+
+/** Compartilhar / enviar (a mensagem no grupo do WhatsApp). */
+export function IconCompartilhar(p) {
+  return (
+    <Svg {...p}>
+      <path d="M20.5 3.5 10 14" />
+      <path d="M20.5 3.5 14 20.5l-4-6.5-6.5-4 17-6.5Z" />
     </Svg>
   );
 }
