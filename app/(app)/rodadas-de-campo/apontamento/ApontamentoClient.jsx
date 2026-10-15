@@ -1,10 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconBusca } from "@/components/icons";
-import { BarraFiltros, CabecalhoPagina, CorpoPagina, Pagina, Selo } from "@/components/pagina";
+import { createPortal } from "react-dom";
+import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
+import { IconBusca, IconMais } from "@/components/icons";
+import JanelaFormulario, { Aviso, JanelaConfirmar, useAtalhoTela, useJanela } from "@/components/janela";
+import { CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, Selo } from "@/components/pagina";
 import { fmtDateBR, fmtHa, todayISO } from "@/lib/format";
+import { addDays } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
+import { ehDataIso, usarPersistido } from "@/lib/usar-persistido";
 
 const INPUT_BASE = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface";
 const INPUT = `w-full ${INPUT_BASE}`;
@@ -12,6 +17,13 @@ const SOMENTE_LEITURA = "w-full rounded-md border border-line bg-surface px-2.5 
 const ROTULO = "mb-1 block text-[11.5px] font-semibold text-muted";
 const BOTAO_BUSCA =
   "flex h-[32px] w-[30px] flex-shrink-0 items-center justify-center rounded-md border border-line bg-surface text-muted hover:bg-card hover:text-navy-800 disabled:opacity-40";
+// botões do rodapé da janela e da lista
+const BOTAO_PRIMARIO = "rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50";
+const BOTAO_SECUNDARIO =
+  "rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50";
+const BOTAO_EXCLUIR =
+  "rounded-lg border border-alert-500/50 bg-card px-3.5 py-2 text-[13px] font-semibold text-alert-700 shadow-card hover:bg-alert-50 disabled:opacity-50";
+const BOTAO = "rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] font-medium text-navy-800 hover:bg-surface disabled:opacity-50";
 const LIMITE_REC = 150;
 
 /** Cadastro consultado por cada campo com código */
@@ -42,9 +54,35 @@ function corPorDescricao(nm) {
   return "bg-surface text-ink border-line";
 }
 
+/** "Retrato" do formulário: serve para saber se algo foi digitado ou alterado desde que a janela abriu. */
+function retrato(v) {
+  return JSON.stringify([v.rod, v.sem, v.reg, v.faz, v.pre, v.niv, v.pri, v.ocos, v.outrosAtivo, v.outrosTxt, v.rec, [...v.marcados].sort(), v.ocoDigitada]);
+}
+const CORPO_VAZIO = { faz: "", pre: "", niv: "", pri: "", ocos: [], outrosAtivo: false, outrosTxt: "", rec: "", marcados: [], ocoDigitada: "" };
+const RETRATO_VAZIO = retrato({ rod: "", sem: "", reg: "", ...CORPO_VAZIO });
+
+const nInt = (n) => n.toLocaleString("pt-BR");
+
+/** data lembrada no navegador que existe no calendário (2026-02-30 não): a inválida volta ao padrão */
+function dataDoCalendario(v) {
+  if (!ehDataIso(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
 export default function ApontamentoClient({ perfil }) {
   const podeGravar = podeEditar(perfil);
   const formRef = useRef(null);
+  const rodRef = useRef(null);
+  const avisoRef = useRef(null);
+  /** só vale a resposta da última abertura de boletim (fechar, "Novo" ou abrir outro descarta a anterior) */
+  const seqBoletim = useRef(0);
+  /** como o formulário estava ao abrir (ou depois de gravar): fechar sem ter mudado nada não pergunta */
+  const original = useRef(RETRATO_VAZIO);
+  /** trava contra gravar duas vezes seguidas (F2 repetido) e contra gravar enquanto exclui */
+  const gravando = useRef(false);
+  /** nº do boletim aberto na janela agora (vazio sem janela ou no boletim novo) */
+  const bolNaJanela = useRef(null);
 
   const [boletim, setBoletim] = useState(null);
   // a data é a do lançamento no sistema (hoje); a semana é informada depois da rodada
@@ -70,12 +108,36 @@ export default function ApontamentoClient({ perfil }) {
   const [rodadas, setRodadas] = useState([]);
   const [consultas, setConsultas] = useState({});
   const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState(null);
-  const [aviso, setAviso] = useState(null);
-  // boletim já lançado: buscado para alterar ou excluir
-  const [buscaBol, setBuscaBol] = useState("");
+  const [excluindo, setExcluindo] = useState(false);
+  // mensagem de retorno: dentro da janela enquanto ela está aberta; na página depois de fechar
+  const [msg, setMsg] = useState(null);
+  // boletim já lançado: aberto para alterar ou excluir (o importado só para ver e excluir)
   const [editando, setEditando] = useState(null);
   const [importadoVisto, setImportadoVisto] = useState(null);
+  // janelas: formulário (novo, edição ou boletim importado) e confirmação (descartar, excluir)
+  const [formAberto, setFormAberto] = useState(false);
+  const [confirmar, setConfirmar] = useState(null);
+  /** nº do boletim que está sendo aberto (carregando) */
+  const [abrindo, setAbrindo] = useState(null);
+
+  // lista dos lançados: em branco = padrão (últimos 7 dias até hoje); a data escolhida fica lembrada neste navegador
+  const hoje = todayISO();
+  const [de, setDe] = usarPersistido("rodadas.apontamento.de", "", (v) => v === "" || dataDoCalendario(v));
+  const [ate, setAte] = usarPersistido("rodadas.apontamento.ate", "", (v) => v === "" || dataDoCalendario(v));
+  const deLista = de || addDays(hoje, -6);
+  const ateLista = ate || hoje;
+  const [filtroBol, setFiltroBol] = useState("");
+  const algumFiltroAtivo = de !== "" || ate !== "" || filtroBol !== "";
+  function limparFiltros() {
+    setDe("");
+    setAte("");
+    setFiltroBol("");
+  }
+  const [lista, setLista] = useState([]);
+  const [totalLista, setTotalLista] = useState(0);
+  const [carregando, setCarregando] = useState(true);
+  const [erroLista, setErroLista] = useState(null);
+  const seqLista = useRef(0);
 
   const carregarBoletim = useCallback(async () => {
     const res = await fetch("/api/rodadas/apontamento", { cache: "no-store" });
@@ -89,8 +151,44 @@ export default function ApontamentoClient({ perfil }) {
       .then((r) => r.json())
       .then((j) => setRodadas(j.rodadas ?? []))
       .catch(() => undefined);
-    setTimeout(() => focar(0), 50);
   }, [carregarBoletim]);
+
+  const carregarLista = useCallback(async () => {
+    const seq = ++seqLista.current;
+    setCarregando(true);
+    setErroLista(null);
+    try {
+      const p = new URLSearchParams({ boletins: "1", de: deLista, ate: ateLista });
+      if (filtroBol.trim()) p.set("bol", filtroBol.trim());
+      const res = await fetch(`/api/rodadas/apontamento?${p}`, { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      if (seq !== seqLista.current) return;
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível carregar os boletins.");
+      setLista(j.boletins ?? []);
+      setTotalLista(j.total ?? 0);
+    } catch (e) {
+      if (seq !== seqLista.current) return;
+      setLista([]);
+      setTotalLista(0);
+      setErroLista(e instanceof Error ? e.message : "Não foi possível carregar os boletins.");
+    } finally {
+      if (seq === seqLista.current) setCarregando(false);
+    }
+  }, [deLista, ateLista, filtroBol]);
+  /** carregarLista com os filtros de agora: a recarga depois de gravar ou excluir (que espera o servidor) usa esta */
+  const listaRef = useRef(carregarLista);
+  listaRef.current = carregarLista;
+
+  // recarrega a lista quando o filtro muda (espera a digitação parar)
+  useEffect(() => {
+    const t = setTimeout(carregarLista, 250);
+    return () => clearTimeout(t);
+  }, [carregarLista]);
+
+  // mensagem nova com a janela aberta: rola até ela (o formulário pode ser comprido, com muitos talhões)
+  useEffect(() => {
+    if (formAberto && msg) avisoRef.current?.scrollIntoView({ block: "nearest" });
+  }, [msg, formAberto]);
 
   function navegaveis() {
     return Array.from(formRef.current?.querySelectorAll("[data-nav]:not(:disabled)") ?? []);
@@ -109,6 +207,10 @@ export default function ApontamentoClient({ perfil }) {
       const i = navs.findIndex((n) => n.dataset.campo === campo);
       if (i >= 0) focar(Math.min(i + 1, navs.length - 1));
     }, 60);
+  }
+  /** volta o foco ao campo de nome `campo` (ao fechar o seletor sem escolher) */
+  function focarCampo(campo) {
+    setTimeout(() => formRef.current?.querySelector(`[data-campo="${campo}"]`)?.focus(), 0);
   }
 
   async function chamar(cad, cod) {
@@ -247,67 +349,100 @@ export default function ApontamentoClient({ perfil }) {
     if (j) setConsultas((c) => ({ ...c, [`${cad}|${valor}`]: { nm: j.item?.nm ?? null, vazio: !j.cadastroComItens } }));
   }
 
-  /** Busca um boletim lançado pelo número e o abre para alterar (os importados só podem ser vistos e excluídos). */
-  async function buscarBoletim() {
-    setErro(null);
-    setAviso(null);
-    const n = Number(buscaBol.trim());
-    if (!Number.isInteger(n) || n <= 0) return setErro("Informe o número do boletim.");
-    const res = await fetch(`/api/rodadas/apontamento?boletim=${n}`, { cache: "no-store" });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) return setErro(j.error ?? "Boletim não encontrado.");
-    const b = j.boletim;
-    limpar(false);
-    if (b.ori !== "apontamento") {
-      setEditando(null);
-      setImportadoVisto(b);
-      return;
-    }
-    setImportadoVisto(null);
-    const primeiro = b.itens[0];
-    setEditando({ bol: b.bol, usr: b.usr });
-    setDt(b.dt);
-    setRod(String(b.rod));
-    setSem(String(b.sem));
-    setReg(b.reg);
-    setFaz(b.faz);
-    setPre(primeiro?.pre ?? "");
-    setNiv(primeiro?.niv ?? "");
-    setPri(primeiro?.pri ?? "");
-    setRec(primeiro?.rec ?? "");
-    const codigos = (primeiro?.oco ?? "")
-      .split(",")
-      .map((c) => c.trim())
-      .filter(Boolean);
-    const sel = [];
-    for (const cod of codigos) {
-      const r = await chamar("ocorrencias", cod);
-      sel.push({ cod: r?.item?.cod ?? cod, nm: r?.item?.nm ?? "" });
-    }
-    setOcorrencias(sel);
-    setOutrosAtivo(!!primeiro?.ocoTxt);
-    setOutrosTxt(primeiro?.ocoTxt ?? "");
-    // talhões da fazenda e, marcados, os do boletim
-    const base = b.faz.split("-")[0];
-    let lista = [];
+  /** Abre um boletim lançado na janela: o do Apontamento para alterar; o importado só para ver e excluir. */
+  async function abrirBoletim(numero) {
+    setMsg(null);
+    const n = Number(String(numero).trim());
+    if (!Number.isInteger(n) || n <= 0) return setMsg({ texto: "Informe o número do boletim.", erro: true });
+    const seq = ++seqBoletim.current;
+    setAbrindo(n);
     try {
-      const r = await fetch(`/api/rodadas/apontamento?talhoes_faz=${encodeURIComponent(base)}`, { cache: "no-store" });
-      const jj = await r.json();
-      if (r.ok) lista = jj.talhoes ?? [];
+      const res = await fetch(`/api/rodadas/apontamento?boletim=${n}`, { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      if (seq !== seqBoletim.current) return;
+      if (!res.ok) return setMsg({ texto: j.error ?? "Boletim não encontrado.", erro: true });
+      const b = j.boletim;
+      if (b.ori !== "apontamento") {
+        registrarConsulta("regiao", b.reg);
+        registrarConsulta("fazendas", b.faz);
+        limpar(false);
+        setEditando(null);
+        setImportadoVisto(b);
+        setFormAberto(true);
+        return;
+      }
+      const primeiro = b.itens[0];
+      const codigos = (primeiro?.oco ?? "")
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      const base = b.faz.split("-")[0];
+      // ocorrências, talhões da fazenda e descrições dos códigos, tudo ao mesmo tempo
+      const [sel, tlhs] = await Promise.all([
+        Promise.all(
+          codigos.map(async (cod) => {
+            const r = await chamar("ocorrencias", cod);
+            return { cod: r?.item?.cod ?? cod, nm: r?.item?.nm ?? "" };
+          }),
+        ),
+        (async () => {
+          try {
+            const r = await fetch(`/api/rodadas/apontamento?talhoes_faz=${encodeURIComponent(base)}`, { cache: "no-store" });
+            const jj = await r.json();
+            return r.ok ? (jj.talhoes ?? []) : [];
+          } catch {
+            return []; // usa só os talhões do boletim
+          }
+        })(),
+        registrarConsulta("regiao", b.reg),
+        registrarConsulta("fazendas", b.faz),
+        registrarConsulta("presenca-infestacao", primeiro?.pre ?? ""),
+        registrarConsulta("nivel-infestacao", primeiro?.niv ?? ""),
+        registrarConsulta("prioridade", primeiro?.pri ?? ""),
+      ]);
+      if (seq !== seqBoletim.current) return;
+      // talhões da fazenda e, marcados, os do boletim
+      for (const it of b.itens) if (!tlhs.some((t) => t.tlh === it.tlh)) tlhs.push({ tlh: it.tlh, area: it.area });
+      const v = {
+        rod: String(b.rod),
+        sem: String(b.sem),
+        reg: b.reg,
+        faz: b.faz,
+        pre: primeiro?.pre ?? "",
+        niv: primeiro?.niv ?? "",
+        pri: primeiro?.pri ?? "",
+        ocos: sel.map((o) => o.cod),
+        outrosAtivo: !!primeiro?.ocoTxt,
+        outrosTxt: primeiro?.ocoTxt ?? "",
+        rec: primeiro?.rec ?? "",
+        marcados: b.itens.map((i) => i.tlh),
+        ocoDigitada: "",
+      };
+      limpar(false);
+      setImportadoVisto(null);
+      setEditando({ bol: b.bol, usr: b.usr });
+      setDt(b.dt);
+      setRod(v.rod);
+      setSem(v.sem);
+      setReg(v.reg);
+      setFaz(v.faz);
+      setPre(v.pre);
+      setNiv(v.niv);
+      setPri(v.pri);
+      setRec(v.rec);
+      setOcorrencias(sel);
+      setOutrosAtivo(v.outrosAtivo);
+      setOutrosTxt(v.outrosTxt);
+      setTalhoes(tlhs);
+      setMarcados(new Set(v.marcados));
+      setTalhoesDe(base);
+      original.current = retrato(v);
+      setFormAberto(true);
     } catch {
-      /* usa só os talhões do boletim */
+      if (seq === seqBoletim.current) setMsg({ texto: "Não foi possível abrir o boletim.", erro: true });
+    } finally {
+      if (seq === seqBoletim.current) setAbrindo(null);
     }
-    for (const it of b.itens) if (!lista.some((t) => t.tlh === it.tlh)) lista.push({ tlh: it.tlh, area: it.area });
-    setTalhoes(lista);
-    setMarcados(new Set(b.itens.map((i) => i.tlh)));
-    setTalhoesDe(base);
-    await Promise.all([
-      registrarConsulta("regiao", b.reg),
-      registrarConsulta("fazendas", b.faz),
-      registrarConsulta("presenca-infestacao", primeiro?.pre ?? ""),
-      registrarConsulta("nivel-infestacao", primeiro?.niv ?? ""),
-      registrarConsulta("prioridade", primeiro?.pri ?? ""),
-    ]);
   }
 
   function sairDoBoletim() {
@@ -315,22 +450,85 @@ export default function ApontamentoClient({ perfil }) {
     setDt(todayISO());
     setEditando(null);
     setImportadoVisto(null);
-    setBuscaBol("");
   }
 
-  async function excluirBoletimAberto(bol) {
-    if (!window.confirm(`Excluir o boletim ${bol}? A exclusão fica registrada no Log de Alterações, com data, hora e usuário.`)) return;
-    setErro(null);
-    const res = await fetch("/api/rodadas/apontamento", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bol }),
-    });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) return setErro(j.error ?? "Não foi possível excluir o boletim.");
+  /** Novo boletim: formulário limpo na janela (o foco vai para a Rodada). */
+  function novo() {
+    seqBoletim.current++;
+    setAbrindo(null);
+    setMsg(null);
     sairDoBoletim();
-    setAviso(`Boletim ${bol} excluído.`);
-    await carregarBoletim();
+    original.current = RETRATO_VAZIO;
+    carregarBoletim();
+    setFormAberto(true);
+  }
+
+  // retrato do que está na tela agora
+  const retratoAtual = retrato({ rod, sem, reg, faz, pre, niv, pri, ocos: ocorrencias.map((o) => o.cod), outrosAtivo, outrosTxt, rec, marcados, ocoDigitada });
+  const temAlgo = retratoAtual !== RETRATO_VAZIO;
+  bolNaJanela.current = formAberto ? (editando?.bol ?? importadoVisto?.bol ?? null) : null;
+
+  /** Fechar a janela: com algo digitado ou alterado, pergunta antes de descartar. */
+  function fecharForm() {
+    const fechar = () => {
+      seqBoletim.current++;
+      setFormAberto(false);
+      sairDoBoletim();
+    };
+    if (importadoVisto || !podeGravar) return fechar();
+    // edição: mudou algo no boletim aberto; novo: digitou algo além do cabeçalho que ficou do boletim gravado
+    const alterado = editando ? original.current !== null && retratoAtual !== original.current : temAlgo && retratoAtual !== original.current;
+    if (!alterado) return fechar();
+    setConfirmar({
+      titulo: editando ? "Cancelar a edição?" : "Descartar o boletim?",
+      texto: editando ? "As alterações feitas não serão gravadas." : "O que foi digitado será perdido.",
+      botao: "Descartar",
+      perigo: true,
+      acao: fechar,
+    });
+  }
+
+  /** Pede confirmação e exclui o boletim (da lista ou aberto na janela). */
+  function excluir(b) {
+    // um boletim que ainda está abrindo (clique na linha antes do Excluir) não abre mais depois, por baixo da confirmação
+    seqBoletim.current++;
+    setAbrindo(null);
+    setConfirmar({
+      titulo: `Excluir o boletim nº ${b.bol}?`,
+      texto: `Rodada ${b.rod}, semana ${b.sem || "—"}, fazenda ${b.faz || "—"}, ${fmtDateBR(b.dt)}.\nA exclusão fica registrada no Log de Alterações, com data, hora e usuário.`,
+      botao: "Excluir",
+      perigo: true,
+      acao: () => excluirDeVez(b.bol),
+    });
+  }
+
+  async function excluirDeVez(bol) {
+    if (gravando.current) return;
+    // enquanto exclui, a janela não fecha nem grava
+    gravando.current = true;
+    setExcluindo(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/rodadas/apontamento", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bol }),
+      }).catch(() => null);
+      const j = res ? await res.json().catch(() => ({})) : {};
+      if (!res?.ok) return setMsg({ texto: j.error ?? "Não foi possível excluir o boletim.", erro: true });
+      // o boletim excluído está aberto na janela agora: fecha (outro boletim aberto depois fica como está)
+      if (bolNaJanela.current === bol) {
+        seqBoletim.current++;
+        setFormAberto(false);
+        sairDoBoletim();
+      }
+      setMsg({ texto: `Boletim ${bol} excluído.`, erro: false });
+      carregarBoletim();
+      listaRef.current(); // com o filtro de agora (ele pode ter mudado enquanto excluía)
+    } finally {
+      gravando.current = false;
+      setExcluindo(false);
+    }
   }
 
   function limpar(manterCabecalho) {
@@ -352,20 +550,22 @@ export default function ApontamentoClient({ perfil }) {
       setSem("");
       setReg("");
     }
-    setErro(null);
+    // tira a mensagem de erro; a de boletim gravado fica
+    setMsg((m) => (m?.erro ? null : m));
   }
 
   async function gravar() {
-    if (salvando) return;
-    setErro(null);
-    setAviso(null);
-    if (!rod.trim()) return setErro("Informe a rodada.");
-    if (!rodadaSel) return setErro(`A rodada ${rod} não está cadastrada.`);
-    if (!sem.trim()) return setErro("Informe a semana.");
-    if (!semanaInfo) return setErro(`A semana ${sem} não existe na rodada ${rod}.`);
-    if (ocorrencias.length === 0 && !(outrosAtivo && outrosTxt.trim())) return setErro("Marque pelo menos uma ocorrência (ou use Outros e descreva).");
-    if (outrosAtivo && !outrosTxt.trim()) return setErro("Descreva a ocorrência em Outros ou desmarque a opção.");
-    if (marcados.size === 0) return setErro("Marque pelo menos um talhão.");
+    if (salvando || gravando.current || !podeGravar || importadoVisto) return;
+    setMsg(null);
+    const erro = (texto) => setMsg({ texto, erro: true });
+    if (!rod.trim()) return erro("Informe a rodada.");
+    if (!rodadaSel) return erro(`A rodada ${rod} não está cadastrada.`);
+    if (!sem.trim()) return erro("Informe a semana.");
+    if (!semanaInfo) return erro(`A semana ${sem} não existe na rodada ${rod}.`);
+    if (ocorrencias.length === 0 && !(outrosAtivo && outrosTxt.trim())) return erro("Marque pelo menos uma ocorrência (ou use Outros e descreva).");
+    if (outrosAtivo && !outrosTxt.trim()) return erro("Descreva a ocorrência em Outros ou desmarque a opção.");
+    if (marcados.size === 0) return erro("Marque pelo menos um talhão.");
+    gravando.current = true;
     setSalvando(true);
     try {
       const res = await fetch("/api/rodadas/apontamento", {
@@ -390,29 +590,38 @@ export default function ApontamentoClient({ perfil }) {
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error ?? "Não foi possível gravar o boletim.");
       if (editando) {
+        // edição gravada: fecha a janela e a mensagem fica na página
+        seqBoletim.current++;
+        setFormAberto(false);
         sairDoBoletim();
-        setAviso(`Boletim ${j.bol} alterado (semana ${j.sem}). A alteração ficou registrada no Log de Alterações.`);
+        setMsg({ texto: `Boletim ${j.bol} alterado (semana ${j.sem}). A alteração ficou registrada no Log de Alterações.`, erro: false });
         await carregarBoletim();
-        setTimeout(() => focar(0), 50);
+        listaRef.current(); // com o filtro de agora (a janela já fechou e ele pode ter mudado)
       } else {
-        setAviso(`Boletim ${j.bol} gravado (semana ${j.sem}).`);
+        // boletim novo: a janela fica aberta para o próximo, com a rodada, a semana e a região
+        setMsg({ texto: `Boletim ${j.bol} gravado (semana ${j.sem}).`, erro: false });
         limpar(true);
+        original.current = retrato({ rod, sem, reg, ...CORPO_VAZIO });
         await carregarBoletim();
         setTimeout(() => focarDepoisDe("reg"), 50); // volta para a Fazenda
+        // o boletim novo aparece na lista: se a data dele está fora do período, o período vai até ela
+        if (dt > ateLista) setAte(dt);
+        else if (dt < deLista) setDe(dt);
+        else listaRef.current();
       }
     } catch (e) {
-      setErro(e instanceof Error ? e.message : "Não foi possível gravar o boletim.");
+      setMsg({ texto: e instanceof Error ? e.message : "Não foi possível gravar o boletim.", erro: true });
     } finally {
+      gravando.current = false;
       setSalvando(false);
     }
   }
 
+  // F2 sem janela aberta: boletim novo (com a janela aberta, F2 grava; Esc fecha a janela de cima)
+  useAtalhoTela("F2", novo, podeGravar);
+
+  /** Teclas dentro da janela do formulário: F4 abre a lista do campo, Enter passa para o próximo campo. */
   function aoTeclar(e) {
-    if (e.key === "F2") {
-      e.preventDefault();
-      gravar();
-      return;
-    }
     const alvo = e.target;
     if (!alvo.dataset?.nav) return;
 
@@ -452,6 +661,7 @@ export default function ApontamentoClient({ perfil }) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
         <input
+          ref={campo === "rod" ? rodRef : undefined}
           value={valor}
           onChange={(e) => gravarCampo[campo](e.target.value)}
           onBlur={() => cad && consultar(cad, valor)}
@@ -498,6 +708,33 @@ export default function ApontamentoClient({ perfil }) {
 
   const regiaoNm = nomeDe("regiao", reg);
   const fazendaNm = nomeDe("fazendas", faz);
+  /** ocorrências de uma linha do boletim importado: nomes do cadastro e o texto de Outros */
+  const ocorrenciasDaLinha = (it) =>
+    [
+      ...(it.oco ?? "")
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean)
+        .map((c) => listaOco?.find((o) => o.cod === c)?.nm ?? c),
+      it.ocoTxt,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+  const numeroNaJanela = importadoVisto?.bol ?? editando?.bol ?? boletim ?? "";
+  const tituloJanela = importadoVisto
+    ? `Boletim nº ${importadoVisto.bol} (importado)`
+    : editando
+      ? podeGravar
+        ? `Editando o boletim nº ${editando.bol}`
+        : `Boletim nº ${editando.bol}`
+      : "Novo boletim de rodada";
+  const subtituloJanela = importadoVisto
+    ? "Veio da importação da planilha: não pode ser alterado aqui, só excluído · Esc fecha"
+    : editando
+      ? `Lançado por ${editando.usr || "—"} em ${fmtDateBR(dt)} · ${podeGravar ? "F2 grava · Esc fecha" : "somente leitura · Esc fecha"}`
+      : "O número é o último boletim + 1 · F2 grava · Esc fecha";
+  const somaTalhoes = lista.reduce((s, b) => s + b.talhoes, 0);
 
   return (
     <Pagina>
@@ -505,86 +742,296 @@ export default function ApontamentoClient({ perfil }) {
         titulo="Apontamento"
         categoria="Rodadas de Campo"
         info={!podeGravar && <Selo>Somente leitura</Selo>}
+        comandos={
+          podeGravar && (
+            <Comando primario icone={<IconMais size={16} />} onClick={novo} title="Novo boletim (F2)">
+              Novo boletim
+            </Comando>
+          )
+        }
       />
 
-      <CorpoPagina>
-        <BarraFiltros>
-          <div>
-            <label className={ROTULO}>Buscar boletim lançado</label>
-            <div className="flex items-center gap-1.5">
+      <CorpoPagina className="space-y-4">
+        {msg && !formAberto && <Aviso msg={msg} onFechar={() => setMsg(null)} />}
+
+        {/* Lançados */}
+        <Painel titulo="Boletins lançados">
+          <div className="mb-3 flex flex-wrap items-end gap-3">
+            <div>
+              <label className={ROTULO} htmlFor="rod-ap-de">
+                De
+              </label>
+              <input id="rod-ap-de" type="date" value={deLista} onChange={(e) => e.target.value && setDe(e.target.value)} className={INPUT_BASE} />
+            </div>
+            <div>
+              <label className={ROTULO} htmlFor="rod-ap-ate">
+                Até
+              </label>
+              <input id="rod-ap-ate" type="date" value={ateLista} onChange={(e) => e.target.value && setAte(e.target.value)} className={INPUT_BASE} />
+            </div>
+            <div className="w-[130px]">
+              <label className={ROTULO} htmlFor="rod-ap-bol">
+                Boletim nº
+              </label>
               <input
-                value={buscaBol}
-                onChange={(e) => setBuscaBol(e.target.value)}
+                id="rod-ap-bol"
+                value={filtroBol}
+                onChange={(e) => setFiltroBol(e.target.value.replace(/\D/g, "").slice(0, 9))}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+                  if (e.key === "Enter" && filtroBol.trim()) {
                     e.preventDefault();
-                    buscarBoletim();
+                    abrirBoletim(filtroBol);
                   }
                 }}
                 inputMode="numeric"
-                placeholder="Nº do boletim"
-                className={`${INPUT_BASE} w-[150px]`}
-                aria-label="Número do boletim a buscar"
+                placeholder="Qualquer"
+                className={INPUT}
+                title="Filtra a lista (em qualquer data); Enter abre o boletim"
               />
-              <button
-                type="button"
-                onClick={buscarBoletim}
-                className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-card"
-              >
-                <IconBusca size={13} />
-                Buscar
-              </button>
             </div>
+            <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
+            {abrindo && <span className="pb-2 text-[12px] text-muted">Abrindo o boletim {abrindo}…</span>}
           </div>
-        </BarraFiltros>
+          <p className="mb-2 text-[11.5px] text-muted">
+            Clique numa linha para abrir o boletim. O nº em Boletim nº filtra a lista em qualquer data; Enter abre o boletim.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1060px] text-[12.5px]">
+              <thead>
+                <tr className="border-b border-line bg-surface text-left text-muted">
+                  <th className="px-3 py-1.5 font-medium">Boletim</th>
+                  <th className="px-3 py-1.5 font-medium">Data</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Rodada</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Semana</th>
+                  <th className="px-3 py-1.5 font-medium">Região</th>
+                  <th className="px-3 py-1.5 font-medium">Fazenda</th>
+                  <th className="px-3 py-1.5 font-medium">Ocorrências</th>
+                  <th className="px-3 py-1.5 text-right font-medium">Nº de talhões</th>
+                  <th className="px-3 py-1.5 font-medium">Origem</th>
+                  <th className="px-3 py-1.5 font-medium">Lançado por</th>
+                  <th className="w-[140px]" />
+                </tr>
+              </thead>
+              <tbody className={carregando && lista.length > 0 ? "opacity-60" : undefined}>
+                {carregando && lista.length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="px-3 py-6 text-center text-muted">
+                      Carregando…
+                    </td>
+                  </tr>
+                )}
+                {!carregando && erroLista && (
+                  <tr>
+                    <td colSpan={11} className="px-3 py-6 text-center font-medium text-alert-600">
+                      {erroLista}
+                    </td>
+                  </tr>
+                )}
+                {!carregando && !erroLista && lista.length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="px-3 py-6 text-center text-muted">
+                      {filtroBol.trim() ? `Boletim ${filtroBol} não encontrado.` : "Nenhum boletim no período."}
+                      {podeGravar && !filtroBol.trim() && (
+                        <button type="button" className={`${BOTAO} ml-2`} onClick={novo}>
+                          Lançar um boletim
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                {lista.map((b) => {
+                  const importado = b.ori !== "apontamento";
+                  return (
+                    <tr
+                      key={b.bol}
+                      className={`cursor-pointer border-t border-line/60 hover:bg-surface/70 ${abrindo === b.bol ? "opacity-60" : ""}`}
+                      onClick={() => abrirBoletim(b.bol)}
+                      title={importado || !podeGravar ? "Ver o boletim" : "Abrir o boletim para editar"}
+                    >
+                      <td className="px-3 py-1.5 tabular font-medium text-ink">{b.bol}</td>
+                      <td className="px-3 py-1.5 tabular">{fmtDateBR(b.dt)}</td>
+                      <td className="px-3 py-1.5 text-right tabular">{b.rod}</td>
+                      <td className="px-3 py-1.5 text-right tabular">{b.sem || "—"}</td>
+                      <td className="max-w-[180px] truncate px-3 py-1.5" title={b.regNm || undefined}>
+                        {b.reg || "—"}
+                        {b.regNm && <span className="text-muted"> · {b.regNm}</span>}
+                      </td>
+                      <td className="max-w-[220px] truncate px-3 py-1.5" title={b.fazNm || undefined}>
+                        {b.faz || "—"}
+                        {b.fazNm && <span className="text-muted"> · {b.fazNm}</span>}
+                      </td>
+                      <td className="max-w-[280px] truncate px-3 py-1.5" title={b.ocorrencias || undefined}>
+                        {b.ocorrencias || "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular" title={typeof b.area === "number" ? `${fmtHa(b.area)} ha` : undefined}>
+                        {b.talhoes}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold ${importado ? "bg-surface text-muted" : "bg-brand-50 text-brand-700"}`}
+                          title={importado ? "Veio da importação da planilha" : "Lançado nesta tela"}
+                        >
+                          {importado ? "Importado" : "Digitado"}
+                        </span>
+                      </td>
+                      <td className="max-w-[160px] truncate px-3 py-1.5 text-[11.5px] text-muted">{b.usr || "—"}</td>
+                      <td className="px-2 py-1 text-right" onClick={(e) => e.stopPropagation()}>
+                        <span className="flex justify-end gap-1.5">
+                          <button type="button" className={BOTAO} onClick={() => abrirBoletim(b.bol)}>
+                            {importado || !podeGravar ? "Ver" : "Editar"}
+                          </button>
+                          {podeGravar && (
+                            <button type="button" className={`${BOTAO} text-alert-700`} onClick={() => excluir(b)} disabled={excluindo}>
+                              Excluir
+                            </button>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {lista.length > 0 && (
+                  <tr className="border-t border-line bg-surface font-semibold">
+                    <td colSpan={7} className="px-3 py-1.5">
+                      {nInt(lista.length)} boletim(ns)
+                      {totalLista > lista.length && (
+                        <span className="font-normal text-muted">
+                          {" "}
+                          · mostrando os {nInt(lista.length)} mais recentes de {nInt(totalLista)}; diminua o período para ver os outros
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular">{nInt(somaTalhoes)}</td>
+                    <td colSpan={3} />
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Painel>
+      </CorpoPagina>
 
-        {editando && (
-          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-700">
-            <span className="font-semibold">
-              Editando o boletim {editando.bol} · lançado por {editando.usr || "—"} em {fmtDateBR(dt)}.
-            </span>
-          </div>
-        )}
-        {importadoVisto && (
-          <div className="mb-4 rounded-xl2 border border-line bg-card px-4 py-3 text-[12.5px] text-ink shadow-card">
-            <p className="font-semibold">Boletim {importadoVisto.bol} — veio da importação da planilha (não pode ser alterado aqui, só excluído).</p>
-            <p className="mt-1 text-muted">
-              Rodada {importadoVisto.rod}, semana {importadoVisto.sem}, região {importadoVisto.reg || "—"}, fazenda {importadoVisto.faz},{" "}
-              {importadoVisto.itens.length} linha(s) de talhão, responsável {importadoVisto.resp || "—"}.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => excluirBoletimAberto(importadoVisto.bol)}
-                disabled={!podeGravar}
-                className="rounded-md border border-alert-500/50 bg-card px-3 py-1.5 text-[12.5px] font-semibold text-alert-700 hover:bg-alert-50 disabled:opacity-50"
-              >
-                Excluir boletim
-              </button>
-              <button
-                type="button"
-                onClick={sairDoBoletim}
-                className="rounded-md border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-navy-800 hover:bg-surface"
-              >
+      <JanelaFormulario
+        aberto={formAberto}
+        rotulo={importadoVisto ? "Boletim importado" : editando ? "Editar boletim" : "Novo boletim"}
+        titulo={tituloJanela}
+        subtitulo={subtituloJanela}
+        aviso={
+          msg && (
+            <div ref={avisoRef}>
+              <Aviso msg={msg} onFechar={() => setMsg(null)} />
+            </div>
+          )
+        }
+        onFechar={fecharForm}
+        onGravar={podeGravar && !importadoVisto ? gravar : undefined}
+        ocupado={salvando || excluindo}
+        corpoRef={formRef}
+        // sem poder gravar (ou no importado) a Rodada fica bloqueada: o foco vai para o nº do boletim no topo
+        focoInicial={podeGravar && !importadoVisto ? rodRef : undefined}
+        onKeyDown={importadoVisto ? undefined : aoTeclar}
+        topoDireita={
+          <label className="campo-boletim">
+            Boletim nº
+            <input value={numeroNaJanela} readOnly tabIndex={-1} aria-label="Número do boletim (automático)" />
+          </label>
+        }
+        rodape={
+          importadoVisto ? (
+            <>
+              {podeGravar && (
+                <button type="button" onClick={() => excluir(importadoVisto)} disabled={excluindo} className={`${BOTAO_EXCLUIR} mr-auto`}>
+                  {excluindo ? "Excluindo…" : "Excluir boletim"}
+                </button>
+              )}
+              <button type="button" onClick={fecharForm} disabled={excluindo} className={BOTAO_SECUNDARIO}>
                 Fechar
               </button>
+            </>
+          ) : (
+            <>
+              {editando && podeGravar && (
+                <button
+                  type="button"
+                  onClick={() => excluir({ bol: editando.bol, rod, sem, faz, dt })}
+                  disabled={salvando || excluindo}
+                  className={`${BOTAO_EXCLUIR} mr-auto`}
+                >
+                  {excluindo ? "Excluindo…" : "Excluir boletim"}
+                </button>
+              )}
+              <button type="button" onClick={fecharForm} disabled={salvando || excluindo} className={BOTAO_SECUNDARIO}>
+                {editando && podeGravar ? "Cancelar edição" : "Fechar"}
+              </button>
+              {!editando && podeGravar && temAlgo && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    limpar(false);
+                    focarCampo("rod");
+                  }}
+                  disabled={salvando}
+                  className={BOTAO_SECUNDARIO}
+                >
+                  Limpar
+                </button>
+              )}
+              {podeGravar && (
+                <button type="button" onClick={gravar} disabled={salvando || excluindo} className={BOTAO_PRIMARIO}>
+                  {salvando ? "Gravando…" : editando ? "Salvar alteração (F2)" : "Lançar boletim (F2)"}
+                </button>
+              )}
+            </>
+          )
+        }
+      >
+        {importadoVisto ? (
+          <>
+            {/* Boletim importado: só para ver (e excluir) */}
+            <div className="caixa-form-sub">Rodada e região</div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {[
+                ["Data", fmtDateBR(importadoVisto.dt)],
+                ["Rodada", importadoVisto.rod],
+                ["Semana", importadoVisto.sem || "—"],
+                ["Região", [importadoVisto.reg, nomeDe("regiao", importadoVisto.reg)].filter(Boolean).join(" · ") || "—"],
+                ["Fazenda", [importadoVisto.faz, nomeDe("fazendas", importadoVisto.faz)].filter(Boolean).join(" · ") || "—"],
+                ["Responsável", importadoVisto.resp || "—"],
+              ].map(([rotulo, valor]) => (
+                <div key={rotulo} className="min-w-0">
+                  <div className={ROTULO}>{rotulo}</div>
+                  <div className={`${SOMENTE_LEITURA} truncate`} title={String(valor)}>
+                    {valor}
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-        )}
-
-        <div ref={formRef} onKeyDown={aoTeclar} className="space-y-4">
-          <section className="caixa-form">
-            <div className="caixa-form-topo">
-              <div>
-                <h2 className="caixa-form-titulo">{editando ? "Editando o boletim de rodada de campo" : "Novo boletim de rodada de campo"}</h2>
-                <div className="text-[11.5px] text-muted">{editando ? `Lançado por ${editando.usr || "—"}` : "O número é o último boletim + 1"}</div>
-              </div>
-              <label className="campo-boletim">
-                Boletim nº
-                <input value={editando?.bol ?? boletim ?? ""} readOnly tabIndex={-1} aria-label="Número do boletim (automático)" />
-              </label>
+            <div className="caixa-form-sub">Talhões · {importadoVisto.itens.length} linha(s)</div>
+            <div className="overflow-x-auto rounded-md border border-line bg-card">
+              <table className="w-full min-w-[640px] text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-line bg-surface text-left text-muted">
+                    <th className="px-3 py-1.5 font-medium">Talhão</th>
+                    <th className="px-3 py-1.5 text-right font-medium">Área (ha)</th>
+                    <th className="px-3 py-1.5 font-medium">Ocorrência</th>
+                    <th className="px-3 py-1.5 font-medium">Recomendação / Diagnóstico</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importadoVisto.itens.map((it, i) => (
+                    <tr key={i} className="border-t border-line/60 align-top">
+                      <td className="px-3 py-1.5 font-semibold">{it.tlh || "—"}</td>
+                      <td className="px-3 py-1.5 text-right tabular">{typeof it.area === "number" ? fmtHa(it.area) : "—"}</td>
+                      <td className="px-3 py-1.5">{ocorrenciasDaLinha(it) || "—"}</td>
+                      <td className="px-3 py-1.5 text-muted">{it.rec || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
+          </>
+        ) : (
+          <>
             {/* Rodada e região: Data · Rodada · Semana · Região · Desc. Região */}
             <div className="caixa-form-sub">Rodada e região</div>
             <div className="grid grid-cols-6 gap-3 lg:grid-cols-[132px_132px_112px_132px_minmax(0,1fr)]">
@@ -764,7 +1211,7 @@ export default function ApontamentoClient({ perfil }) {
             </div>
 
             <div className="caixa-form-sub flex flex-wrap items-center gap-3">
-              <h2 className="text-[12.5px] font-semibold">Talhões{fazendaNm ? ` · ${faz.trim().split("-")[0]} ${fazendaNm}` : ""}</h2>
+              <h3 className="text-[12.5px] font-semibold">Talhões{fazendaNm ? ` · ${faz.trim().split("-")[0]} ${fazendaNm}` : ""}</h3>
               {talhoes.length > 0 && (
                 <>
                   <label className="flex cursor-pointer items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-1 text-[12.5px] font-semibold text-navy-800">
@@ -811,75 +1258,54 @@ export default function ApontamentoClient({ perfil }) {
               </div>
             )}
 
-            {erro && <p className="mt-3 text-[12.5px] font-medium text-alert-600">{erro}</p>}
-            {aviso && <p className="mt-3 text-[12.5px] font-semibold text-good-700">{aviso}</p>}
-
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={gravar}
-                disabled={!podeGravar || salvando}
-                className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
-              >
-                {salvando ? "Gravando…" : editando ? "Gravar alterações (F2)" : "Gravar (F2)"}
-              </button>
-              {editando && (
-                <>
-                  <button
-                    type="button"
-                    onClick={sairDoBoletim}
-                    className="rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface"
-                  >
-                    Cancelar edição
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => excluirBoletimAberto(editando.bol)}
-                    disabled={!podeGravar}
-                    className="rounded-lg border border-alert-500/50 bg-card px-3.5 py-2 text-[13px] font-semibold text-alert-700 shadow-card hover:bg-alert-50 disabled:opacity-50"
-                  >
-                    Excluir boletim
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={() => (editando ? sairDoBoletim() : limpar(false))}
-                disabled={!podeGravar}
-                className="rounded-lg border border-line bg-card px-3.5 py-2 text-[13px] font-semibold text-navy-800 shadow-card hover:bg-surface disabled:opacity-50"
-              >
-                Limpar tudo
-              </button>
-            </div>
             <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
               Enter ou Tab passa para o próximo campo. Digite só o código — a descrição vem do cadastro — ou use a lupa (ou F4) para ver a lista e escolher. As
               ocorrências ficam todas na tela: clique nas que se aplicam (ou digite o código + Enter no atalho); use Outros para descrever uma que não está na
-              lista. Marque os talhões com a barra de espaço. Para gravar: F2, o botão Gravar ou Enter no último campo. O número do boletim é sempre o último +
-              1.
+              lista. Marque os talhões com a barra de espaço. Para gravar: F2, o botão Lançar boletim ou Enter no último campo. Esc fecha a janela. O número
+              do boletim é sempre o último + 1.
             </p>
-          </section>
-        </div>
-      </CorpoPagina>
+          </>
+        )}
+      </JanelaFormulario>
 
       {seletor && (
         <Seletor
           titulo={TITULO_CAMPO[seletor]}
           buscar={(q) => buscarNoSeletor(seletor, q)}
           onEscolher={(item) => escolherNoSeletor(seletor, item)}
-          onFechar={() => setSeletor(null)}
+          onFechar={() => {
+            const campo = seletor;
+            setSeletor(null);
+            focarCampo(campo);
+          }}
+        />
+      )}
+      {confirmar && (
+        <JanelaConfirmar
+          {...confirmar}
+          onCancelar={() => setConfirmar(null)}
+          onConfirmar={() => {
+            const acao = confirmar.acao;
+            setConfirmar(null);
+            acao();
+          }}
         />
       )}
     </Pagina>
   );
 }
 
-/** "Ver e escolher": lista com filtro (código ou descrição); ↑ ↓ e Enter escolhem, Esc fecha. */
+/**
+ * "Ver e escolher": lista com filtro (código ou descrição); ↑ ↓ e Enter escolhem, Esc fecha. Abre por cima da janela
+ * do formulário (portal no fim da página) e o Esc fecha só ela.
+ */
 function Seletor({ titulo, buscar, onEscolher, onFechar }) {
   const [q, setQ] = useState("");
   const [itens, setItens] = useState(null);
   const [ativo, setAtivo] = useState(0);
   const buscarRef = useRef(buscar);
   buscarRef.current = buscar;
+  useJanela(true, { onEsc: onFechar });
 
   useEffect(() => {
     let vivo = true;
@@ -900,10 +1326,7 @@ function Seletor({ titulo, buscar, onEscolher, onFechar }) {
   }, [q]);
 
   function aoTeclar(e) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      onFechar();
-    } else if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       setAtivo((a) => Math.min(a + 1, (itens?.length ?? 1) - 1));
     } else if (e.key === "ArrowUp") {
@@ -917,9 +1340,9 @@ function Seletor({ titulo, buscar, onEscolher, onFechar }) {
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy-950/50 sm:items-center sm:px-4" onKeyDown={aoTeclar}>
-      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-xl2 bg-card p-4 shadow-pop sm:rounded-xl2 sm:p-5">
+  return createPortal(
+    <div translate="no" className="fixed inset-0 z-[55] flex items-end justify-center bg-navy-950/50 sm:items-center sm:px-4" onKeyDown={aoTeclar}>
+      <div role="dialog" aria-modal="true" aria-label={`Escolher ${titulo}`} className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-xl2 bg-card p-4 shadow-pop sm:rounded-xl2 sm:p-5">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[15px] font-bold text-ink">Escolher · {titulo}</h3>
           <button type="button" onClick={onFechar} aria-label="Fechar" className="px-1 text-[20px] leading-none text-muted">
@@ -961,6 +1384,7 @@ function Seletor({ titulo, buscar, onEscolher, onFechar }) {
         </div>
         <p className="mt-2 text-[11px] text-muted">↑ ↓ para percorrer · Enter escolhe · Esc fecha</p>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

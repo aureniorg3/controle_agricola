@@ -264,6 +264,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
   const [busca, setBusca] = usarPersistido("ordens.busca", "", ehTexto);
   const [importarAberto, setImportarAberto] = useState(false);
   const [aba, setAba] = usarPersistido("ordens.aba", "painel", ehUmDe(["painel", "apontamento"]));
+  // pedido do cartão da ordem ({ numero }): a aba abre a janela de lançamento já com a ordem e limpa o pedido
   const [ordemApontamento, setOrdemApontamento] = useState(null);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState(null);
   const [colapsadas, setColapsadas] = useState(new Set());
@@ -877,7 +878,16 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
 
       <CorpoPagina>
         {aba === "apontamento" && (
-          <AreaColhidaTab ordens={ordensBrutas} referencia={referencia} ordemInicial={ordemApontamento} podeGravar={podeGravar} onSalvo={() => refetch()} />
+          <AreaColhidaTab
+            ordens={ordensBrutas}
+            referencia={referencia}
+            pedidoOrdem={ordemApontamento}
+            onPedidoAtendido={() => setOrdemApontamento(null)}
+            // com o Importar planilhas aberto, o F2 da aba não abre a janela por trás dele
+            atalhoAtivo={!importarAberto}
+            podeGravar={podeGravar}
+            onSalvo={() => refetch()}
+          />
         )}
 
         {aba === "painel" && (
@@ -1302,7 +1312,7 @@ export default function OrdensCorteClient({ initialOrdens, initialOrdensVisiveis
                           onLancarAreaColhida={
                             podeGravar
                               ? () => {
-                                  setOrdemApontamento(ordem.numero);
+                                  setOrdemApontamento({ numero: ordem.numero });
                                   setAba("apontamento");
                                 }
                               : undefined

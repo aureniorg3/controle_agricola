@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconMais } from "@/components/icons";
+import JanelaFormulario, { Aviso, JanelaConfirmar, useAtalhoTela, useJanela } from "@/components/janela";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina } from "@/components/pagina";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { gerarComunicadoEmprestimoPdf } from "@/lib/comunicado-emprestimo-pdf";
@@ -61,9 +62,15 @@ function formDe(e) {
     volTipo: e.volTipo,
     vol: e.vol,
     assin: [...e.assin],
-    itens: e.itens.map((i) => ({ cod: i.cod, nm: i.nm, um: i.um, dose: emTexto(i.dose), qtd: emTexto(i.qtd), vu: emTexto(i.vu) })),
+    // doBanco: a linha como foi gravada; enquanto o código não for mexido, sair do campo não troca descrição, UM e preço
+    itens: e.itens.map((i) => ({ cod: i.cod, nm: i.nm, um: i.um, dose: emTexto(i.dose), qtd: emTexto(i.qtd), vu: emTexto(i.vu), doBanco: true })),
     obs: e.obs,
   };
+}
+
+/** O que conta para saber se algo foi digitado ou alterado: o nº sugerido num empréstimo novo, os avisos do cadastro e a marca da linha gravada não contam. */
+function conteudoForm(f) {
+  return JSON.stringify({ ...f, boletim: f.id ? f.boletim : "", itens: f.itens.map((i) => ({ ...i, cad: undefined, aviso: undefined, doBanco: undefined })) });
 }
 
 export default function EmprestimosClient({ perfil }) {
@@ -79,10 +86,19 @@ export default function EmprestimosClient({ perfil }) {
     setBusca("");
   }
   const [aberto, setAberto] = useState(null);
+  // formulário na janela: null = fechada
   const [form, setForm] = useState(null);
+  // como o formulário estava ao abrir: fechar só pergunta se algo mudou
+  const [origem, setOrigem] = useState(null);
   const [baixa, setBaixa] = useState(null);
   const [salvando, setSalvando] = useState(false);
+  // erro da janela de baixa
   const [erroModal, setErroModal] = useState(null);
+  // mensagem do lançamento: dentro da janela enquanto aberta, na página depois de fechada
+  const [msg, setMsg] = useState(null);
+  const [confirmar, setConfirmar] = useState(null);
+  const formRef = useRef(null);
+  const fornRef = useRef(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -141,14 +157,11 @@ export default function EmprestimosClient({ perfil }) {
     return json;
   }
 
-  function irParaFormulario() {
-    setTimeout(() => document.getElementById("form-emprestimo")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
-  }
-
-  async function novoEmprestimo() {
-    setErroModal(null);
-    setForm(formVazio());
-    irParaFormulario();
+  /** Formulário limpo para um empréstimo novo, já com o próximo nº de boletim. */
+  async function limparForm() {
+    const vazio = formVazio();
+    setForm(vazio);
+    setOrigem(conteudoForm(vazio));
     try {
       const res = await fetch("/api/emprestimos?proximo=1", { cache: "no-store" });
       const json = await res.json();
@@ -158,12 +171,53 @@ export default function EmprestimosClient({ perfil }) {
     }
   }
 
+  /** Novo empréstimo: formulário limpo na janela. */
+  function novoEmprestimo() {
+    setMsg(null);
+    limparForm();
+  }
+
+  /** Editar: o empréstimo abre na janela. */
+  function editar(e) {
+    const f = formDe(e);
+    setMsg(null);
+    setForm(f);
+    setOrigem(conteudoForm(f));
+  }
+
+  /** Fecha sem gravar: um erro do formulário descartado sai junto; o aviso de um lançamento anterior fica. */
+  function descartarForm() {
+    setForm(null);
+    setMsg((m) => (m?.erro ? null : m));
+  }
+
+  /** Fechar a janela: com algo digitado ou alterado, pergunta antes de descartar. */
+  function fecharForm() {
+    if (!form || salvando) return;
+    if (conteudoForm(form) === origem) return descartarForm();
+    setConfirmar({
+      titulo: form.id ? "Cancelar a edição?" : "Descartar o empréstimo?",
+      texto: form.id ? "As alterações feitas não serão gravadas." : "O que foi digitado será perdido.",
+      botao: "Descartar",
+      perigo: true,
+      acao: descartarForm,
+    });
+  }
+
+  /** Volta ao topo da janela, onde fica a mensagem; com `focar`, o cursor vai para o fornecedor. */
+  function irAoTopo(focar) {
+    setTimeout(() => {
+      if (focar) fornRef.current?.focus({ preventScroll: true });
+      formRef.current?.closest(".overflow-y-auto")?.scrollTo({ top: 0 });
+    }, 0);
+  }
+
   async function salvar() {
-    if (!form) return;
+    if (!form || salvando) return;
     setSalvando(true);
-    setErroModal(null);
+    setMsg(null);
     try {
-      await chamar("POST", {
+      const json = await chamar("POST", {
         id: form.id,
         boletim: form.boletim ? Number(form.boletim) : null,
         fornCod: form.fornCod,
@@ -185,10 +239,22 @@ export default function EmprestimosClient({ perfil }) {
         })),
         obs: form.obs,
       });
-      setForm(null);
+      const nm = (form.fornNm ?? "").trim();
+      const qual = `${form.boletim ? `nº ${form.boletim}` : `#${form.id ?? json.id}`}${nm ? ` (${nm})` : ""}`;
+      if (form.id) {
+        // edição: a janela fecha e a mensagem fica na página
+        setForm(null);
+        setMsg({ texto: `Empréstimo ${qual} alterado.`, erro: false });
+      } else {
+        // novo: a janela fica aberta e limpa para lançar o próximo
+        setMsg({ texto: `Empréstimo ${qual} lançado.`, erro: false });
+        limparForm();
+        irAoTopo(true);
+      }
       await carregar();
     } catch (e) {
-      setErroModal(e instanceof Error ? e.message : "Não foi possível salvar.");
+      setMsg({ texto: e instanceof Error ? e.message : "Não foi possível salvar.", erro: true });
+      irAoTopo(false);
     } finally {
       setSalvando(false);
     }
@@ -209,8 +275,16 @@ export default function EmprestimosClient({ perfil }) {
     }
   }
 
-  async function reabrir(e) {
-    if (!window.confirm(`Reabrir o empréstimo #${e.id} (${e.fornNm})? A baixa será desfeita.`)) return;
+  function reabrir(e) {
+    setConfirmar({
+      titulo: `Reabrir o empréstimo #${e.id} (${e.fornNm})?`,
+      texto: "A baixa será desfeita.",
+      botao: "Reabrir",
+      acao: () => reabrirDeVez(e),
+    });
+  }
+
+  async function reabrirDeVez(e) {
     try {
       await chamar("POST", { acao: "baixa", id: e.id, tipo: "Aberto" });
       await carregar();
@@ -219,8 +293,17 @@ export default function EmprestimosClient({ perfil }) {
     }
   }
 
-  async function excluir(e) {
-    if (!window.confirm(`Excluir o empréstimo #${e.id} (${e.fornNm})? A exclusão fica registrada no Log de Alterações.`)) return;
+  function excluir(e) {
+    setConfirmar({
+      titulo: `Excluir o empréstimo #${e.id} (${e.fornNm})?`,
+      texto: "A exclusão fica registrada no Log de Alterações.",
+      botao: "Excluir",
+      perigo: true,
+      acao: () => excluirDeVez(e),
+    });
+  }
+
+  async function excluirDeVez(e) {
     try {
       await chamar("DELETE", { id: e.id });
       setAberto(null);
@@ -229,6 +312,11 @@ export default function EmprestimosClient({ perfil }) {
       setErro(er instanceof Error ? er.message : "Não foi possível excluir.");
     }
   }
+
+  // F2 sem janela aberta: empréstimo novo (com a janela aberta, F2 grava; Esc fecha a janela de cima)
+  useAtalhoTela("F2", novoEmprestimo, podeGravar);
+  // janela de baixa: Esc fecha (menos enquanto grava)
+  useJanela(!!baixa, { onEsc: () => !salvando && setBaixa(null) });
 
   const [sugestoes, setSugestoes] = useState([]);
 
@@ -303,6 +391,8 @@ export default function EmprestimosClient({ perfil }) {
   const updItem = (i, patch) => setForm((f) => f && { ...f, itens: f.itens.map((x, k) => (k === i ? { ...x, ...patch } : x)) });
   const updFaz = (i, patch) => setForm((f) => f && { ...f, faz: f.faz.map((x, k) => (k === i ? { ...x, ...patch } : x)) });
   const totalForm = form ? form.itens.reduce((a, i) => a + (numero(i.qtd) > 0 ? totalItem(numero(i.qtd), numero(i.vu || "0") || 0) : 0), 0) : 0;
+  // algo digitado ou alterado desde que a janela abriu
+  const alterado = form ? conteudoForm(form) !== origem : false;
 
   return (
     <Pagina translate="no">
@@ -312,7 +402,7 @@ export default function EmprestimosClient({ perfil }) {
         comandos={
           <>
             {podeGravar && (
-              <Comando primario icone={<IconMais size={16} />} onClick={novoEmprestimo}>
+              <Comando primario icone={<IconMais size={16} />} onClick={novoEmprestimo} title="Novo empréstimo (F2)">
                 Novo empréstimo
               </Comando>
             )}
@@ -321,13 +411,25 @@ export default function EmprestimosClient({ perfil }) {
       />
 
       <CorpoPagina>
-        {form && (
-          <section id="form-emprestimo" className="caixa-form mb-5 scroll-mt-4">
-            <div className="caixa-form-topo">
-              <div>
-                <h2 className="caixa-form-titulo">{form.id ? "Editando o empréstimo" : "Novo empréstimo"}</h2>
-                <div className="text-[11.5px] text-muted">Solicitação de empréstimo de insumos a fornecedor</div>
-              </div>
+        {msg && !form && (
+          <div className="mb-3">
+            <Aviso msg={msg} onFechar={() => setMsg(null)} />
+          </div>
+        )}
+
+        <JanelaFormulario
+          aberto={!!form}
+          rotulo={form?.id ? "Editar empréstimo" : "Novo empréstimo"}
+          titulo={form?.id ? `Editando o empréstimo ${form.boletim ? `nº ${form.boletim}` : `#${form.id}`}` : "Novo empréstimo"}
+          subtitulo="Solicitação de empréstimo de insumos a fornecedor · F2 grava · Esc fecha"
+          aviso={msg && <Aviso msg={msg} onFechar={() => setMsg(null)} />}
+          onFechar={fecharForm}
+          onGravar={salvar}
+          ocupado={salvando}
+          corpoRef={formRef}
+          focoInicial={fornRef}
+          topoDireita={
+            form && (
               <label className="campo-boletim">
                 Boletim nº
                 <input
@@ -337,145 +439,257 @@ export default function EmprestimosClient({ perfil }) {
                   aria-label="Número do boletim"
                 />
               </label>
-            </div>
-            <datalist id="forn-cods">
-              {Array.from(sugestoesForn.entries()).map(([c, v]) => (
-                <option key={c} value={c}>
-                  {v.nm}
-                </option>
-              ))}
-            </datalist>
-            <datalist id="item-sug">
-              {sugestoes.map((x) => (
-                <option key={x.cod} value={x.cod}>
-                  {x.ds} ({x.un})
-                </option>
-              ))}
-            </datalist>
+            )
+          }
+          rodape={
+            form && (
+              <>
+                <button type="button" className={BOTAO} onClick={fecharForm}>
+                  {form.id ? "Cancelar edição" : "Fechar"}
+                </button>
+                {!form.id && alterado && (
+                  <button
+                    type="button"
+                    className={BOTAO}
+                    onClick={() => {
+                      setMsg((m) => (m?.erro ? null : m));
+                      limparForm();
+                      irAoTopo(true);
+                    }}
+                  >
+                    Limpar
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={salvando}
+                  onClick={salvar}
+                  className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
+                >
+                  {salvando ? "Gravando…" : form.id ? "Salvar alteração (F2)" : "Lançar empréstimo (F2)"}
+                </button>
+              </>
+            )
+          }
+        >
+          {form && (
+            <>
+              <datalist id="forn-cods">
+                {Array.from(sugestoesForn.entries()).map(([c, v]) => (
+                  <option key={c} value={c}>
+                    {v.nm}
+                  </option>
+                ))}
+              </datalist>
+              <datalist id="item-sug">
+                {sugestoes.map((x) => (
+                  <option key={x.cod} value={x.cod}>
+                    {x.ds} ({x.un})
+                  </option>
+                ))}
+              </datalist>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <div>
-                <label className={ROTULO}>Data solicitação</label>
-                <input type="date" value={form.dtSol} onChange={(e) => upd({ dtSol: e.target.value })} className={INPUT} />
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <div>
+                  <label className={ROTULO}>Data solicitação</label>
+                  <input type="date" value={form.dtSol} onChange={(e) => upd({ dtSol: e.target.value })} className={INPUT} />
+                </div>
+                <div>
+                  <label className={ROTULO}>Data saída (comunicado)</label>
+                  <input type="date" value={form.dt} onChange={(e) => upd({ dt: e.target.value })} className={INPUT} />
+                </div>
+                <div>
+                  <label className={ROTULO}>Matrícula/Fornecedor</label>
+                  <input
+                    ref={fornRef}
+                    list="forn-cods"
+                    value={form.fornCod}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const s = sugestoesForn.get(v);
+                      upd(s ? { fornCod: v, fornNm: s.nm, doc: s.doc } : { fornCod: v });
+                    }}
+                    className={INPUT}
+                  />
+                </div>
+                <div>
+                  <label className={ROTULO}>CPF / CNPJ</label>
+                  <input value={form.doc} onChange={(e) => upd({ doc: e.target.value })} className={INPUT} />
+                </div>
+                <div className="col-span-2 md:col-span-4">
+                  <label className={ROTULO}>Destinatário (nome)</label>
+                  <input value={form.fornNm} onChange={(e) => upd({ fornNm: e.target.value })} className={INPUT} />
+                </div>
               </div>
-              <div>
-                <label className={ROTULO}>Data saída (comunicado)</label>
-                <input type="date" value={form.dt} onChange={(e) => upd({ dt: e.target.value })} className={INPUT} />
-              </div>
-              <div>
-                <label className={ROTULO}>Matrícula/Fornecedor</label>
-                <input
-                  list="forn-cods"
-                  value={form.fornCod}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    const s = sugestoesForn.get(v);
-                    upd(s ? { fornCod: v, fornNm: s.nm, doc: s.doc } : { fornCod: v });
-                  }}
-                  className={INPUT}
-                />
-              </div>
-              <div>
-                <label className={ROTULO}>CPF / CNPJ</label>
-                <input value={form.doc} onChange={(e) => upd({ doc: e.target.value })} className={INPUT} />
-              </div>
-              <div className="col-span-2 md:col-span-4">
-                <label className={ROTULO}>Destinatário (nome)</label>
-                <input value={form.fornNm} onChange={(e) => upd({ fornNm: e.target.value })} className={INPUT} />
-              </div>
-            </div>
 
-            <div className="caixa-form-sub">Insumos emprestados</div>
-            <div className="overflow-x-auto rounded-lg border border-line bg-card">
-              <table className="w-full min-w-[760px] text-[12.5px]">
-                <thead>
-                  <tr className="bg-surface text-left text-muted">
-                    <th className="w-[130px] px-2 py-1.5 font-semibold">Código</th>
-                    <th className="px-2 py-1.5 font-semibold">Descrição</th>
-                    <th className="w-[70px] px-2 py-1.5 font-semibold">U.M.</th>
-                    <th className="w-[80px] px-2 py-1.5 text-right font-semibold">Dose</th>
-                    <th className="w-[100px] px-2 py-1.5 text-right font-semibold">Qtd</th>
-                    <th className="w-[110px] px-2 py-1.5 text-right font-semibold">Preço médio</th>
-                    <th className="w-[120px] px-2 py-1.5 text-right font-semibold">Vl. total</th>
-                    <th className="w-[30px]" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {form.itens.map((i, k) => {
-                    const cel =
-                      "w-full rounded border border-transparent bg-transparent px-1.5 py-1 hover:border-line focus:border-navy-900 focus:bg-surface focus:outline-none";
-                    return (
-                      <Fragment key={k}>
-                        <tr className="border-t border-line/60 align-middle">
+              <div className="caixa-form-sub">Insumos emprestados</div>
+              <div className="overflow-x-auto rounded-lg border border-line bg-card">
+                <table className="w-full min-w-[760px] text-[12.5px]" data-sem-ordenar>
+                  <thead>
+                    <tr className="bg-surface text-left text-muted">
+                      <th className="w-[130px] px-2 py-1.5 font-semibold">Código</th>
+                      <th className="px-2 py-1.5 font-semibold">Descrição</th>
+                      <th className="w-[70px] px-2 py-1.5 font-semibold">U.M.</th>
+                      <th className="w-[80px] px-2 py-1.5 text-right font-semibold">Dose</th>
+                      <th className="w-[100px] px-2 py-1.5 text-right font-semibold">Qtd</th>
+                      <th className="w-[110px] px-2 py-1.5 text-right font-semibold">Preço médio</th>
+                      <th className="w-[120px] px-2 py-1.5 text-right font-semibold">Vl. total</th>
+                      <th className="w-[30px]" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {form.itens.map((i, k) => {
+                      const cel =
+                        "w-full rounded border border-transparent bg-transparent px-1.5 py-1 hover:border-line focus:border-navy-900 focus:bg-surface focus:outline-none";
+                      return (
+                        <Fragment key={k}>
+                          <tr className="border-t border-line/60 align-middle">
+                            <td className="px-1 py-0.5">
+                              <input
+                                list="item-sug"
+                                value={i.cod}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  updItem(k, { cod: v, cad: undefined, aviso: undefined, doBanco: undefined });
+                                  buscarSugestoes(v);
+                                  if (sugestoes.some((x) => x.cod === v)) aplicarItem(k, v);
+                                }}
+                                // a linha gravada com o código intacto (só passou o Tab) fica com a descrição, a UM e o preço dela
+                                onBlur={() => i.cad === undefined && !i.doBanco && aplicarItem(k, i.cod)}
+                                className={`${cel} tabular`}
+                                aria-label="Código do insumo"
+                              />
+                            </td>
+                            <td className="px-1 py-0.5">
+                              <input
+                                value={i.nm}
+                                readOnly={i.cad === true}
+                                onChange={(e) => updItem(k, { nm: e.target.value })}
+                                className={cel}
+                                aria-label="Descrição"
+                              />
+                            </td>
+                            <td className="px-1 py-0.5">
+                              <input
+                                value={i.um}
+                                readOnly={i.cad === true}
+                                onChange={(e) => updItem(k, { um: e.target.value })}
+                                className={cel}
+                                aria-label="Unidade"
+                              />
+                            </td>
+                            <td className="px-1 py-0.5">
+                              <input
+                                value={i.dose}
+                                onChange={(e) => updItem(k, { dose: e.target.value })}
+                                inputMode="decimal"
+                                className={`${cel} text-right`}
+                                aria-label="Dose"
+                              />
+                            </td>
+                            <td className="px-1 py-0.5">
+                              <input
+                                value={i.qtd}
+                                onChange={(e) => updItem(k, { qtd: e.target.value })}
+                                inputMode="decimal"
+                                className={`${cel} text-right`}
+                                aria-label="Quantidade"
+                              />
+                            </td>
+                            <td className="px-1 py-0.5">
+                              <input
+                                value={i.vu}
+                                onChange={(e) => updItem(k, { vu: e.target.value })}
+                                inputMode="decimal"
+                                className={`${cel} text-right`}
+                                aria-label="Preço médio"
+                              />
+                            </td>
+                            <td className="px-2 py-0.5 text-right tabular font-semibold">
+                              {brl(numero(i.qtd) > 0 ? totalItem(numero(i.qtd), numero(i.vu || "0") || 0) : 0)}
+                            </td>
+                            <td className="px-1 text-center">
+                              {form.itens.length > 1 && (
+                                <button
+                                  type="button"
+                                  title="Remover linha"
+                                  onClick={() => upd({ itens: form.itens.filter((_, x) => x !== k) })}
+                                  className="text-alert-700 hover:underline"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                          {i.aviso && (
+                            <tr>
+                              <td />
+                              <td colSpan={7} className={`px-2 pb-1 text-[11px] ${i.cad === false ? "text-amber-700" : "text-muted"}`}>
+                                {i.aviso}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    <tr className="border-t border-line bg-surface font-bold">
+                      <td colSpan={6} className="px-2 py-1.5 text-right">
+                        Total
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular">{brl(totalForm)}</td>
+                      <td />
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <button type="button" className={`${BOTAO} mt-2`} onClick={() => upd({ itens: [...form.itens, itemVazio()] })}>
+                + Insumo
+              </button>
+
+              <div className="caixa-form-sub">Local de aplicação</div>
+              <div className="overflow-x-auto rounded-lg border border-line bg-card">
+                <table className="w-full min-w-[520px] text-[12.5px]" data-sem-ordenar>
+                  <thead>
+                    <tr className="bg-surface text-left text-muted">
+                      <th className="w-[130px] px-2 py-1.5 font-semibold">Fazenda</th>
+                      <th className="px-2 py-1.5 font-semibold">Descrição Fazenda</th>
+                      <th className="w-[130px] px-2 py-1.5 text-right font-semibold">Área (ha)</th>
+                      <th className="w-[30px]" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {form.faz.map((f, k) => {
+                      const cel =
+                        "w-full rounded border border-transparent bg-transparent px-1.5 py-1 hover:border-line focus:border-navy-900 focus:bg-surface focus:outline-none";
+                      return (
+                        <tr key={k} className="border-t border-line/60">
                           <td className="px-1 py-0.5">
                             <input
-                              list="item-sug"
-                              value={i.cod}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                updItem(k, { cod: v, cad: undefined, aviso: undefined });
-                                buscarSugestoes(v);
-                                if (sugestoes.some((x) => x.cod === v)) aplicarItem(k, v);
-                              }}
-                              onBlur={() => i.cad === undefined && aplicarItem(k, i.cod)}
+                              value={f.cod}
+                              onChange={(e) => updFaz(k, { cod: e.target.value })}
+                              onBlur={() => nomeFazenda(k, f.cod)}
                               className={`${cel} tabular`}
-                              aria-label="Código do insumo"
+                              aria-label="Código da fazenda"
                             />
                           </td>
                           <td className="px-1 py-0.5">
-                            <input
-                              value={i.nm}
-                              readOnly={i.cad === true}
-                              onChange={(e) => updItem(k, { nm: e.target.value })}
-                              className={cel}
-                              aria-label="Descrição"
-                            />
+                            <input value={f.nome} onChange={(e) => updFaz(k, { nome: e.target.value })} className={cel} aria-label="Descrição da fazenda" />
                           </td>
                           <td className="px-1 py-0.5">
                             <input
-                              value={i.um}
-                              readOnly={i.cad === true}
-                              onChange={(e) => updItem(k, { um: e.target.value })}
-                              className={cel}
-                              aria-label="Unidade"
-                            />
-                          </td>
-                          <td className="px-1 py-0.5">
-                            <input
-                              value={i.dose}
-                              onChange={(e) => updItem(k, { dose: e.target.value })}
+                              value={f.area}
+                              onChange={(e) => updFaz(k, { area: e.target.value })}
                               inputMode="decimal"
                               className={`${cel} text-right`}
-                              aria-label="Dose"
+                              aria-label="Área"
                             />
-                          </td>
-                          <td className="px-1 py-0.5">
-                            <input
-                              value={i.qtd}
-                              onChange={(e) => updItem(k, { qtd: e.target.value })}
-                              inputMode="decimal"
-                              className={`${cel} text-right`}
-                              aria-label="Quantidade"
-                            />
-                          </td>
-                          <td className="px-1 py-0.5">
-                            <input
-                              value={i.vu}
-                              onChange={(e) => updItem(k, { vu: e.target.value })}
-                              inputMode="decimal"
-                              className={`${cel} text-right`}
-                              aria-label="Preço médio"
-                            />
-                          </td>
-                          <td className="px-2 py-0.5 text-right tabular font-semibold">
-                            {brl(numero(i.qtd) > 0 ? totalItem(numero(i.qtd), numero(i.vu || "0") || 0) : 0)}
                           </td>
                           <td className="px-1 text-center">
-                            {form.itens.length > 1 && (
+                            {form.faz.length > 1 && (
                               <button
                                 type="button"
                                 title="Remover linha"
-                                onClick={() => upd({ itens: form.itens.filter((_, x) => x !== k) })}
+                                onClick={() => upd({ faz: form.faz.filter((_, x) => x !== k) })}
                                 className="text-alert-700 hover:underline"
                               >
                                 ×
@@ -483,130 +697,41 @@ export default function EmprestimosClient({ perfil }) {
                             )}
                           </td>
                         </tr>
-                        {i.aviso && (
-                          <tr>
-                            <td />
-                            <td colSpan={7} className={`px-2 pb-1 text-[11px] ${i.cad === false ? "text-amber-700" : "text-muted"}`}>
-                              {i.aviso}
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                  <tr className="border-t border-line bg-surface font-bold">
-                    <td colSpan={6} className="px-2 py-1.5 text-right">
-                      Total
-                    </td>
-                    <td className="px-2 py-1.5 text-right tabular">{brl(totalForm)}</td>
-                    <td />
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <button type="button" className={`${BOTAO} mt-2`} onClick={() => upd({ itens: [...form.itens, itemVazio()] })}>
-              + Insumo
-            </button>
-
-            <div className="caixa-form-sub">Local de aplicação</div>
-            <div className="overflow-x-auto rounded-lg border border-line bg-card">
-              <table className="w-full min-w-[520px] text-[12.5px]">
-                <thead>
-                  <tr className="bg-surface text-left text-muted">
-                    <th className="w-[130px] px-2 py-1.5 font-semibold">Fazenda</th>
-                    <th className="px-2 py-1.5 font-semibold">Descrição Fazenda</th>
-                    <th className="w-[130px] px-2 py-1.5 text-right font-semibold">Área (ha)</th>
-                    <th className="w-[30px]" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {form.faz.map((f, k) => {
-                    const cel =
-                      "w-full rounded border border-transparent bg-transparent px-1.5 py-1 hover:border-line focus:border-navy-900 focus:bg-surface focus:outline-none";
-                    return (
-                      <tr key={k} className="border-t border-line/60">
-                        <td className="px-1 py-0.5">
-                          <input
-                            value={f.cod}
-                            onChange={(e) => updFaz(k, { cod: e.target.value })}
-                            onBlur={() => nomeFazenda(k, f.cod)}
-                            className={`${cel} tabular`}
-                            aria-label="Código da fazenda"
-                          />
-                        </td>
-                        <td className="px-1 py-0.5">
-                          <input value={f.nome} onChange={(e) => updFaz(k, { nome: e.target.value })} className={cel} aria-label="Descrição da fazenda" />
-                        </td>
-                        <td className="px-1 py-0.5">
-                          <input
-                            value={f.area}
-                            onChange={(e) => updFaz(k, { area: e.target.value })}
-                            inputMode="decimal"
-                            className={`${cel} text-right`}
-                            aria-label="Área"
-                          />
-                        </td>
-                        <td className="px-1 text-center">
-                          {form.faz.length > 1 && (
-                            <button
-                              type="button"
-                              title="Remover linha"
-                              onClick={() => upd({ faz: form.faz.filter((_, x) => x !== k) })}
-                              className="text-alert-700 hover:underline"
-                            >
-                              ×
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <button type="button" className={`${BOTAO} mt-2`} onClick={() => upd({ faz: [...form.faz, fazVazia()] })}>
-              + Fazenda
-            </button>
-
-            <div className="caixa-form-sub">Volume, assinaturas e observação</div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div>
-                <label className={ROTULO}>Volume de</label>
-                <select value={form.volTipo} onChange={(e) => upd({ volTipo: e.target.value })} className={INPUT}>
-                  <option value="Calda">Calda</option>
-                  <option value="Insumo">Insumo</option>
-                </select>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-              <div className="md:col-span-2">
-                <label className={ROTULO}>Volume (ex.: 18.800 lt · 58 ton)</label>
-                <input value={form.vol} onChange={(e) => upd({ vol: e.target.value })} className={INPUT} />
-              </div>
-              <div className="md:col-span-3">
-                <label className={ROTULO}>Assinaturas do comunicado (um nome por linha)</label>
-                <textarea value={form.assin.join("\n")} onChange={(e) => upd({ assin: e.target.value.split("\n") })} rows={3} className={INPUT} />
-              </div>
-              <div className="md:col-span-3">
-                <label className={ROTULO}>Observação</label>
-                <input value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} />
-              </div>
-            </div>
-
-            {erroModal && <p className="mt-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erroModal}</p>}
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className={BOTAO} onClick={() => setForm(null)}>
-                Cancelar
+              <button type="button" className={`${BOTAO} mt-2`} onClick={() => upd({ faz: [...form.faz, fazVazia()] })}>
+                + Fazenda
               </button>
-              <button
-                type="button"
-                disabled={salvando}
-                onClick={salvar}
-                className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
-              >
-                {salvando ? "Gravando…" : form.id ? "Salvar alteração" : "Lançar empréstimo"}
-              </button>
-            </div>
-          </section>
-        )}
+
+              <div className="caixa-form-sub">Volume, assinaturas e observação</div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <label className={ROTULO}>Volume de</label>
+                  <select value={form.volTipo} onChange={(e) => upd({ volTipo: e.target.value })} className={INPUT}>
+                    <option value="Calda">Calda</option>
+                    <option value="Insumo">Insumo</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className={ROTULO}>Volume (ex.: 18.800 lt · 58 ton)</label>
+                  <input value={form.vol} onChange={(e) => upd({ vol: e.target.value })} className={INPUT} />
+                </div>
+                <div className="md:col-span-3">
+                  <label className={ROTULO}>Assinaturas do comunicado (um nome por linha)</label>
+                  <textarea value={form.assin.join("\n")} onChange={(e) => upd({ assin: e.target.value.split("\n") })} rows={3} className={INPUT} />
+                </div>
+                <div className="md:col-span-3">
+                  <label className={ROTULO}>Observação</label>
+                  <input value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} />
+                </div>
+              </div>
+            </>
+          )}
+        </JanelaFormulario>
+
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {["Aberto", "Devolvido", "Pago"].map((s) => (
             <button
@@ -755,15 +880,7 @@ export default function EmprestimosClient({ perfil }) {
                           </button>
                           {podeGravar && (
                             <>
-                              <button
-                                type="button"
-                                className={BOTAO}
-                                onClick={() => {
-                                  setErroModal(null);
-                                  setForm(formDe(e));
-                                  irParaFormulario();
-                                }}
-                              >
+                              <button type="button" className={BOTAO} onClick={() => editar(e)}>
                                 Editar
                               </button>
                               {e.status === "Aberto" ? (
@@ -800,7 +917,7 @@ export default function EmprestimosClient({ perfil }) {
 
       {baixa && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl2 bg-card p-5 shadow-card">
+          <div role="dialog" aria-modal="true" aria-label="Dar baixa no empréstimo" className="w-full max-w-md rounded-xl2 bg-card p-5 shadow-card">
             <h2 className="text-[15px] font-bold text-ink">
               Dar baixa — empréstimo #{baixa.e.id} · {baixa.e.fornNm}
             </h2>
@@ -826,7 +943,7 @@ export default function EmprestimosClient({ perfil }) {
             </div>
             {erroModal && <p className="mt-3 text-[12.5px] text-alert-700">{erroModal}</p>}
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className={BOTAO} onClick={() => setBaixa(null)}>
+              <button type="button" className={BOTAO} onClick={() => setBaixa(null)} title="Cancelar (Esc)">
                 Cancelar
               </button>
               <button
@@ -840,6 +957,18 @@ export default function EmprestimosClient({ perfil }) {
             </div>
           </div>
         </div>
+      )}
+
+      {confirmar && (
+        <JanelaConfirmar
+          {...confirmar}
+          onCancelar={() => setConfirmar(null)}
+          onConfirmar={() => {
+            const acao = confirmar.acao;
+            setConfirmar(null);
+            acao();
+          }}
+        />
       )}
     </Pagina>
   );

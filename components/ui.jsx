@@ -2,6 +2,7 @@
 
 import { IconOlho, IconOlhoOculto } from "./icons";
 import { useState } from "react";
+import { useJanela } from "./janela";
 
 export function Campo({ label, children }) {
   return (
@@ -13,6 +14,8 @@ export function Campo({ label, children }) {
 }
 
 export function ModalShell({ titulo, onFechar, children }) {
+  // aberta, o F2 da página (novo lançamento) não abre uma janela atrás dela
+  useJanela(true);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl2 bg-card p-5 shadow-pop">

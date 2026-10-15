@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useRef, useState } from "react";
+import JanelaFormulario, { JanelaConfirmar } from "@/components/janela";
 import { fmtDateBR, fmtHa } from "@/lib/format";
 
 const INPUT = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface";
@@ -20,10 +21,12 @@ const COR_MSG = { erro: "text-alert-700", aviso: "text-amber-700", info: "text-m
 /**
  * Leitor da mensagem "Planejamento Ordem de Cortes" do WhatsApp: cola a mensagem, confere cada ordem contra o sistema
  * (ordem, frente, fazendas, áreas, o que já está lançado) e mostra a área do dia, o rateio pelos talhões e o boletim de
- * cada uma; só lança depois de confirmar. O lançamento manual da área colhida continua logo abaixo.
+ * cada uma; só lança depois de confirmar. Abre numa janela pelo botão "Ler mensagem do WhatsApp" da aba; o que foi
+ * colado e conferido fica guardado ao fechar. O lançamento manual da área colhida é o "Novo lançamento".
  */
-export default function LeitorPlanejamento({ podeGravar, onLancado }) {
-  const [aberto, setAberto] = useState(false);
+export default function LeitorPlanejamento({ aberto, onFechar, podeGravar, onLancado }) {
+  const textoRef = useRef(null);
+  const fecharRef = useRef(null);
   const [texto, setTexto] = useState("");
   const [dt, setDt] = useState("");
   const [base, setBase] = useState("saldo");
@@ -31,6 +34,9 @@ export default function LeitorPlanejamento({ podeGravar, onLancado }) {
   const [escolhidas, setEscolhidas] = useState(new Set());
   const [abertas, setAbertas] = useState(new Set());
   const [ocupado, setOcupado] = useState(false);
+  // gravando o lançamento: a janela não fecha
+  const [lancando, setLancando] = useState(false);
+  const [confirmar, setConfirmar] = useState(null);
   const [erro, setErro] = useState(null);
   const [resultados, setResultados] = useState(null);
   // só vale a resposta da última conferência pedida (trocas rápidas de data, rateio ou texto)
@@ -68,21 +74,26 @@ export default function LeitorPlanejamento({ podeGravar, onLancado }) {
     }
   }
 
-  async function lancar() {
+  /** Pede a confirmação; lança o que está conferido na tela neste momento. */
+  function lancar() {
     if (!conf) return;
     const linhas = conf.linhas.filter((l) => escolhidas.has(l.numero) && l.situacao === "lancar");
     if (linhas.length === 0) return;
     const total = linhas.reduce((s, l) => s + (l.areaDia ?? 0), 0);
-    if (
-      !window.confirm(
-        `Lançar a área colhida de ${linhas.length} ordem(ns) em ${fmtDateBR(conf.dt)} (${fmtHa(total)} ha no total, um boletim por ordem)? Fica registrado no Log de Alterações.`,
-      )
-    )
-      return;
     // o que vai para o servidor é o que foi conferido (texto, data e rateio da conferência na tela)
     const conferido = { texto: conf.texto, dt: conf.dt, base: conf.base };
+    setConfirmar({
+      titulo: "Lançar a área colhida?",
+      texto: `${linhas.length} ordem(ns) em ${fmtDateBR(conf.dt)} (${fmtHa(total)} ha no total, um boletim por ordem). Fica registrado no Log de Alterações.`,
+      botao: "Lançar",
+      acao: () => lancarConferido(conferido, linhas),
+    });
+  }
+
+  async function lancarConferido(conferido, linhas) {
     ++seq.current;
     setOcupado(true);
+    setLancando(true);
     setErro(null);
     try {
       const res = await fetch("/api/area-colhida/planejamento", {
@@ -99,6 +110,8 @@ export default function LeitorPlanejamento({ podeGravar, onLancado }) {
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível lançar.");
       setOcupado(false);
+    } finally {
+      setLancando(false);
     }
   }
 
@@ -124,23 +137,45 @@ export default function LeitorPlanejamento({ podeGravar, onLancado }) {
   const conta = (f) => linhas.filter(f).length;
 
   return (
-    // o F2 e o Enter da aba são do lançamento manual: aqui não valem
-    <section className="caixa-form" onKeyDown={(e) => e.stopPropagation()}>
-      <div className="caixa-form-topo">
-        <div>
-          <h2 className="caixa-form-titulo">Lançar pela mensagem do WhatsApp</h2>
-          <div className="text-[11.5px] text-muted">
-            Cole o &quot;Planejamento Ordem de Cortes&quot;: o sistema confere cada ordem e mostra o que vai lançar antes de gravar
-          </div>
-        </div>
-        <button type="button" onClick={() => setAberto((a) => !a)} className={BOTAO}>
-          {aberto ? "Fechar" : "Ler mensagem"}
-        </button>
-      </div>
-
-      {aberto && (
+    <>
+      {/* sem F2 aqui: lançar pede confirmação; Esc fecha a janela (o que foi colado fica) */}
+      <JanelaFormulario
+        aberto={aberto}
+        rotulo="Lançar pela mensagem do WhatsApp"
+        titulo="Lançar pela mensagem do WhatsApp"
+        subtitulo='Cole o "Planejamento Ordem de Cortes": o sistema confere cada ordem e mostra o que vai lançar antes de gravar · Esc fecha'
+        onFechar={onFechar}
+        ocupado={lancando}
+        // com mensagem já colada, o foco vai para o Fechar: no texto, ele ficaria todo selecionado e uma tecla
+        // apagaria a mensagem, a conferência e os resultados
+        focoInicial={texto.trim() ? fecharRef : textoRef}
+        largura="6xl"
+        rodape={
+          <>
+            {conf && (
+              <span className="self-center text-[12.5px] text-muted">
+                {escolhidasLancar.length} ordem(ns) marcada(s) · {fmtHa(totalEscolhido)} ha em {fmtDateBR(conf.dt)}
+              </span>
+            )}
+            <button ref={fecharRef} type="button" onClick={onFechar} disabled={lancando} className={BOTAO}>
+              Fechar
+            </button>
+            {conf && (
+              <button
+                type="button"
+                onClick={lancar}
+                disabled={!podeGravar || ocupado || escolhidasLancar.length === 0}
+                className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
+              >
+                {ocupado ? "Aguarde…" : `Lançar ${escolhidasLancar.length} ordem(ns)`}
+              </button>
+            )}
+          </>
+        }
+      >
         <div className="space-y-3">
           <textarea
+            ref={textoRef}
             value={texto}
             readOnly={ocupado}
             onChange={(e) => {
@@ -369,28 +404,27 @@ export default function LeitorPlanejamento({ podeGravar, onLancado }) {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                <span className="text-[12.5px] text-muted">
-                  {escolhidasLancar.length} ordem(ns) marcada(s) · {fmtHa(totalEscolhido)} ha em {fmtDateBR(conf.dt)}
-                </span>
-                <button
-                  type="button"
-                  onClick={lancar}
-                  disabled={!podeGravar || ocupado || escolhidasLancar.length === 0}
-                  className="rounded-lg bg-navy-900 px-4 py-2 text-[13px] font-semibold text-white shadow-card hover:bg-navy-800 disabled:opacity-50"
-                >
-                  {ocupado ? "Aguarde…" : `Lançar ${escolhidasLancar.length} ordem(ns)`}
-                </button>
-              </div>
               <p className="text-[11.5px] leading-relaxed text-muted">
                 Área do dia = Realizado da mensagem − o já lançado até o dia anterior à data do lançamento, rateada entre os talhões da ordem sem passar do
-                que falta colher em cada um (como no lançamento pela ordem, abaixo). Se a ordem já tiver lançamento nessa data, ele é substituído. Cada ordem
-                recebe um boletim; os ajustes finos continuam no lançamento manual e no histórico.
+                que falta colher em cada um (como no lançamento manual pela ordem). Se a ordem já tiver lançamento nessa data, ele é substituído. Cada ordem
+                recebe um boletim; os ajustes finos continuam no Novo lançamento e no histórico.
               </p>
             </>
           )}
         </div>
+      </JanelaFormulario>
+
+      {confirmar && (
+        <JanelaConfirmar
+          {...confirmar}
+          onCancelar={() => setConfirmar(null)}
+          onConfirmar={() => {
+            const acao = confirmar.acao;
+            setConfirmar(null);
+            acao();
+          }}
+        />
       )}
-    </section>
+    </>
   );
 }

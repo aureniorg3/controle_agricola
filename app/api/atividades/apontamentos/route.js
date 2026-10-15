@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
 import {
-  conferirApontamento,
   excluirApontamento,
   listarApontamentos,
   opcoesApontamento,
@@ -10,6 +9,7 @@ import {
   verificarSemOS,
   vincularOS,
 } from "@/lib/db-atividades";
+import { analisarConferencia, conferirApontamento, niveisConferencia } from "@/lib/db-conferencia-bot";
 
 import { podeEditar } from "@/lib/permissoes";
 
@@ -39,9 +39,20 @@ export async function GET(req) {
     if (!a) return NextResponse.json({ error: `O boletim nº ${n} não está lançado.` }, { status: 404 });
     return NextResponse.json({ apontamento: a });
   }
+  // `?conferencia=<id>` a conferência do apontamento do bot com as O.S. em aberto (e as O.S. compatíveis)
+  const conf = p.get("conferencia");
+  if (conf !== null && conf !== "lista") {
+    const id = Number(conf);
+    if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Informe o apontamento." }, { status: 400 });
+    const r = await analisarConferencia(id);
+    if (!r) return NextResponse.json({ error: "Apontamento não encontrado." }, { status: 404 });
+    return NextResponse.json(r);
+  }
   const de = p.get("de") ?? "";
   const ate = p.get("ate") ?? "";
   if (!ISO.test(de) || !ISO.test(ate) || de > ate) return NextResponse.json({ error: "Informe um período válido." }, { status: 400 });
+  // `?conferencia=lista` o resultado da conferência dos apontamentos a conferir do período (selo da lista)
+  if (conf === "lista") return NextResponse.json({ niveis: await niveisConferencia(de, ate) });
   if (p.get("verificar") !== null) return NextResponse.json({ semOS: await verificarSemOS(de, ate) });
   const boletim = Number(p.get("boletim") ?? "");
   return NextResponse.json({
@@ -103,7 +114,7 @@ export async function DELETE(req) {
   return NextResponse.json({ ok: true });
 }
 
-/** Liga um apontamento lançado sem O.S. à O.S. encontrada na verificação (ou informada na correção). */
+/** Confere um apontamento do bot, ou liga um apontamento lançado sem O.S. à O.S. encontrada na verificação (ou informada na correção). */
 export async function PATCH(req) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
@@ -111,11 +122,12 @@ export async function PATCH(req) {
   }
   const b = await req.json().catch(() => null);
   const id = Number(b?.id);
-  // apontamento do WhatsApp conferido: passa a ser de quem conferiu (o bot não regrava mais)
+  // apontamento do WhatsApp conferido (o bot não regrava mais): com divergência, só com `aceitar` (409 devolve as divergências);
+  // só a `versao` analisada na tela (mudou depois: 409 com `mudou`)
   if (b?.conferir === true) {
     if (!Number.isInteger(id)) return NextResponse.json({ error: "Informe o apontamento." }, { status: 400 });
-    const r = await conferirApontamento(id, usuario.nome);
-    if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 404 });
+    const r = await conferirApontamento(id, usuario.nome, b.aceitar === true, typeof b.versao === "string" ? b.versao : "");
+    if ("erro" in r) return NextResponse.json({ error: r.erro, divergencias: r.divergencias, mudou: r.mudou }, { status: r.status ?? 400 });
     return NextResponse.json(r);
   }
   const os = typeof b?.os === "string" ? b.os.replace(/\D/g, "") : "";

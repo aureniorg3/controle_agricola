@@ -5,6 +5,8 @@ import {
   buscarCodigo,
   excluirBoletim,
   gravarBoletim,
+  LIMITE_LISTA_BOLETINS,
+  listarBoletins,
   listarCodigos,
   obterBoletim,
   proximoBoletim,
@@ -16,15 +18,38 @@ import { podeEditar } from "@/lib/permissoes";
 export const dynamic = "force-dynamic";
 
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
+/** data AAAA-MM-DD que existe no calendário (o Date aceita 2026-02-30 e o Postgres não; o ano 0000 também não existe lá) */
+const dataDoCalendario = (v) => {
+  if (!v || !DATA.test(v) || v < "0001-01-01") return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+};
 const CADASTROS_CONSULTA = new Set(["regiao", "fazendas", "ocorrencias", "nivel-infestacao", "presenca-infestacao", "prioridade"]);
 
 /**
  * GET ?cad=<cadastro>&cod=<código> — recupera a descrição de um código;
+ * GET ?boletins=1&de=&ate=&bol= — boletins lançados (lista da tela);
  * GET sem parâmetros — devolve o número do próximo boletim.
  */
 export async function GET(req) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
+  const sp = req.nextUrl.searchParams;
+  // lista dos lançados: período `de`/`ate` (data do boletim) ou só o nº `bol`, em qualquer data
+  if (sp.get("boletins") !== null) {
+    // data em branco = sem limite daquele lado; data que não existe (ex.: 2026-02-30) é recusada
+    const de = sp.get("de") || undefined;
+    const ate = sp.get("ate") || undefined;
+    if ((de && !dataDoCalendario(de)) || (ate && !dataDoCalendario(ate))) {
+      return NextResponse.json({ error: "Data inválida." }, { status: 400 });
+    }
+    const txtBol = (sp.get("bol") ?? "").trim();
+    const nBol = Number(txtBol);
+    if (txtBol && !(Number.isInteger(nBol) && nBol > 0 && nBol <= 2147483647)) {
+      return NextResponse.json({ boletins: [], total: 0, limite: LIMITE_LISTA_BOLETINS });
+    }
+    return NextResponse.json(await listarBoletins({ de, ate, bol: txtBol ? nBol : undefined }));
+  }
   const buscaBol = req.nextUrl.searchParams.get("boletim");
   if (buscaBol !== null) {
     const n = Number(buscaBol);

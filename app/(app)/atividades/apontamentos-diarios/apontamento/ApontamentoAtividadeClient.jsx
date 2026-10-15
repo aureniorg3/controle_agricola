@@ -1,13 +1,15 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 import { IconAlerta, IconBusca, IconMais } from "@/components/icons";
+import JanelaFormulario, { Aviso, JanelaConfirmar, useAtalhoTela, useCliqueFora, useJanela } from "@/components/janela";
 import { CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
 import { camposFaltando, chaveTalhao, ratearArea, REGRAS_PADRAO, round2 } from "@/lib/atividades";
 
 import { fmtDateBR, todayISO } from "@/lib/format";
-import { normTlh } from "@/lib/ocupacao";
+import { normFaz, normTlh } from "@/lib/ocupacao";
 import { addDays } from "@/lib/period";
 
 import { podeEditar } from "@/lib/permissoes";
@@ -24,10 +26,55 @@ function numero(v) {
   return t.includes(",") ? Number(t.replace(/\./g, "").replace(",", ".")) : Number(t);
 }
 const texto = (n) => (n ? String(round2(n)).replace(".", ",") : "");
+/** código sem zeros à esquerda ("0101" = "101") */
+const semZeros = (s) =>
+  String(s ?? "")
+    .trim()
+    .replace(/^0+(?=\d)/, "");
 const corStatus = (s) => (/encerr/i.test(s) ? "bg-surface text-muted" : /liber/i.test(s) ? "bg-brand-50 text-brand-700" : "bg-good-50 text-good-600");
 
 let seqLinha = 0;
 const novaChave = () => `l${++seqLinha}`;
+
+/** "fazenda|talhão" como aparece nos avisos: "9442-05" (ou "9442 (sem talhão)") */
+const nomeChave = (k) => {
+  const i = k.indexOf("|");
+  const faz = k.slice(0, i);
+  const tlh = k.slice(i + 1);
+  return tlh ? `${faz}-${tlh}` : `${faz} (sem talhão)`;
+};
+
+/**
+ * Áreas e marcações do boletim gravadas com outro código de fazenda ou talhão ("9442|05" para o "09442-1|5" da O.S.)
+ * passam para a chave do talhão da O.S. (fazenda sem a sequência e sem zeros; talhão sem zeros). Talhão que casa com
+ * mais de um da O.S. fica como está. Devolve também o que foi trocado (de → para).
+ */
+function paraChavesDaOS(areas, marcados, talhoes) {
+  const daOS = new Set(talhoes.map((t) => chaveTalhao(t.propCod, t.tlh)));
+  const porNorma = new Map();
+  for (const t of talhoes) {
+    const n = `${normFaz(t.propCod)}|${normTlh(t.tlh)}`;
+    porNorma.set(n, porNorma.has(n) ? null : chaveTalhao(t.propCod, t.tlh));
+  }
+  const para = (k) => {
+    if (daOS.has(k)) return k;
+    const i = k.indexOf("|");
+    const tlh = normTlh(k.slice(i + 1));
+    return (tlh && porNorma.get(`${normFaz(k.slice(0, i))}|${tlh}`)) || k;
+  };
+  const novasAreas = {};
+  const trocados = [];
+  for (const [k, v] of Object.entries(areas ?? {})) {
+    const p = para(k);
+    if (p !== k && String(v ?? "").trim()) trocados.push({ de: k, para: p });
+    // dois códigos do mesmo talhão ("05" e "5"): as áreas somam
+    const ant = novasAreas[p];
+    novasAreas[p] = ant === undefined ? v : texto(round2(numero(String(ant)) + numero(String(v ?? ""))));
+  }
+  const novosMarcados = {};
+  for (const [k, v] of Object.entries(marcados ?? {})) novosMarcados[para(k)] = !!novosMarcados[para(k)] || v;
+  return { areas: novasAreas, marcados: novosMarcados, trocados };
+}
 
 /** o talhão digitado na lista da fazenda (base Fazenda e Talhões): "01" = "1" */
 const talhaoDaFazenda = (f, tlh) => (f && String(tlh ?? "").trim() ? f.talhoes.find((t) => normTlh(t.tlh) === normTlh(tlh)) : undefined);
@@ -38,6 +85,12 @@ const linhaVazia = (faz = "", fazNm = "") => ({ key: novaChave(), faz, fazNm, tl
 /** a tabela começa com 8 linhas; Enter na área da última abre outra */
 const LINHAS_INICIAIS = 8;
 const linhasIniciais = () => Array.from({ length: LINHAS_INICIAIS }, () => linhaVazia());
+
+/** Talhões de um apontamento como linhas da tabela sem O.S. (mais uma em branco, já com a última fazenda). */
+const livresDe = (talhoes) => [
+  ...talhoes.map((t) => ({ key: novaChave(), faz: t.propCod, fazNm: t.propNm, tlh: t.tlh, areaTlh: t.areaTlh, valor: texto(t.area), marcado: true })),
+  linhaVazia(talhoes[talhoes.length - 1]?.propCod ?? "", talhoes[talhoes.length - 1]?.propNm ?? ""),
+];
 
 const formVazio = () => ({
   boletim: "",
@@ -115,6 +168,24 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   const [confirmar, setConfirmar] = useState(null);
   /** atalho da lista: todos | conferir (do WhatsApp, a conferir) | whatsapp | semOS */
   const [rapido, setRapido] = useState("todos");
+  /** conferência aberta de um apontamento do bot: { id, msg } */
+  const [conferencia, setConferencia] = useState(null);
+  /** resultado da conferência de cada apontamento a conferir da lista (selo): id → { nivel, n } */
+  const [niveis, setNiveis] = useState({});
+  const seqNiveis = useRef(0);
+  /** edição aberta pela conferência: depois de gravar, a conferência do apontamento abre de novo */
+  const voltarConferencia = useRef(null);
+  /** apontamento aberto para edição como estava gravado (O.S., operação e talhões), para os avisos da edição */
+  const edicaoOrig = useRef(null);
+  /**
+   * avisos da edição: operação do boletim trocada ao carregar a O.S.; O.S. trocada pela conferência ({ os, texto }: vale
+   * enquanto essa O.S. está carregada); talhões do boletim gravados com outro código que o da O.S. ([{ de, para }])
+   */
+  const [avisoOp, setAvisoOp] = useState(null);
+  const [avisoTroca, setAvisoTroca] = useState(null);
+  const [trocaCodigos, setTrocaCodigos] = useState([]);
+  /** período (de/até) da última carga dos selos da conferência: filtro de O.S. ou boletim não refaz a análise */
+  const niveisDoPeriodo = useRef("");
 
   const upd = (p) => setForm((f) => ({ ...f, ...p }));
   // campos obrigatórios (Parâmetros › Apontamento Diário): marcados com * na tela
@@ -132,7 +203,27 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     }
   }, []);
 
-  const carregarLista = useCallback(async () => {
+  /**
+   * Selo da lista: o resultado da conferência dos apontamentos a conferir do período (confere, alertas, divergente). É
+   * do período inteiro (sem os filtros de O.S. e boletim).
+   */
+  const carregarNiveis = useCallback(async () => {
+    const seq = ++seqNiveis.current;
+    try {
+      const res = await fetch(`/api/atividades/apontamentos?${new URLSearchParams({ conferencia: "lista", de, ate })}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok || seq !== seqNiveis.current) return;
+      setNiveis(Object.fromEntries(json.niveis.map((x) => [x.id, x])));
+    } catch {
+      /* o selo fica só "a conferir" */
+    }
+  }, [de, ate]);
+
+  /**
+   * Carrega a lista. Os selos da conferência são refeitos quando o período muda ou com `refazerNiveis` (depois de gravar,
+   * conferir ou excluir); o filtro de O.S. ou de boletim não refaz a análise.
+   */
+  const carregarLista = useCallback(async (refazerNiveis = false) => {
     setCarregando(true);
     try {
       const p = new URLSearchParams({ de, ate, os: filtroOS.trim(), boletim: filtroBoletim.trim() });
@@ -140,12 +231,17 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar os apontamentos.");
       setLista(json.apontamentos);
+      const periodo = `${de}|${ate}`;
+      if (refazerNiveis === true || niveisDoPeriodo.current !== periodo) {
+        niveisDoPeriodo.current = periodo;
+        carregarNiveis();
+      }
     } catch (e) {
       setMsg({ texto: e instanceof Error ? e.message : "Não foi possível carregar os apontamentos.", erro: true });
     } finally {
       setCarregando(false);
     }
-  }, [de, ate, filtroOS, filtroBoletim]);
+  }, [de, ate, filtroOS, filtroBoletim, carregarNiveis]);
 
   /** sugere o próximo nº de boletim (pode ser trocado pelo do papel) */
   const sugerirBoletim = useCallback(async () => {
@@ -170,21 +266,29 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     carregarLista();
   }, [carregarLista]);
 
-  /** Busca a O.S. na base: traz operações, talhões e a área já apontada; aplica os padrões da operação. */
+  /**
+   * Busca a O.S. na base: traz operações, talhões e a área já apontada; aplica os padrões da operação. Só vale a resposta
+   * da última busca (outra busca, limpar ou editar descartam a anterior).
+   */
   async function buscarOS(os, manter, excluirId) {
     const c = os.trim();
-    seqOS.current++;
+    const seq = ++seqOS.current;
     setErroOS(null);
     if (!c) {
+      osEmBusca.current = null;
+      setBuscandoOS(false);
       setOsInfo(null);
       return;
     }
+    osEmBusca.current = { seq, os: c };
     setBuscandoOS(true);
     try {
       const p = new URLSearchParams({ os: c, dt: manter?.dt || form.dt });
       if (excluirId) p.set("excluir", String(excluirId));
       const res = await fetch(`/api/atividades/os?${p}`, { cache: "no-store" });
       const json = await res.json();
+      // resposta atrasada (outra busca veio depois): não mexe no formulário
+      if (seq !== seqOS.current) return;
       if (!res.ok) throw new Error(json.error ?? "O.S. não encontrada.");
       const info = json;
       setOsInfo(info);
@@ -193,8 +297,24 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       const respAnterior = respDaOS.current;
       respDaOS.current = manter?.solicitante === undefined ? info.resp || "" : "";
       const doUsuario = (s) => !!String(s ?? "").trim() && s !== respAnterior;
+      // a operação pedida (a do boletim) casa com ou sem zeros à esquerda; fora da O.S., fica a primeira dela
+      const pedida = manter?.opCod ?? "";
       const primeira =
-        manter?.opCod && info.operacoes.some((o) => o.cod === manter.opCod) ? info.operacoes.find((o) => o.cod === manter.opCod) : info.operacoes[0];
+        (pedida && (info.operacoes.find((o) => o.cod === pedida) ?? info.operacoes.find((o) => semZeros(o.cod) === semZeros(pedida)))) || info.operacoes[0];
+      // na edição, avisa quando a operação do boletim não está na O.S. (foi trocada); redigitando a mesma O.S., a operação
+      // é a que já estava (a trocada): o aviso de antes fica
+      const avisoNovo =
+        excluirId && manter && primeira && semZeros(primeira.cod) !== semZeros(pedida)
+          ? pedida
+            ? `A operação ${pedida} do boletim não está na O.S. ${info.os}: foi trocada pela ${primeira.cod} · ${primeira.ds || "sem descrição"} (a primeira da O.S.). Confira a operação.`
+            : `O boletim estava sem operação: foi usada a ${primeira.cod} · ${primeira.ds || "sem descrição"} (a primeira da O.S. ${info.os}). Confira a operação.`
+          : null;
+      setAvisoOp((ant) => avisoNovo ?? (manter?.manterMarcados ? ant : null));
+      // talhões do boletim gravados com outro código ("9442|05" para o "09442-1|5" da O.S.): a área e a marcação passam
+      // para o talhão da O.S. (gravando, fica o código dela); redigitando a mesma O.S., o aviso do que foi trocado fica
+      const acerto = paraChavesDaOS(manter?.areas, manter?.marcados, primeira?.talhoes ?? []);
+      setTrocaCodigos((ant) => (acerto.trocados.length ? acerto.trocados : manter?.manterMarcados ? ant : []));
+      const marc = manter?.marcados ? acerto.marcados : undefined;
       setForm((f) => ({
         ...f,
         os: info.os,
@@ -203,20 +323,35 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         etapaCod: manter?.etapaCod ?? primeira?.etapaCod ?? "",
         tipoAplicacao: manter?.tipoAplicacao ?? (primeira?.tipoDs || primeira?.tipoCod || f.tipoAplicacao),
         solicitante: manter?.solicitante ?? (doUsuario(f.solicitante) ? f.solicitante : info.resp || ""),
-        areas: manter?.areas ?? {},
+        areas: manter?.areas ? acerto.areas : {},
         // na edição de um rateio, só os talhões do apontamento ficam marcados; redigitando a mesma O.S., as marcações
         // ficam como estão (vazio = todos marcados)
         marcados: manter?.manterMarcados
-          ? (manter.marcados ?? {})
-          : manter?.marcados && Object.keys(manter.marcados).length > 0
-            ? Object.fromEntries((primeira?.talhoes ?? []).map((t) => [chaveTalhao(t.propCod, t.tlh), !!manter.marcados[chaveTalhao(t.propCod, t.tlh)]]))
+          ? (marc ?? {})
+          : marc && Object.keys(marc).length > 0
+            ? Object.fromEntries((primeira?.talhoes ?? []).map((t) => [chaveTalhao(t.propCod, t.tlh), !!marc[chaveTalhao(t.propCod, t.tlh)]]))
             : {},
       }));
     } catch (e) {
+      if (seq !== seqOS.current) return;
       setOsInfo(null);
+      // os avisos da operação trocada e dos talhões com outro código ficam guardados (só aparecem com a O.S. carregada):
+      // redigitando a O.S. que estava carregada, voltam; outra O.S. que carregue refaz os dois
       setErroOS(e instanceof Error ? e.message : "O.S. não encontrada.");
+      // boletim aberto para edição com uma O.S. que não está na base: os talhões dele vão para a tabela sem O.S.
+      // (apagando o número da O.S., grava sem O.S.; antes a tabela ficava vazia)
+      const orig = edicaoOrig.current;
+      if (excluirId && orig && orig.id === excluirId && semZeros(c) === semZeros(orig.os) && orig.talhoes.length > 0) {
+        const livres = livresDe(orig.talhoes);
+        setForm((f) => (f.id === excluirId && f.livres.every((l) => !l.faz.trim() && !l.tlh.trim() && !l.valor.trim()) ? { ...f, livres } : f));
+        atualizarAreasDasLinhas(manter?.dt || form.dt, livres);
+      }
     } finally {
-      setBuscandoOS(false);
+      // só a última busca desliga o "Buscando a O.S.…"
+      if (osEmBusca.current?.seq === seq) {
+        osEmBusca.current = null;
+        setBuscandoOS(false);
+      }
     }
   }
 
@@ -255,6 +390,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   // consultas que demoram: só vale a resposta da última (troca de data, outra O.S., edição)
   const seqAreas = useRef(0);
   const seqOS = useRef(0);
+  /** busca de O.S. em andamento ({ seq, os }): Enter ou saída do campo nesse meio-tempo não busca a mesma O.S. de novo */
+  const osEmBusca = useRef(null);
 
   /** Sem O.S.: consulta de novo as fazendas da tabela na safra da data `dt` e refaz a área do talhão de cada linha. */
   async function atualizarAreasDasLinhas(dt, livres) {
@@ -436,6 +573,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
 
   function trocarOperacao(cod) {
     const o = osInfo?.operacoes.find((x) => x.cod === cod);
+    // operação escolhida à mão e áreas em branco: os avisos da operação trocada e das áreas encaixadas não valem mais
+    setAvisoOp(null);
+    setAvisoTroca(null);
+    setTrocaCodigos([]);
     upd({ opCod: cod, opDs: o?.ds ?? "", etapaCod: o?.etapaCod ?? "", tipoAplicacao: o?.tipoDs || o?.tipoCod || form.tipoAplicacao, areas: {}, marcados: {} });
   }
 
@@ -530,7 +671,16 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     boletimAberto.current = null;
     boletimProcurado.current = "";
     seqBoletim.current++;
+    // busca de O.S. ainda em andamento é do formulário descartado
+    seqOS.current++;
+    osEmBusca.current = null;
+    setBuscandoOS(false);
     respDaOS.current = "";
+    voltarConferencia.current = null;
+    edicaoOrig.current = null;
+    setAvisoOp(null);
+    setAvisoTroca(null);
+    setTrocaCodigos([]);
     setForm(formVazio());
     setOsInfo(null);
     setErroOS(null);
@@ -612,13 +762,16 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         : "";
       setMsg({ texto: (form.id ? `Boletim nº ${form.boletim} alterado.` : `Boletim nº ${form.boletim} lançado: ${nf(totalDia)} ha ${onde}.`) + acima, erro: false });
       const dtLancada = form.dt;
+      // edição aberta pela conferência (apontamento do bot ainda a conferir): volta para a conferência, com a análise nova
+      const reabrir = form.id && voltarConferencia.current === form.id ? form.id : null;
       if (form.id) setFormAberto(false);
       limpar();
       setForm((f) => ({ ...f, dt: dtLancada }));
       if (dtLancada < de || dtLancada > ate) {
         setDe(dtLancada);
         setAte(dtLancada > ate ? dtLancada : ate);
-      } else await carregarLista();
+      } else await carregarLista(true);
+      if (reabrir) setConferencia({ id: reabrir, msg: { texto: `Boletim nº ${form.boletim} alterado. Confira de novo com a O.S. em aberto.`, erro: false } });
     } catch (e) {
       setMsg({ texto: e instanceof Error ? e.message : "Não foi possível salvar.", erro: true });
     } finally {
@@ -626,23 +779,39 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     }
   }
 
-  function editar(a) {
+  /**
+   * Abre o boletim no formulário. Da conferência: `deConferencia` (gravando, volta para ela) e `candidata` (a O.S. em
+   * aberto escolhida: entra no lugar da do boletim, com a operação dela e as áreas já nos talhões dela).
+   */
+  function editar(a, { deConferencia = false, candidata = null, respOS = "" } = {}) {
     setOpDigitado(null);
     setMsg(null);
-    osDoBoletim.current = a.os ?? "";
+    setAvisoOp(null);
+    setAvisoTroca(null);
+    setTrocaCodigos([]);
+    // a O.S. do boletim só conta como carregada quando a busca dela der certo (buscarOS grava): até lá, as marcações são
+    // só as do boletim (não as da O.S.), e redigitar a O.S. volta pelo caminho do boletim aberto (mantendo as marcações
+    // como estão, marcaria todos os talhões no rateio)
+    osDoBoletim.current = candidata ? candidata.os : "";
     boletimProcurado.current = a.boletim ? String(a.boletim) : "";
     seqBoletim.current++;
+    // busca de O.S. ainda em andamento é do que estava no formulário (a do boletim, se tiver O.S., começa abaixo)
+    seqOS.current++;
+    osEmBusca.current = null;
+    setBuscandoOS(false);
     respDaOS.current = "";
-    const semOS = !a.os;
+    voltarConferencia.current = deConferencia && a.aConferir ? a.id : null;
+    edicaoOrig.current = { id: a.id, os: a.os ?? "", opCod: a.opCod, talhoes: a.talhoes };
+    const semOS = !a.os && !candidata;
     const areas = Object.fromEntries(a.talhoes.map((t) => [chaveTalhao(t.propCod, t.tlh), texto(t.area)]));
     const marcados = Object.fromEntries(a.talhoes.map((t) => [chaveTalhao(t.propCod, t.tlh), true]));
     const novo = {
       id: a.id,
       boletim: a.boletim ? String(a.boletim) : "",
       dt: a.dt,
-      os: a.os,
-      opCod: a.opCod,
-      opDs: a.opDs,
+      os: candidata ? candidata.os : a.os,
+      opCod: candidata ? candidata.opCod : a.opCod,
+      opDs: candidata ? candidata.opDs : a.opDs,
       solicitante: a.solicitante,
       apontador: a.apontador ?? "",
       etapaCod: a.etapaCod,
@@ -654,32 +823,63 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
       vazaoRec: texto(a.vazaoRec),
       vazaoUti: a.vazaoAuto ? "" : texto(a.vazaoUti),
       volCalda: texto(a.volCalda),
-      modoArea: a.modoArea,
-      volume: a.modoArea === "rateio" ? texto(a.volume ?? a.areaTotal) : "",
+      // com a O.S. da conferência, a área vai talhão a talhão (já encaixada nos talhões dela)
+      modoArea: candidata ? "talhao" : a.modoArea,
+      volume: !candidata && a.modoArea === "rateio" ? texto(a.volume ?? a.areaTotal) : "",
+      areas: candidata ? Object.fromEntries(Object.entries(candidata.areas).map(([k, v]) => [k, texto(v)])) : areas,
+      marcados: candidata ? {} : marcados,
+      // sem O.S. (ou trocando a O.S. pela conferência): os talhões do boletim ficam na tabela sem O.S.
+      livres: !a.os || candidata ? livresDe(a.talhoes) : linhasIniciais(),
+    };
+    boletimAberto.current = {
+      os: a.os ?? "",
+      opCod: a.opCod ?? "",
       areas,
       marcados,
-      livres: semOS
-        ? [
-            ...a.talhoes.map((t) => ({
-              key: novaChave(),
-              faz: t.propCod,
-              fazNm: t.propNm,
-              tlh: t.tlh,
-              areaTlh: t.areaTlh,
-              valor: texto(t.area),
-              marcado: true,
-            })),
-            linhaVazia(a.talhoes[a.talhoes.length - 1]?.propCod ?? "", a.talhoes[a.talhoes.length - 1]?.propNm ?? ""),
-          ]
-        : linhasIniciais(),
+      modoArea: a.modoArea,
+      volume: a.modoArea === "rateio" ? texto(a.volume ?? a.areaTotal) : "",
     };
-    boletimAberto.current = { os: a.os ?? "", areas, marcados, modoArea: novo.modoArea, volume: novo.volume };
     // a troca de data da edição não refaz as áreas de novo (a consulta abaixo já usa a data do apontamento)
     if (novo.dt !== form.dt) pularTrocaDeData.current = true;
     setForm(novo);
     setOsInfo(null);
     setErroOS(null);
     if (semOS) atualizarAreasDasLinhas(novo.dt, novo.livres);
+    else if (candidata) {
+      // cabeçalho em branco vem da O.S. escolhida; o Solicitante que era o responsável da O.S. anterior também
+      const vazioVemDaOS = (v) => (String(v ?? "").trim() ? v : undefined);
+      const solic = String(a.solicitante ?? "").trim();
+      const daOSAnterior = !!respOS && solic === respOS.trim();
+      // conta como "veio da O.S. anterior" (buscarOS troca pelo responsável da nova)
+      if (daOSAnterior) respDaOS.current = a.solicitante;
+      buscarOS(
+        candidata.os,
+        {
+          dt: a.dt,
+          opCod: candidata.opCod,
+          solicitante: !solic || daOSAnterior ? undefined : a.solicitante,
+          etapaCod: vazioVemDaOS(a.etapaCod),
+          tipoAplicacao: vazioVemDaOS(a.tipoAplicacao),
+          areas: novo.areas,
+        },
+        a.id,
+      );
+      // a mesma O.S. do boletim (gravada com outro código, ou com área sem talhão a ratear) ou outra O.S.
+      const mesmaOS = !!a.os && semZeros(a.os) === semZeros(candidata.os);
+      const operacao = `operação ${candidata.opCod} · ${candidata.opDs || "sem descrição"}`;
+      const oQue = !mesmaOS
+        ? `Boletim ${a.os ? `da O.S. ${a.os}` : "sem O.S."} trocado para a O.S. ${candidata.os} (${operacao})`
+        : semZeros(a.opCod) !== semZeros(candidata.opCod)
+          ? `Boletim da O.S. ${candidata.os} trocado para a ${operacao}`
+          : `Boletim passado para os códigos da O.S. ${candidata.os} (${operacao})`;
+      // o aviso vale enquanto esta O.S. estiver carregada (outra O.S. ou outra operação o tiram)
+      setAvisoTroca({
+        os: candidata.os,
+        texto:
+          `${oQue}, com as áreas já nos talhões dela. Confira as áreas e grave (F2).` +
+          (candidata.sobras?.length ? ` Ficaram fora da O.S. ${candidata.os} e não serão gravados: ${candidata.sobras.join("; ")}.` : ""),
+      });
+    }
     // Solicitante em branco no boletim: vem o responsável da O.S.
     else buscarOS(a.os, { ...novo, solicitante: String(novo.solicitante ?? "").trim() ? novo.solicitante : undefined }, a.id);
     setDetalhe(null);
@@ -734,8 +934,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
    */
   function buscarOSDoCampo() {
     if (!form.os || osInfo) return;
-    if (!form.id) return buscarOS(form.os);
     const semZeros = (s) => String(s ?? "").replace(/^0+(?=\d)/, "");
+    // a mesma O.S. já está sendo buscada (ex.: a da edição, com a janela aberta no campo da O.S.): espera a resposta dela
+    if (osEmBusca.current && semZeros(osEmBusca.current.os) === semZeros(form.os.trim())) return;
+    if (!form.id) return buscarOS(form.os);
     // campo do cabeçalho em branco vem da O.S. (solicitante = responsável; etapa e tipo = os da operação); o preenchido fica
     const vazioVemDaOS = (v) => (String(v ?? "").trim() ? v : undefined);
     const cabecalho = {
@@ -748,11 +950,14 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     };
     // a mesma O.S. que está carregada: talhões, áreas e marcações ficam como estão
     if (semZeros(form.os) === semZeros(osDoBoletim.current)) return buscarOS(form.os, { ...form, ...cabecalho, manterMarcados: true }, form.id);
-    // de volta à O.S. com que o boletim foi aberto (depois de trocar por engano): voltam as áreas e marcações dele
+    // outra O.S. no campo: o aviso da O.S. trocada pela conferência (e das áreas encaixadas nela) não vale mais
+    setAvisoTroca(null);
+    // de volta à O.S. com que o boletim foi aberto (depois de trocar por engano): voltam a operação, as áreas e as
+    // marcações dele
     const orig = boletimAberto.current;
     if (orig && semZeros(form.os) === semZeros(orig.os)) {
       upd({ modoArea: orig.modoArea, volume: orig.volume });
-      return buscarOS(form.os, { ...cabecalho, areas: orig.areas, marcados: orig.marcados }, form.id);
+      return buscarOS(form.os, { ...cabecalho, opCod: orig.opCod, areas: orig.areas, marcados: orig.marcados }, form.id);
     }
     // outra O.S.: os talhões dela, com o cabeçalho do boletim
     buscarOS(form.os, cabecalho, form.id);
@@ -782,25 +987,23 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     });
   }
 
-  /** Apontamento do WhatsApp conferido: o bot não mexe mais nele. */
-  async function conferir(a) {
-    const res = await fetch("/api/atividades/apontamentos", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: a.id, conferir: true }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) return setMsg({ texto: json.error ?? "Não foi possível marcar como conferido.", erro: true });
-    setMsg({ texto: `Boletim nº ${a.boletim ?? a.id} conferido.`, erro: false });
-    setDetalhe((d) => (d && d.id === a.id ? { ...d, aConferir: false, atuUsr: nomeUsuario || "você" } : d));
-    carregarLista();
+  /** Conferência do apontamento do bot com as O.S. em aberto (janela própria; conferir é um ato à parte). */
+  function abrirConferencia(a) {
+    setDetalhe(null);
+    setConferencia({ id: a.id });
+  }
+
+  /** O próximo apontamento a conferir da lista depois de `id` (no fim, volta ao começo). */
+  function proximoAConferir(id) {
+    const i = lista.findIndex((x) => x.id === id);
+    return lista.slice(i + 1).find((x) => x.aConferir && x.id !== id) ?? lista.slice(0, Math.max(0, i)).find((x) => x.aConferir && x.id !== id) ?? null;
   }
 
   function excluir(a) {
     const onde = a.os ? `O.S. ${a.os}` : "sem O.S.";
     setConfirmar({
       titulo: `Excluir o boletim nº ${a.boletim ?? a.id}?`,
-      texto: `${onde} · ${fmtDateBR(a.dt)} · ${nf(a.areaTotal)} ha. A exclusão fica no Log de Alterações.`,
+      texto: `${onde} · ${fmtDateBR(a.dt)} · ${nf(a.areaTotal)} ha. A exclusão fica no Log de Alterações.${a.orig === "whatsapp" ? " O bot do WhatsApp não lança de novo esta mensagem, mesmo editada no grupo." : ""}`,
       botao: "Excluir",
       perigo: true,
       acao: () => excluirDeVez(a),
@@ -809,6 +1012,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
 
   async function excluirDeVez(a) {
     setDetalhe(null);
+    setConferencia((c) => (c && c.id === a.id ? null : c));
     const res = await fetch("/api/atividades/apontamentos", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -818,25 +1022,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     if (!res.ok) return setMsg({ texto: json.error ?? "Não foi possível excluir.", erro: true });
     if (form.id === a.id) limpar();
     setMsg({ texto: `Boletim nº ${a.boletim ?? a.id} excluído.`, erro: false });
-    carregarLista();
+    carregarLista(true);
   }
 
-  // F2: com a janela fechada abre um apontamento novo; aberta, grava
-  const salvarRef = useRef(salvar);
-  salvarRef.current = () => (formAberto ? salvar() : podeGravar && novo());
-  // Esc fecha a janela de cima (confirmação, detalhe ou formulário)
-  const escRef = useRef(null);
-  escRef.current = () => (confirmar ? setConfirmar(null) : detalhe ? setDetalhe(null) : formAberto ? fecharForm() : null);
-  useEffect(() => {
-    const tecla = (e) => {
-      if (e.key === "F2") {
-        e.preventDefault();
-        salvarRef.current();
-      } else if (e.key === "Escape") escRef.current();
-    };
-    window.addEventListener("keydown", tecla);
-    return () => window.removeEventListener("keydown", tecla);
-  }, []);
+  // F2 sem janela aberta: apontamento novo (com a janela aberta, F2 grava; Esc fecha a janela de cima)
+  useAtalhoTela("F2", novo, podeGravar);
 
   // vazão utilizada calculada: volume de calda ÷ área do dia (vale quando o campo fica em branco)
   const vazaoCalculada = numero(form.volCalda) > 0 && totalDia > 0 ? round2(numero(form.volCalda) / totalDia) : null;
@@ -857,6 +1047,50 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   const marcadosQtd = linhas.filter((l) => l.marcado && (comOS || (l.propCod && l.tlh))).length;
   const somaPeso = round2(linhas.filter((l) => l.marcado).reduce((a, l) => a + (l.areaRec ?? l.areaTlh ?? 0), 0));
   const podeSalvar = !salvando && !!form.boletim && totalDia > 0 && (!comOS || !!op);
+
+  // edição: o que do boletim não entra na O.S. carregada (só avisa; gravar continua liberado)
+  const avisosEdicao = [];
+  if (form.id) {
+    // a troca de O.S. feita pela conferência vale enquanto a O.S. dela está carregada
+    if (avisoTroca && comOS && semZeros(osInfo.os) === semZeros(avisoTroca.os)) avisosEdicao.push(avisoTroca.texto);
+    const orig = edicaoOrig.current;
+    if (erroOS && form.os && !buscandoOS)
+      avisosEdicao.push(
+        `A O.S. ${form.os} não está na base de O.S.: os talhões ${orig && orig.id === form.id && semZeros(orig.os) === semZeros(form.os) ? "do boletim estão na tabela sem O.S." : "dela não foram carregados"}. Para gravar, apague o número da O.S. (fica sem O.S.) ou digite a O.S. certa e tecle Enter.`,
+      );
+    if (comOS && avisoOp) avisosEdicao.push(avisoOp);
+    // O.S. ou operação gravadas com zeros à esquerda: gravando, ficam com o código da base (e a área conta na O.S.)
+    if (comOS && orig && orig.id === form.id) {
+      const codigos = [];
+      if (orig.os && orig.os !== osInfo.os && semZeros(orig.os) === semZeros(osInfo.os)) codigos.push(`a O.S. ${orig.os} fica ${osInfo.os}`);
+      if (op && orig.opCod && orig.opCod !== op.cod && semZeros(orig.opCod) === semZeros(op.cod)) codigos.push(`a operação ${orig.opCod} fica ${op.cod}`);
+      if (codigos.length)
+        avisosEdicao.push(`Ao gravar, ${codigos.join(" e ")}, o código da base de O.S. (gravada com o outro código, a área não contava no Já apontado da O.S.).`);
+    }
+    if (comOS && trocaCodigos.length)
+      avisosEdicao.push(
+        `${trocaCodigos.length > 1 ? "Talhões gravados" : "Talhão gravado"} com código diferente do da O.S. ${osInfo.os}: ${trocaCodigos.map((t) => `${nomeChave(t.de)} → ${nomeChave(t.para)}`).join(", ")}. A área foi para o talhão da O.S. e, ao gravar, fica com o código dela (antes não contava no Já apontado da O.S.).`,
+      );
+    if (comOS && op) {
+      const naTabela = new Set(linhas.map((l) => l.k));
+      const trocado = new Set(trocaCodigos.map((t) => t.de));
+      // por talhão: as áreas que não têm linha na O.S.; no rateio, os talhões do boletim (mesma O.S.) que não estão nela
+      // (nem foram passados para o código da O.S.)
+      const fora = rateio
+        ? orig && orig.id === form.id && semZeros(orig.os) === semZeros(form.os)
+          ? orig.talhoes
+              .filter((t) => !naTabela.has(chaveTalhao(t.propCod, t.tlh)) && !trocado.has(chaveTalhao(t.propCod, t.tlh)))
+              .map((t) => `${nomeChave(chaveTalhao(t.propCod, t.tlh))} (${nf(t.area)} ha)`)
+          : []
+        : Object.entries(form.areas)
+            .filter(([k, v]) => numero(String(v ?? "")) > 0 && !naTabela.has(k))
+            .map(([k, v]) => `${nomeChave(k)} (${v} ha)`);
+      if (fora.length)
+        avisosEdicao.push(
+          `${fora.length > 1 ? "Talhões" : "Talhão"} do boletim fora da O.S. ${osInfo.os} (operação ${op.cod}), que não ${fora.length > 1 ? "serão gravados" : "será gravado"}: ${fora.join(", ")}. Confira a O.S. e a operação (ou lance sem O.S.).`,
+        );
+    }
+  }
 
   return (
     <Pagina translate="no">
@@ -925,23 +1159,19 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
           ))}
         </div>
 
-        {podeGravar && formAberto && (
-          <div
-            className="fixed inset-0 z-40 overflow-y-auto bg-navy-950/50 px-3 py-4 sm:px-6 sm:py-8"
-            role="dialog"
-            aria-modal="true"
-            aria-label={form.id ? "Editar apontamento" : "Novo apontamento"}
-            onMouseDown={(e) => e.target === e.currentTarget && fecharForm()}
-          >
-          <div className="mx-auto max-w-6xl space-y-3">
-          {msg && <Aviso msg={msg} onFechar={() => setMsg(null)} />}
-          <section className="caixa-form shadow-pop" ref={formRef} onKeyDown={aoTeclarNoForm}>
-            <div className="caixa-form-topo">
-              <div>
-                <div className="caixa-form-titulo">{form.id ? `Editando o boletim nº ${form.boletim || "—"}` : "Novo apontamento"}</div>
-                {nomeUsuario && <div className="text-[11.5px] text-muted">{form.id ? "Alterado" : "Lançado"} por {nomeUsuario} · F2 grava · Esc fecha</div>}
-              </div>
-              <div className="flex items-center gap-2">
+        <JanelaFormulario
+          aberto={podeGravar && formAberto}
+          rotulo={form.id ? "Editar apontamento" : "Novo apontamento"}
+          titulo={form.id ? `Editando o boletim nº ${form.boletim || "—"}` : "Novo apontamento"}
+          subtitulo={nomeUsuario ? `${form.id ? "Alterado" : "Lançado"} por ${nomeUsuario} · F2 grava · Esc fecha` : "F2 grava · Esc fecha"}
+          aviso={msg && <Aviso msg={msg} onFechar={() => setMsg(null)} />}
+          onFechar={fecharForm}
+          onGravar={salvar}
+          ocupado={salvando}
+          corpoRef={formRef}
+          focoInicial={osRef}
+          onKeyDown={aoTeclarNoForm}
+          topoDireita={
                 <label className="campo-boletim">
                   Boletim nº
                   <input
@@ -960,18 +1190,29 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                     title="Digite o número de um boletim já lançado e tecle Enter para abrir"
                   />
                 </label>
-                <button
-                  type="button"
-                  onClick={fecharForm}
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-[20px] leading-none text-muted hover:bg-surface"
-                  aria-label="Fechar"
-                  title="Fechar (Esc)"
-                >
-                  ×
+          }
+          rodape={
+            <>
+              <button type="button" onClick={fecharForm} className={BOTAO}>
+                {form.id ? "Cancelar edição" : "Fechar"}
+              </button>
+              {!form.id && (form.os || form.livres.some((l) => l.faz || l.tlh)) && (
+                <button type="button" onClick={limpar} className={BOTAO}>
+                  Limpar
                 </button>
-              </div>
-            </div>
-
+              )}
+              <button
+                ref={gravarRef}
+                type="button"
+                onClick={salvar}
+                disabled={!podeSalvar}
+                className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
+              >
+                {salvando ? "Salvando…" : form.id ? "Salvar alteração (F2)" : "Lançar apontamento (F2)"}
+              </button>
+            </>
+          }
+        >
             {/* Identificação */}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-[150px_170px_minmax(0,1fr)]">
               <div>
@@ -1024,6 +1265,17 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                 )}
               </div>
             </div>
+
+            {avisosEdicao.length > 0 && (
+              <div role="status" className="mt-3 space-y-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
+                {avisosEdicao.map((t, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <IconAlerta size={15} />
+                    <span className="min-w-0 flex-1">{t}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Operação e recursos: cabeçalho compacto */}
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-8">
@@ -1213,7 +1465,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
               </div>
               <div className="col-span-2 md:col-span-1">
                 <label className={ROTULO}>{rot("obs", "Observação")}</label>
-                <input data-nav value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} maxLength={300} />
+                <input data-nav value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} maxLength={1500} title={form.obs || undefined} />
               </div>
             </div>
 
@@ -1471,30 +1723,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                 : `Uma linha por talhão; pode haver mais de uma fazenda no mesmo apontamento${regras.talhao ? "" : " e a área pode ser lançada só com a fazenda, sem talhão"}. Enter na área passa para a linha de baixo já com a fazenda de cima; ${regras.talhao ? "talhão" : "área"} em branco + Enter termina e vai para Lançar. A fazenda tem de estar no Cadastro de Fazenda; os talhões e a área de cada um vêm da base Fazenda e Talhões da safra da data (Planejamento Agrícola).`}
               {" Digitando a área realizada no dia, ela é rateada entre os talhões marcados, proporcional à área de cada um."}
             </p>
-
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={fecharForm} className={BOTAO}>
-                {form.id ? "Cancelar edição" : "Fechar"}
-              </button>
-              {!form.id && (form.os || form.livres.some((l) => l.faz || l.tlh)) && (
-                <button type="button" onClick={limpar} className={BOTAO}>
-                  Limpar
-                </button>
-              )}
-              <button
-                ref={gravarRef}
-                type="button"
-                onClick={salvar}
-                disabled={!podeSalvar}
-                className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
-              >
-                {salvando ? "Salvando…" : form.id ? "Salvar alteração (F2)" : "Lançar apontamento (F2)"}
-              </button>
-            </div>
-          </section>
-          </div>
-          </div>
-        )}
+        </JanelaFormulario>
 
         {/* Lançados */}
         <Painel titulo="Apontamentos lançados">
@@ -1590,7 +1819,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                         <td className="px-3 py-1.5 tabular font-medium text-ink">
                           <span className="flex items-center gap-1.5">
                             {a.boletim ?? "—"}
-                            {a.orig === "whatsapp" && <SeloOrigem a={a} />}
+                            {a.orig === "whatsapp" && <SeloOrigem a={a} nivel={niveis[a.id]} />}
                           </span>
                         </td>
                         <td className="px-3 py-1.5 tabular">{fmtDateBR(a.dt)}</td>
@@ -1623,14 +1852,20 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                         </td>
                         <td className="px-3 py-1.5 text-[11.5px] text-muted">
                           {a.usr}
-                          {a.atuUsr ? <div>alterado por {a.atuUsr}</div> : null}
+                          {a.atuUsr && a.atuUsr !== a.confUsr ? <div>alterado por {a.atuUsr}</div> : null}
+                          {a.confUsr ? <div className="text-good-600">conferido por {a.confUsr}</div> : null}
                         </td>
                         <td className="px-2 py-1 text-right" onClick={(e) => e.stopPropagation()}>
                           {podeGravar && (
                             <span className="flex justify-end gap-1.5">
                               {a.aConferir && (
-                                <button type="button" className={`${BOTAO} text-good-600`} onClick={() => conferir(a)} title="Confere e tira da lista do WhatsApp a conferir">
-                                  Conferido
+                                <button
+                                  type="button"
+                                  className={`${BOTAO} text-good-600`}
+                                  onClick={() => abrirConferencia(a)}
+                                  title="Confere O.S., operação, fazenda, talhões e áreas com as O.S. em aberto"
+                                >
+                                  Conferir
                                 </button>
                               )}
                               <button type="button" className={BOTAO} onClick={() => editar(a)}>
@@ -1673,11 +1908,32 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
           onFechar={() => setDetalhe(null)}
           onEditar={() => editar(detalhe)}
           onExcluir={() => excluir(detalhe)}
-          onConferir={() => conferir(detalhe)}
+          onConferir={() => abrirConferencia(detalhe)}
+        />
+      )}
+      {conferencia && (
+        <ConferenciaModal
+          key={conferencia.id}
+          id={conferencia.id}
+          msgInicial={conferencia.msg ?? null}
+          podeGravar={podeGravar}
+          proximo={proximoAConferir(conferencia.id)}
+          onFechar={() => setConferencia(null)}
+          onProximo={(p) => setConferencia({ id: p.id })}
+          onConferido={() => carregarLista(true)}
+          onExcluir={(a) => excluir(a)}
+          onEditar={(a) => {
+            setConferencia(null);
+            editar(a, { deConferencia: true });
+          }}
+          onUsarOS={(a, candidata, respOS) => {
+            setConferencia(null);
+            editar(a, { deConferencia: true, candidata, respOS });
+          }}
         />
       )}
       {confirmar && (
-        <ConfirmarModal
+        <JanelaConfirmar
           {...confirmar}
           onCancelar={() => setConfirmar(null)}
           onConfirmar={() => {
@@ -1693,7 +1949,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
           ate={ate}
           onFechar={(mudou) => {
             setVerificar(false);
-            if (mudou) carregarLista();
+            if (mudou) carregarLista(true);
           }}
         />
       )}
@@ -1747,6 +2003,7 @@ function VerificarOSModal({ de, ate, onFechar }) {
   }
 
   const mudou = Object.keys(feitos).length > 0;
+  useJanela(true, { onEsc: () => !ocupado && onFechar(mudou) });
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-xl2 bg-card p-5 shadow-pop">
@@ -1850,63 +2107,44 @@ function VerificarOSModal({ de, ate, onFechar }) {
   );
 }
 
-/** Mensagem de sucesso/erro com botão para fechar. */
-function Aviso({ msg, onFechar }) {
+/**
+ * Selo da origem WhatsApp na lista: enquanto o apontamento do bot não foi conferido, com o resultado da conferência
+ * com a O.S. em aberto (`nivel`: ok = confere; alerta; erro = divergente).
+ */
+function SeloOrigem({ a, nivel }) {
+  if (!a.aConferir) {
+    return (
+      <span
+        className="whitespace-nowrap rounded-full bg-good-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-good-600"
+        title={a.confUsr ? `Veio do WhatsApp · conferido por ${a.confUsr}${a.confEm ? ` em ${a.confEm}` : ""}` : "Veio do WhatsApp"}
+      >
+        WhatsApp
+      </span>
+    );
+  }
+  const r = nivel?.nivel;
+  const resumo = r === "erro" ? "divergente" : r === "alerta" ? `${nivel.n} alerta${nivel.n > 1 ? "s" : ""}` : r === "ok" ? "confere" : "";
+  const cor = r === "erro" ? "bg-alert-50 text-alert-600" : r === "ok" ? "bg-good-50 text-good-600" : "bg-amber-100 text-amber-800";
+  const dica =
+    r === "erro"
+      ? "diverge da O.S. em aberto (O.S., operação, fazenda ou talhão)"
+      : r === "alerta"
+        ? "confere com a O.S. em aberto, com alertas (saldo, área do talhão, duplicidade…)"
+        : r === "ok"
+          ? "confere com a O.S. em aberto"
+          : "ainda não conferido";
   return (
-    <div
-      role={msg.erro ? "alert" : "status"}
-      className={`flex items-start gap-2 rounded-md border px-3 py-2 text-[13px] ${msg.erro ? "border-alert-500/40 bg-alert-50 text-alert-600" : "border-good-500/40 bg-good-50 text-good-600"}`}
-    >
-      <span className="min-w-0 flex-1">{msg.texto}</span>
-      <button type="button" onClick={onFechar} aria-label="Fechar a mensagem" className="px-1 leading-none opacity-70 hover:opacity-100">
-        ×
-      </button>
-    </div>
-  );
-}
-
-/** Selo da origem WhatsApp na lista: laranja enquanto o apontamento do bot não foi conferido. */
-function SeloOrigem({ a }) {
-  return a.aConferir ? (
-    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800" title="Lançado pelo bot do WhatsApp; ainda não conferido">
-      WhatsApp · a conferir
+    <span className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold ${cor}`} title={`Lançado pelo bot do WhatsApp; ${dica}. Clique em Conferir.`}>
+      WhatsApp · a conferir{resumo ? ` · ${resumo}` : ""}
     </span>
-  ) : (
-    <span className="rounded-full bg-good-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-good-600" title="Veio do WhatsApp">
-      WhatsApp
-    </span>
-  );
-}
-
-/** Janela de confirmação (excluir, descartar o que foi digitado). */
-function ConfirmarModal({ titulo, texto, botao = "Confirmar", perigo = false, onConfirmar, onCancelar }) {
-  const ok = useRef(null);
-  useEffect(() => ok.current?.focus(), []);
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-navy-950/50 px-4" onMouseDown={(e) => e.target === e.currentTarget && onCancelar()}>
-      <div role="alertdialog" aria-modal="true" aria-label={titulo} className="w-full max-w-md rounded-xl2 bg-card p-5 shadow-pop">
-        <h2 className="text-[15px] font-semibold text-ink">{titulo}</h2>
-        {texto && <p className="mt-1.5 text-[13px] text-muted">{texto}</p>}
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className={BOTAO} onClick={onCancelar}>
-            Voltar
-          </button>
-          <button
-            ref={ok}
-            type="button"
-            onClick={onConfirmar}
-            className={`rounded-lg px-4 py-1.5 text-[12.5px] font-medium text-white ${perigo ? "bg-alert-600 hover:bg-alert-500" : "bg-navy-900 hover:bg-navy-800"}`}
-          >
-            {botao}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 
 /** Um apontamento inteiro: dados, talhões, insumos, observação e a mensagem do WhatsApp de onde veio. */
 function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir }) {
+  useJanela(true, { onEsc: onFechar });
+  // clicar fora fecha; a barra de rolagem do fundo e a seleção arrastada para fora, não
+  const cliqueFora = useCliqueFora(onFechar);
   const [verMsg, setVerMsg] = useState(a.aConferir);
   const campo = (rotulo, valor) => (
     <div className="min-w-0">
@@ -1918,7 +2156,7 @@ function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir
   );
   const fazendas = Array.from(new Set(a.talhoes.map((t) => t.propCod)));
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-navy-950/50 px-3 py-6" onMouseDown={(e) => e.target === e.currentTarget && onFechar()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-navy-950/50 px-3 py-6" {...cliqueFora}>
       <div role="dialog" aria-modal="true" aria-label={`Boletim ${a.boletim ?? a.id}`} className="w-full max-w-3xl rounded-xl2 bg-card shadow-pop">
         <header className="flex items-start gap-3 border-b border-line px-5 py-3.5">
           <div className="min-w-0 flex-1">
@@ -1941,8 +2179,8 @@ function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir
             <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
               <IconAlerta size={16} />
               <span>
-                Lançado pelo bot a partir da mensagem do WhatsApp. Confira com a mensagem abaixo; ao editar ou marcar como conferido, o bot não altera mais este
-                apontamento.
+                Lançado pelo bot a partir da mensagem do WhatsApp. Em Conferir, a O.S., a operação, as fazendas, os talhões e as áreas são comparados com as O.S.
+                em aberto; ao editar ou conferir, o bot não altera mais este apontamento.
               </span>
             </div>
           )}
@@ -2038,10 +2276,20 @@ function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir
         </div>
 
         <footer className="flex flex-wrap items-center gap-2 border-t border-line px-5 py-3">
-          {a.atuUsr && (
+          {(a.atuUsr || a.confUsr) && (
             <span className="text-[11.5px] text-muted">
-              Alterado por {a.atuUsr}
-              {a.atuEm ? ` · ${a.atuEm}` : ""}
+              {a.atuUsr && (
+                <>
+                  Alterado por {a.atuUsr}
+                  {a.atuEm ? ` · ${a.atuEm}` : ""}
+                </>
+              )}
+              {a.confUsr && (
+                <span className="text-good-600">
+                  {a.atuUsr ? " · " : ""}Conferido por {a.confUsr}
+                  {a.confEm ? ` · ${a.confEm}` : ""}
+                </span>
+              )}
             </span>
           )}
           <div className="ml-auto flex flex-wrap gap-2">
@@ -2051,8 +2299,8 @@ function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir
               </button>
             )}
             {podeGravar && a.aConferir && (
-              <button type="button" className={`${BOTAO} text-good-600`} onClick={onConferir}>
-                Marcar como conferido
+              <button type="button" className={`${BOTAO} text-good-600`} onClick={onConferir} title="Abre a conferência com as O.S. em aberto">
+                Conferir
               </button>
             )}
             {podeGravar && (
@@ -2064,5 +2312,435 @@ function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir
         </footer>
       </div>
     </div>
+  );
+}
+
+const COR_NIVEL = { erro: "bg-alert-50 text-alert-600", alerta: "bg-amber-100 text-amber-800", info: "bg-surface text-muted" };
+const ROTULO_NIVEL = { erro: "Divergência", alerta: "Alerta", info: "Info" };
+
+/**
+ * Conferência de um apontamento do bot: O.S., operação, fazendas, talhões e áreas comparados com as O.S. em aberto na
+ * data do serviço; divergindo, as O.S. em aberto compatíveis com o apontado ("Usar esta O.S." abre a edição com ela).
+ * "Marcar como conferido" com divergência pede confirmação; "Próximo a conferir" anda pelos a conferir da lista.
+ */
+function ConferenciaModal({ id, msgInicial, podeGravar, proximo, onFechar, onProximo, onConferido, onExcluir, onEditar, onUsarOS }) {
+  const [an, setAn] = useState(null);
+  const [erro, setErro] = useState(null);
+  const [msg, setMsg] = useState(msgInicial);
+  const [ocupado, setOcupado] = useState(false);
+  const [confirmar, setConfirmar] = useState(null);
+  const [verMsg, setVerMsg] = useState(false);
+  const proxRef = useRef(null);
+  useJanela(true, { onEsc: () => !ocupado && onFechar() });
+  // clicar fora fecha (gravando, não); a barra de rolagem do fundo e a seleção arrastada para fora, não
+  const cliqueFora = useCliqueFora(() => !ocupado && onFechar());
+
+  const carregar = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/atividades/apontamentos?conferencia=${id}`, { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível conferir o apontamento.");
+      setAn(j);
+      setErro(null);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível conferir o apontamento.");
+    }
+  }, [id]);
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  const a = an?.apontamento ?? null;
+
+  /**
+   * Grava a conferência da `versao` do apontamento que foi analisada; com divergência o servidor só aceita com `aceitar`
+   * (409 devolve as divergências). Se o apontamento mudou desde a análise (o bot regravou a mensagem editada no grupo, ou
+   * alguém editou), não confere: a análise é refeita para conferir de novo.
+   */
+  async function marcar(aceitar, versao) {
+    setOcupado(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/atividades/apontamentos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, conferir: true, aceitar, versao }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 409 && j.mudou) {
+        await carregar();
+        onConferido();
+        setMsg({ texto: `${j.error ?? "O apontamento mudou desde a análise; confira de novo."} A conferência abaixo foi refeita com o apontamento atual.`, erro: true });
+        return;
+      }
+      if (res.status === 409 && Array.isArray(j.divergencias)) return pedirAceite(j.divergencias, versao);
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível marcar como conferido.");
+      setMsg({ texto: `Boletim nº ${a?.boletim ?? id} conferido${aceitar ? " com as divergências aceitas (ficam no Log de Alterações)" : ""}.`, erro: false });
+      onConferido();
+      await carregar();
+      setTimeout(() => proxRef.current?.focus(), 0);
+    } catch (e) {
+      setMsg({ texto: e instanceof Error ? e.message : "Não foi possível marcar como conferido.", erro: true });
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  function pedirAceite(divergencias, versao) {
+    const erros = divergencias.filter((d) => d.nivel === "erro");
+    setConfirmar({
+      titulo: "Conferir com divergências?",
+      texto: `${erros.map((d) => `• ${d.texto}`).join("\n")}\n\nConferido assim, o apontamento fica como está e as divergências aceitas ficam no Log de Alterações.`,
+      botao: "Conferir assim mesmo",
+      // aceita só as divergências da versão analisada (mudou depois, o servidor não confere)
+      acao: () => marcar(true, versao),
+    });
+  }
+
+  function clicarConferir() {
+    if (!an || ocupado) return;
+    const versao = an.apontamento?.versao;
+    if (an.divergencias.some((d) => d.nivel === "erro")) pedirAceite(an.divergencias, versao);
+    else marcar(false, versao);
+  }
+
+  const campo = (rotulo, valor) => (
+    <div className="min-w-0">
+      <div className="text-[11px] font-medium text-muted">{rotulo}</div>
+      <div className="truncate text-[13px] text-ink" title={typeof valor === "string" ? valor : undefined}>
+        {valor === null || valor === undefined || valor === "" ? "—" : valor}
+      </div>
+    </div>
+  );
+  const fazendas = a ? Array.from(new Set(a.talhoes.map((t) => (t.propNm ? `${t.propCod} · ${t.propNm}` : t.propCod)))) : [];
+  const erros = an ? an.divergencias.filter((d) => d.nivel === "erro").length : 0;
+  const alertas = an ? an.divergencias.filter((d) => d.nivel === "alerta").length : 0;
+  const faixa = !an
+    ? null
+    : an.nivel === "erro"
+      ? {
+          cor: "border-alert-500/40 bg-alert-50 text-alert-600",
+          titulo: `Divergente da O.S. em aberto: ${erros} divergência(s)${alertas ? ` e ${alertas} alerta(s)` : ""}.`,
+          apoio: an.candidatas?.length ? "Veja abaixo as O.S. em aberto compatíveis com o apontado." : "Corrija (Editar) ou confira assim mesmo.",
+        }
+      : an.nivel === "alerta"
+        ? {
+            cor: "border-amber-300 bg-amber-50 text-amber-800",
+            titulo: an.os?.existe ? `Confere com a O.S. em aberto, com ${alertas} alerta(s).` : `${alertas} alerta(s) para conferir.`,
+            apoio: an.candidatas?.length ? "Veja abaixo as O.S. em aberto compatíveis com o apontado." : "Confira os alertas antes de marcar como conferido.",
+          }
+        : {
+            cor: "border-good-500/40 bg-good-50 text-good-600",
+            titulo: "Confere com a O.S. em aberto.",
+            apoio: an.os?.existe
+              ? `O.S. ${an.os.os} (${an.os.situacao}), operação ${a.opCod}: fazendas e talhões da O.S. e área dentro do saldo.`
+              : "",
+          };
+  const tot = (k) => round2((an?.itens ?? []).reduce((s, i) => s + (i[k] ?? 0), 0));
+
+  return createPortal(
+    <div
+      translate="no"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-navy-950/50 px-3 py-6"
+      {...cliqueFora}
+    >
+      <div role="dialog" aria-modal="true" aria-label={`Conferência do boletim ${a?.boletim ?? id}`} className="w-full max-w-6xl rounded-xl2 bg-card shadow-pop">
+        <header className="flex items-start gap-3 border-b border-line px-5 py-3.5">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-[16px] font-semibold text-ink">Conferência do boletim nº {a?.boletim ?? "—"}</h2>
+              {a && <SeloOrigem a={a} nivel={{ nivel: an.nivel, n: an.n }} />}
+            </div>
+            <div className="mt-0.5 text-[12.5px] text-muted">Apontamento do bot do WhatsApp comparado com as O.S. em aberto na data do serviço · Esc fecha</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => !ocupado && onFechar()}
+            aria-label="Fechar"
+            title="Fechar (Esc)"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[20px] leading-none text-muted hover:bg-surface"
+          >
+            ×
+          </button>
+        </header>
+
+        <div className="space-y-4 px-5 py-4">
+          {msg && <Aviso msg={msg} onFechar={() => setMsg(null)} />}
+          {erro && <Aviso msg={{ texto: erro, erro: true }} />}
+          {!an && !erro && <p className="py-6 text-center text-[12.5px] text-muted">Conferindo com as O.S. em aberto…</p>}
+
+          {an && a && (
+            <>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4 lg:grid-cols-6">
+                {campo("Data", fmtDateBR(a.dt))}
+                {campo("O.S.", a.os || "Sem O.S.")}
+                {campo("Situação da O.S.", an.os ? (an.os.existe ? an.os.situacao : "Fora da base de O.S.") : null)}
+                {campo("Operação", a.opCod ? `${a.opCod} · ${a.opDs}` : "Sem operação")}
+                {campo("Fazenda(s)", fazendas.join(", "))}
+                {campo("Área apontada", `${nf(a.areaTotal)} ha${a.modoArea === "rateio" ? " (rateada)" : ""}`)}
+                {campo("Apontador / Informante", a.apontador)}
+                {campo("Solicitante", a.solicitante)}
+                {campo("Responsável da O.S.", an.os?.resp)}
+                {campo("Emissão da O.S.", an.os?.dtOs ? fmtDateBR(an.os.dtOs) : null)}
+                {campo("Etapa", a.etapaDs || a.etapaCod)}
+                {campo("Lançado por", `${a.usr}${a.criEm ? ` · ${a.criEm}` : ""}`)}
+              </div>
+
+              <div role="status" className={`flex items-start gap-2 rounded-md border px-3 py-2 text-[13px] ${faixa.cor}`}>
+                {an.nivel !== "ok" && <IconAlerta size={16} />}
+                <span className="min-w-0 flex-1">
+                  <span className="font-semibold">{faixa.titulo}</span>
+                  {faixa.apoio && <span> {faixa.apoio}</span>}
+                </span>
+              </div>
+
+              {an.divergencias.length > 0 && (
+                <ul className="space-y-1.5">
+                  {an.divergencias.map((d, i) => (
+                    <li key={i} className="flex items-start gap-2 text-[12.5px]">
+                      <span className={`mt-px w-[84px] shrink-0 rounded px-1.5 py-0.5 text-center text-[10.5px] font-semibold ${COR_NIVEL[d.nivel]}`}>{ROTULO_NIVEL[d.nivel]}</span>
+                      <span className="min-w-0 flex-1 text-ink">{d.texto}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div>
+                <div className="mb-1.5 text-[12px] font-semibold text-ink">
+                  Talhões apontados
+                  {an.safraArea && <span className="font-normal text-muted"> · área do talhão da base Fazenda e Talhões, safra {an.safraArea}</span>}
+                </div>
+                {an.itens.length === 0 ? (
+                  <p className="rounded-md border border-line bg-surface px-3 py-2 text-[12.5px] text-muted">Nenhum talhão com área.</p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-line">
+                    <table className="w-full min-w-[820px] text-[12.5px]">
+                      <thead className="bg-surface text-left text-muted">
+                        <tr>
+                          <th className="px-3 py-1.5 font-medium">Fazenda</th>
+                          <th className="px-3 py-1.5 font-medium">Talhão</th>
+                          <th className="px-3 py-1.5 text-right font-medium">Área apontada</th>
+                          <th className="px-3 py-1.5 text-right font-medium">Área do talhão</th>
+                          <th className="px-3 py-1.5 text-right font-medium">Recomendada</th>
+                          <th className="px-3 py-1.5 text-right font-medium">Já apontado</th>
+                          <th className="px-3 py-1.5 text-right font-medium">Saldo</th>
+                          <th className="px-3 py-1.5 font-medium">Situação</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {an.itens.map((i, k) => {
+                          const acima = i.cods?.includes("acima-saldo") || i.cods?.includes("acima-talhao");
+                          return (
+                            <tr key={k} className={`border-t border-line/60 ${i.nivel === "erro" ? "bg-alert-50/70" : ""}`}>
+                              <td className="px-3 py-1.5">
+                                {i.propCod}
+                                {i.propNm && <span className="text-muted"> · {i.propNm}</span>}
+                              </td>
+                              <td className="px-3 py-1.5 tabular">{i.tlh || <span className="text-muted">sem talhão</span>}</td>
+                              <td className={`px-3 py-1.5 text-right tabular font-medium ${acima ? "text-amber-700" : ""}`}>{nf(i.area)}</td>
+                              <td className="px-3 py-1.5 text-right tabular text-muted">{i.areaTlh !== null ? nf(i.areaTlh) : "—"}</td>
+                              <td className="px-3 py-1.5 text-right tabular text-muted">{i.areaRec !== null ? nf(i.areaRec) : "—"}</td>
+                              <td className="px-3 py-1.5 text-right tabular text-muted">{i.ja !== null ? nf(i.ja) : "—"}</td>
+                              <td className="px-3 py-1.5 text-right tabular">{i.saldo !== null ? nf(i.saldo) : "—"}</td>
+                              <td className="px-3 py-1.5">
+                                {i.problema ? (
+                                  <span className={i.nivel === "erro" ? "font-medium text-alert-600" : "text-amber-700"}>{i.problema}</span>
+                                ) : i.naOS ? (
+                                  <span className="text-good-600">Na O.S.</span>
+                                ) : (
+                                  <span className="text-muted">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="border-t border-line bg-surface font-semibold">
+                          <td className="px-3 py-1.5" colSpan={2}>
+                            Total
+                          </td>
+                          <td className="px-3 py-1.5 text-right tabular">{nf(tot("area"))}</td>
+                          <td className="px-3 py-1.5 text-right tabular">{nf(tot("areaTlh"))}</td>
+                          <td className="px-3 py-1.5 text-right tabular">{nf(tot("areaRec"))}</td>
+                          <td className="px-3 py-1.5 text-right tabular">{nf(tot("ja"))}</td>
+                          <td className="px-3 py-1.5 text-right tabular">{nf(tot("saldo"))}</td>
+                          <td />
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {(a.obs || a.origMsg) && (
+                <div>
+                  <button type="button" onClick={() => setVerMsg(!verMsg)} className="text-[12px] font-semibold text-navy-800 hover:underline" aria-expanded={verMsg}>
+                    {verMsg ? "▾" : "▸"} Mensagem original do WhatsApp{a.obs ? " e observação" : ""}
+                  </button>
+                  {verMsg && (
+                    <div className="mt-1.5 grid gap-3 md:grid-cols-2">
+                      {a.origMsg && (
+                        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface px-3 py-2 font-sans text-[12.5px] text-ink">
+                          {a.origMsg}
+                        </pre>
+                      )}
+                      {a.obs && <p className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line px-3 py-2 text-[12.5px] text-muted">{a.obs}</p>}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {an.procurouCandidatas && (
+                <div>
+                  <div className="mb-1 text-[12px] font-semibold text-ink">O.S. em aberto compatíveis com o apontado · {an.candidatas.length}</div>
+                  <p className="mb-1.5 text-[11.5px] text-muted">
+                    Em aberto em {fmtDateBR(a.dt)} e com as fazendas apontadas{an.fazendasCitadas?.length ? ` (ou citadas na mensagem: ${an.fazendasCitadas.join(", ")})` : ""}; da mais provável para a menos:
+                    mesma operação, mais talhões cobertos, citada na mensagem, saldo que cabe a área. &quot;Usar esta O.S.&quot; abre a edição com ela e as áreas já nos talhões dela.
+                  </p>
+                  {an.candidatas.length === 0 ? (
+                    <p className="rounded-md border border-line bg-surface px-3 py-2 text-[12.5px] text-muted">
+                      Nenhuma O.S. em aberto em {fmtDateBR(a.dt)} com as fazendas apontadas. Confira a fazenda e a data, ou mantenha o apontamento sem O.S.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-line">
+                      <table className="w-full min-w-[960px] text-[12.5px]">
+                        <thead className="bg-surface text-left text-muted">
+                          <tr>
+                            <th className="px-3 py-1.5 font-medium">O.S.</th>
+                            <th className="px-3 py-1.5 font-medium">Operação</th>
+                            <th className="px-3 py-1.5 font-medium">Situação</th>
+                            <th className="px-3 py-1.5 font-medium">Emissão</th>
+                            <th className="px-3 py-1.5 font-medium">Responsável</th>
+                            <th className="px-3 py-1.5 font-medium">Fazendas</th>
+                            <th className="px-3 py-1.5 text-right font-medium">Talhões</th>
+                            <th className="px-3 py-1.5 text-right font-medium">Área coberta</th>
+                            <th className="px-3 py-1.5 text-right font-medium">Saldo</th>
+                            <th className="w-[130px]" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {an.candidatas.map((c) => (
+                            <tr key={`${c.os}|${c.opCod}`} className="border-t border-line/60 align-top">
+                              <td className="px-3 py-1.5">
+                                <div className="tabular font-semibold text-ink">{c.os}</div>
+                                <div className="flex flex-wrap gap-1">
+                                  {c.citada && <span className="rounded bg-brand-50 px-1 text-[10.5px] font-medium text-brand-700">citada na mensagem</span>}
+                                  {c.atual && <span className="rounded bg-surface px-1 text-[10.5px] font-medium text-muted">a do apontamento</span>}
+                                  {c.base === "antiga" && <span className="rounded bg-surface px-1 text-[10.5px] text-muted">base antiga</span>}
+                                </div>
+                              </td>
+                              <td className="max-w-[220px] px-3 py-1.5">
+                                <div className="truncate" title={c.opDs}>
+                                  {c.opCod} · {c.opDs || "sem descrição"}
+                                </div>
+                                {!c.mesmaOperacao && <span className="rounded bg-amber-100 px-1 text-[10.5px] font-medium text-amber-800">outra operação</span>}
+                              </td>
+                              <td className="px-3 py-1.5">
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${corStatus(c.situacao)}`}>{c.situacao}</span>
+                              </td>
+                              <td className="px-3 py-1.5 tabular">{c.dtOs ? fmtDateBR(c.dtOs) : "—"}</td>
+                              <td className="max-w-[160px] truncate px-3 py-1.5" title={c.resp || undefined}>
+                                {c.resp || "—"}
+                              </td>
+                              <td className="max-w-[220px] px-3 py-1.5">
+                                <div className="truncate" title={c.fazendas.join(" / ")}>
+                                  {c.fazendas.join(" / ") || "—"}
+                                </div>
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular" title="Talhões apontados que estão na O.S. · talhões da O.S. nesta operação">
+                                {c.talhoesCobertos} de {c.talhoesApontados}
+                                <div className="text-[11px] text-muted">{c.talhoesDaOS} na O.S.</div>
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular">
+                                {nf(c.areaCoberta)}
+                                <div className="text-[11px] text-muted">de {nf(c.areaApontada)}</div>
+                              </td>
+                              <td
+                                className={`px-3 py-1.5 text-right tabular ${c.saldoOk ? "text-good-600" : "text-amber-700"}`}
+                                title={c.saldoOk ? "A área apontada cabe no saldo de cada talhão" : "A área apontada passa do saldo em algum talhão (ou nenhum talhão casou)"}
+                              >
+                                {nf(c.saldo)}
+                              </td>
+                              <td className="px-2 py-1.5 text-right">
+                                {/* a do apontamento também, quando ela acerta os códigos (O.S., operação, talhões) ou rateia área sem talhão */}
+                                {podeGravar && (!c.atual || c.acerta) && (
+                                  <button
+                                    type="button"
+                                    className={BOTAO}
+                                    onClick={() => onUsarOS(a, c, an.os?.resp ?? "")}
+                                    disabled={ocupado}
+                                    title={
+                                      c.atual
+                                        ? "Abre a edição com as áreas nos talhões desta O.S., com os códigos dela (para a área contar no Já apontado da O.S.)"
+                                        : "Abre a edição com esta O.S., a operação dela e as áreas já nos talhões dela"
+                                    }
+                                  >
+                                    Usar esta O.S.
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <footer className="flex flex-wrap items-center gap-2 border-t border-line px-5 py-3">
+          {a?.confUsr && (
+            <span className="text-[11.5px] text-good-600">
+              Conferido por {a.confUsr}
+              {a.confEm ? ` · ${a.confEm}` : ""}
+            </span>
+          )}
+          <div className="ml-auto flex flex-wrap gap-2">
+            <button type="button" className={BOTAO} onClick={onFechar} disabled={ocupado}>
+              Fechar
+            </button>
+            {podeGravar && a && (
+              <button type="button" className={`${BOTAO} text-alert-600`} onClick={() => onExcluir(a)} disabled={ocupado}>
+                Excluir
+              </button>
+            )}
+            {podeGravar && a && (
+              <button type="button" className={BOTAO} onClick={() => onEditar(a)} disabled={ocupado}>
+                Editar
+              </button>
+            )}
+            {proximo && (
+              <button ref={proxRef} type="button" className={BOTAO} onClick={() => onProximo(proximo)} disabled={ocupado} title={`Boletim nº ${proximo.boletim ?? proximo.id}`}>
+                Próximo a conferir ›
+              </button>
+            )}
+            {podeGravar && a?.aConferir && (
+              <button
+                type="button"
+                onClick={clicarConferir}
+                disabled={ocupado || !an}
+                className="rounded-lg bg-navy-900 px-4 py-1.5 text-[12.5px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
+              >
+                {ocupado ? "Gravando…" : "Marcar como conferido"}
+              </button>
+            )}
+          </div>
+        </footer>
+      </div>
+      {confirmar && (
+        <JanelaConfirmar
+          {...confirmar}
+          onCancelar={() => setConfirmar(null)}
+          onConfirmar={() => {
+            const acao = confirmar.acao;
+            setConfirmar(null);
+            acao();
+          }}
+        />
+      )}
+    </div>,
+    document.body,
   );
 }

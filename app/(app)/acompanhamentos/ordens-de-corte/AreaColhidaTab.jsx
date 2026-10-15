@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
-import { Painel } from "@/components/pagina";
+import { IconMais } from "@/components/icons";
+import JanelaFormulario, { Aviso, JanelaConfirmar, useAtalhoTela } from "@/components/janela";
+import { Comando, Painel } from "@/components/pagina";
 import { fmtDataHora, fmtDateBR, fmtHa } from "@/lib/format";
 import { ratearArea } from "@/lib/rateio";
 
@@ -11,20 +13,39 @@ import LeitorPlanejamento from "./LeitorPlanejamento";
 
 const INPUT = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink focus:border-brand-600 focus:outline-none disabled:bg-surface";
 const ROTULO = "mb-1 block text-[11.5px] font-semibold text-muted";
+const BOTAO = "rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] font-medium text-navy-800 hover:bg-surface disabled:opacity-50";
 
 const arred = (n) => Math.round(n * 100) / 100;
 const numero = (v) => Number(v.replace(/\./g, "").replace(",", "."));
 
 /**
  * Apontamento dia a dia da área colhida: escolhe a data e a ordem, informa os
- * hectares colhidos no dia em cada talhão e grava. O histórico fica guardado
- * (com usuário e log), e o filtro de datas anteriores do painel soma só até a data.
+ * hectares colhidos no dia em cada talhão e grava. O lançamento abre numa janela
+ * (Novo lançamento, F2); o histórico fica guardado (com usuário e log), e o filtro
+ * de datas anteriores do painel soma só até a data.
  */
-export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeGravar, onSalvo }) {
-  const raiz = useRef(null);
-  const formManual = useRef(null);
+export default function AreaColhidaTab({ ordens, referencia, pedidoOrdem, onPedidoAtendido, podeGravar, onSalvo, atalhoAtivo = true }) {
+  const formRef = useRef(null);
+  const ordemRef = useRef(null);
+  const boletimRef = useRef(null);
+  // mensagens dentro da janela (no topo do fundo rolável): rola até elas quando mudam
+  const avisoRef = useRef(null);
+  // área do dia e boletim que vieram do banco (ou da sugestão) para a ordem e a data (para saber se algo foi alterado ao fechar)
+  const valoresDoBanco = useRef({});
+  const boletimDoBanco = useRef("");
+  // ordem e data com que a janela abriu (trocadas, contam como alteração ao fechar)
+  const inicio = useRef({ ordem: "", dt: "" });
+  // data em uso antes do "Abrir" do histórico: volta ao sair da edição
+  const dtAntesDaEdicao = useRef(referencia);
+  const [formAberto, setFormAberto] = useState(false);
+  // aberta pelo "Abrir" do histórico: gravar fecha a janela
+  const [editando, setEditando] = useState(false);
+  // aberta com a ordem (cartão ou "Abrir"): o foco vai para o primeiro talhão
+  const [focarTalhao, setFocarTalhao] = useState(false);
+  const [leitorAberto, setLeitorAberto] = useState(false);
+  const [confirmar, setConfirmar] = useState(null);
   const [dt, setDt] = useState(referencia);
-  const [ordemNum, setOrdemNum] = useState(ordemInicial ?? "");
+  const [ordemNum, setOrdemNum] = useState("");
   // valores = área do DIA por talhão (é o que se grava); no modo acumulado, o que se digita é o total até a data
   const [valores, setValores] = useState({});
   const [informar, setInformar] = usarPersistido("area-colhida.informar", "acumulado", ehUmDe(["acumulado", "dia"]));
@@ -38,12 +59,15 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState(null);
   const [aviso, setAviso] = useState(null);
+  // conta as tentativas de gravar/ratear: o mesmo erro de novo (texto igual) também rola até a mensagem
+  const [tentativa, setTentativa] = useState(0);
   const [historico, setHistorico] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [filtroOrdem, setFiltroOrdem] = useState("");
   const [de, setDe] = useState("");
   const [ate, setAte] = useState("");
 
+  const janelaAberta = podeGravar && formAberto;
   const ordem = useMemo(() => ordens.find((o) => o.numero === ordemNum.trim()), [ordens, ordemNum]);
   const opcoes = useMemo(
     () =>
@@ -53,9 +77,36 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
     [ordens],
   );
 
+  // botão "Lançar área colhida" do cartão da ordem: abre a janela já com ela (o pedido é atendido uma vez só)
   useEffect(() => {
-    if (ordemInicial) setOrdemNum(ordemInicial);
-  }, [ordemInicial]);
+    if (!pedidoOrdem) return;
+    setErro(null);
+    setAviso(null);
+    setEditando(false);
+    limpar(false);
+    setOrdemNum(pedidoOrdem.numero);
+    inicio.current = { ordem: pedidoOrdem.numero, dt };
+    setFormAberto(true);
+    setFocarTalhao(true);
+    onPedidoAtendido?.();
+  }, [pedidoOrdem]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // depois do foco inicial da janela (na Ordem), passa para o primeiro talhão
+  useEffect(() => {
+    if (!janelaAberta || !focarTalhao) return;
+    const t = setTimeout(() => {
+      const el = formRef.current?.querySelector("tbody [data-nav]:not(:disabled)");
+      el?.focus();
+      el?.select?.();
+      setFocarTalhao(false);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [janelaAberta, focarTalhao]);
+
+  // mensagem nova com a janela aberta: rola até ela (com muitos talhões, quem grava pelo Enter está no fim da janela)
+  useEffect(() => {
+    if (janelaAberta && (erro || aviso)) avisoRef.current?.scrollIntoView({ block: "nearest" });
+  }, [erro, aviso, janelaAberta, tentativa]);
 
   // escolhendo a ordem no formulário, o histórico de baixo mostra os lançamentos dela
   const numeroOrdem = ordem?.numero ?? "";
@@ -66,6 +117,7 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
   // ao trocar a ordem ou a data, traz o que já estava lançado naquele dia
   useEffect(() => {
     if (!ordem) {
+      valoresDoBanco.current = {};
       setValores({});
       return;
     }
@@ -74,6 +126,7 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
       const dia = (t.colhidaDias ?? []).find((x) => x.d === dt);
       v[`${t.fazendaCodigo}|${t.talhao}`] = dia ? String(dia.ha).replace(".", ",") : "";
     }
+    valoresDoBanco.current = v;
     setValores(v);
     setAcumTexto({});
   }, [ordem, dt]);
@@ -87,11 +140,17 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
         const j = await (await fetch(`/api/area-colhida?${p}`, { cache: "no-store" })).json();
         const usado = j.lancamentos?.find((l) => l.boletim)?.boletim;
         if (usado) {
-          if (ativo) setBoletim(String(usado));
+          if (ativo) {
+            boletimDoBanco.current = String(usado);
+            setBoletim(String(usado));
+          }
           return;
         }
         const prox = await (await fetch("/api/area-colhida?proximo=1", { cache: "no-store" })).json();
-        if (ativo) setBoletim(String(prox.boletim ?? ""));
+        if (ativo) {
+          boletimDoBanco.current = String(prox.boletim ?? "");
+          setBoletim(String(prox.boletim ?? ""));
+        }
       } catch {
         /* digita à mão */
       }
@@ -177,6 +236,7 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
   function aplicarRateio() {
     setErro(null);
     setAviso(null);
+    setTentativa((n) => n + 1);
     if (!ordem) return setErro("Escolha a ordem.");
     const informado = numero(totalOrdem);
     if (totalOrdem.trim() === "" || !Number.isFinite(informado) || informado < 0) {
@@ -213,9 +273,14 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
     if (salvando) return;
     setErro(null);
     setAviso(null);
+    setTentativa((n) => n + 1);
     if (!ordem) return setErro("Escolha a ordem.");
     if (!dt) return setErro("Informe a data.");
-    if (!boletim.trim() && totalDia > 0) return setErro("Informe o número do boletim.");
+    if (!boletim.trim() && totalDia > 0) {
+      // o boletim fica no topo da janela: o foco vai para ele
+      boletimRef.current?.focus();
+      return setErro("Informe o número do boletim.");
+    }
     for (const l of linhas) {
       const txt = (valores[l.chave] ?? "").trim();
       if (txt !== "" && (!Number.isFinite(numero(txt)) || numero(txt) < 0)) {
@@ -246,6 +311,15 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
       );
       await onSalvo();
       await carregarHistorico();
+      // só depois de recarregar as ordens: a recarga traz de novo as áreas do dia e apagaria o que já fosse digitado.
+      // Edição: fecha a janela, a mensagem fica na página e a data volta à de antes do "Abrir";
+      // lançamento novo: a janela fica limpa para o próximo (a data fica)
+      if (editando) {
+        setFormAberto(false);
+        setEditando(false);
+        setDt(dtAntesDaEdicao.current);
+        limpar(false);
+      } else limpar();
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível gravar.");
     } finally {
@@ -253,16 +327,12 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
     }
   }
 
-  function aoTeclar(e) {
-    if (e.key === "F2") {
-      e.preventDefault();
-      gravar();
-      return;
-    }
+  /** Enter passa para o próximo campo da janela; no último talhão, grava. */
+  function aoTeclarNoForm(e) {
     const alvo = e.target;
-    if (e.key !== "Enter" || alvo.dataset?.nav === undefined) return;
+    if (e.key !== "Enter" || alvo.dataset?.nav === undefined || e.defaultPrevented) return;
     e.preventDefault();
-    const navs = Array.from(raiz.current?.querySelectorAll("[data-nav]:not(:disabled)") ?? []);
+    const navs = Array.from(formRef.current?.querySelectorAll("[data-nav]:not(:disabled)") ?? []);
     const i = navs.indexOf(alvo);
     if (i < navs.length - 1) {
       navs[i + 1].focus();
@@ -270,9 +340,81 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
     } else gravar();
   }
 
-  async function excluirLancamento(l) {
-    if (!window.confirm(`Excluir a área colhida de ${l.area.toLocaleString("pt-BR")} ha do talhão ${l.tlh} em ${fmtDateBR(l.dt)}? Fica registrado no Log de Alterações.`))
-      return;
+  /** Limpa o formulário para o próximo lançamento: a data, o "Informar" e o modo ficam. */
+  function limpar(focar = true) {
+    setOrdemNum("");
+    setValores({});
+    setAcumTexto({});
+    setTotalOrdem("");
+    setBoletim("");
+    boletimDoBanco.current = "";
+    inicio.current = { ordem: "", dt };
+    if (focar) setTimeout(() => ordemRef.current?.focus(), 0);
+  }
+
+  /** Novo lançamento: janela limpa. */
+  function novo() {
+    setErro(null);
+    setAviso(null);
+    setEditando(false);
+    setFocarTalhao(false);
+    limpar(false);
+    setFormAberto(true);
+  }
+
+  /**
+   * Algo que ainda não foi gravado: área diferente da que veio do banco, total da ordem para ratear, ordem digitada
+   * ou trocada, boletim diferente do que veio do banco (ou da sugestão) e, na edição, a data trocada.
+   */
+  function temAlteracao() {
+    if (totalOrdem.trim()) return true;
+    if (ordemNum.trim() !== inicio.current.ordem || boletim.trim() !== boletimDoBanco.current) return true;
+    if (editando && dt !== inicio.current.dt) return true;
+    const base = valoresDoBanco.current;
+    return Object.keys({ ...base, ...valores }).some((k) => {
+      const a = (valores[k] ?? "").trim();
+      const b = (base[k] ?? "").trim();
+      return a !== b && numero(a || "0") !== numero(b || "0");
+    });
+  }
+
+  /** Fechar a janela: com algo digitado, pergunta antes de descartar. */
+  function fecharForm() {
+    const fechar = () => {
+      setFormAberto(false);
+      // saindo da edição, a data volta à de antes do "Abrir"
+      if (editando) setDt(dtAntesDaEdicao.current);
+      setEditando(false);
+      setErro(null);
+      // com uma ordem no formulário, o aviso é do que estava em andamento (rateio), não de um lançamento gravado
+      if (ordemNum.trim()) setAviso(null);
+      limpar(false);
+    };
+    if (!temAlteracao()) return fechar();
+    setConfirmar({
+      titulo: editando ? "Cancelar a edição?" : "Descartar o lançamento?",
+      texto: editando ? "As alterações feitas não serão gravadas." : "O que foi digitado será perdido.",
+      botao: "Descartar",
+      perigo: true,
+      acao: fechar,
+    });
+  }
+
+  // F2 sem janela aberta: lançamento novo (com a janela aberta, F2 grava; Esc fecha a janela de cima).
+  // Desligado com outra caixa da página aberta por cima da aba (Importar planilhas)
+  useAtalhoTela("F2", novo, podeGravar && atalhoAtivo);
+
+  function excluirLancamento(l) {
+    setConfirmar({
+      titulo: "Excluir a área colhida?",
+      texto: `${fmtHa(l.area)} ha do talhão ${l.tlh} em ${fmtDateBR(l.dt)}, ordem ${l.ord}. Fica registrado no Log de Alterações.`,
+      botao: "Excluir",
+      perigo: true,
+      acao: () => excluirDeVez(l),
+    });
+  }
+
+  async function excluirDeVez(l) {
     setErro(null);
     const res = await fetch("/api/area-colhida", {
       method: "POST",
@@ -286,34 +428,86 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
     await carregarHistorico();
   }
 
+  /** "Abrir" do histórico: a ordem e a data do lançamento na janela, para conferir ou alterar. */
   function editarLancamento(l) {
+    dtAntesDaEdicao.current = dt;
+    inicio.current = { ordem: l.ord, dt: l.dt };
     setOrdemNum(l.ord);
     setDt(l.dt);
-    if (l.boletim) setBoletim(String(l.boletim));
+    if (l.boletim) {
+      boletimDoBanco.current = String(l.boletim);
+      setBoletim(String(l.boletim));
+    }
+    setTotalOrdem("");
     setAviso(null);
     setErro(null);
-    formManual.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setEditando(true);
+    setFormAberto(true);
+    setFocarTalhao(true);
   }
 
+  // mensagens: dentro da janela enquanto ela está aberta; na página quando fechada
+  const mensagens =
+    erro || aviso ? (
+      <>
+        {erro && <Aviso msg={{ texto: erro, erro: true }} onFechar={() => setErro(null)} />}
+        {aviso && <Aviso msg={{ texto: aviso, erro: false }} onFechar={() => setAviso(null)} />}
+      </>
+    ) : null;
+
   return (
-    <div ref={raiz} onKeyDown={aoTeclar} className="space-y-4">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl2 border border-line bg-card px-4 py-2.5 shadow-card">
+        {podeGravar && (
+          <Comando primario icone={<IconMais size={16} />} onClick={novo} title="Novo lançamento de área colhida (F2)">
+            Novo lançamento
+          </Comando>
+        )}
+        <Comando
+          onClick={() => setLeitorAberto(true)}
+          title='Cola a mensagem "Planejamento Ordem de Cortes": confere cada ordem e lança várias de uma vez'
+        >
+          Ler mensagem do WhatsApp
+        </Comando>
+        <span className="text-[12px] text-muted">Hectares colhidos no dia, por talhão da ordem{podeGravar ? " · F2 abre um lançamento novo" : ""}</span>
+      </div>
+
+      {!janelaAberta && mensagens}
+
       {/* mensagem "Planejamento Ordem de Cortes" do WhatsApp: confere e lança várias ordens de uma vez */}
       <LeitorPlanejamento
+        aberto={leitorAberto}
+        onFechar={() => setLeitorAberto(false)}
         podeGravar={podeGravar}
         onLancado={async () => {
           await onSalvo();
           await carregarHistorico();
         }}
       />
-      <section ref={formManual} className="caixa-form">
-        <div className="caixa-form-topo">
-          <div>
-            <h2 className="caixa-form-titulo">Apontamento da área colhida</h2>
-            <div className="text-[11.5px] text-muted">Hectares colhidos no dia, por talhão da ordem</div>
-          </div>
+
+      <JanelaFormulario
+        aberto={janelaAberta}
+        rotulo={editando ? "Editar lançamento de área colhida" : "Lançar área colhida"}
+        titulo={editando ? `Editando o boletim nº ${boletim || "—"}` : "Lançar área colhida"}
+        subtitulo="Hectares colhidos no dia, por talhão da ordem · F2 grava · Esc fecha"
+        aviso={
+          mensagens && (
+            <div ref={avisoRef} className="space-y-3">
+              {mensagens}
+            </div>
+          )
+        }
+        onFechar={fecharForm}
+        onGravar={gravar}
+        ocupado={salvando}
+        corpoRef={formRef}
+        focoInicial={ordemRef}
+        onKeyDown={aoTeclarNoForm}
+        topoDireita={
           <label className="campo-boletim">
             Boletim nº
             <input
+              ref={boletimRef}
               value={boletim}
               onChange={(e) => setBoletim(e.target.value.replace(/\D/g, "").slice(0, 9))}
               disabled={!podeGravar}
@@ -321,7 +515,37 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
               aria-label="Número do boletim"
             />
           </label>
-        </div>
+        }
+        rodape={
+          <>
+            <button type="button" onClick={fecharForm} disabled={salvando} className={BOTAO}>
+              {editando ? "Cancelar edição" : "Fechar"}
+            </button>
+            {!editando && (ordemNum.trim() || totalOrdem.trim()) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setErro(null);
+                  setAviso(null);
+                  limpar();
+                }}
+                disabled={salvando}
+                className={BOTAO}
+              >
+                Limpar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={gravar}
+              disabled={!podeGravar || salvando || !ordem}
+              className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
+            >
+              {salvando ? "Gravando…" : editando ? "Salvar alteração (F2)" : "Lançar (F2)"}
+            </button>
+          </>
+        }
+      >
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className={ROTULO}>Data</label>
@@ -330,6 +554,7 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
           <div>
             <label className={ROTULO}>Ordem</label>
             <input
+              ref={ordemRef}
               list="ordens-area-lista"
               value={ordemNum}
               onChange={(e) => setOrdemNum(e.target.value)}
@@ -453,7 +678,7 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
         {ordem && <div className="caixa-form-sub">Talhões da ordem · {linhas.length}</div>}
         {ordem && (
           <div className="overflow-x-auto rounded-lg border border-line bg-card">
-            <table className="w-full text-[12.5px]">
+            <table className="w-full text-[12.5px]" data-sem-ordenar>
               <thead>
                 <tr className="border-b border-line bg-surface text-left text-muted">
                   <th className="px-3 py-1.5 font-medium">Fazenda</th>
@@ -512,26 +737,13 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
           </div>
         )}
 
-        {erro && <p className="mt-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
-        {aviso && <p className="mt-3 rounded-md border border-good-500/40 bg-good-50 px-3 py-2 text-[12.5px] text-good-700">{aviso}</p>}
-
         <p className="mt-2 text-[11.5px] text-muted">
           {informar === "acumulado"
             ? "Acumulado igual ao colhido até o dia anterior (ou vazio) apaga o lançamento do dia."
             : "Vazio ou 0 apaga o lançamento do dia."}{" "}
           A área colhida até o dia anterior inclui o saldo lançado antes do apontamento diário. Enter passa para o próximo talhão.
         </p>
-        <div className="mt-4 flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            onClick={gravar}
-            disabled={!podeGravar || salvando || !ordem}
-            className="rounded-lg bg-navy-900 px-5 py-2 text-[13px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
-          >
-            {salvando ? "Gravando…" : "Gravar apontamento (F2)"}
-          </button>
-        </div>
-      </section>
+      </JanelaFormulario>
 
       <Painel semEspaco titulo="Histórico de lançamentos">
         <div className="flex flex-wrap items-end gap-3 border-b border-line px-4 py-3">
@@ -649,7 +861,7 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
                                 type="button"
                                 onClick={() => editarLancamento(l)}
                                 className="mr-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface"
-                                title="Abrir a ordem e a data no formulário de cima"
+                                title="Abrir a ordem e a data na janela de lançamento"
                               >
                                 Abrir
                               </button>
@@ -680,6 +892,18 @@ export default function AreaColhidaTab({ ordens, referencia, ordemInicial, podeG
           </table>
         </div>
       </Painel>
+
+      {confirmar && (
+        <JanelaConfirmar
+          {...confirmar}
+          onCancelar={() => setConfirmar(null)}
+          onConfirmar={() => {
+            const acao = confirmar.acao;
+            setConfirmar(null);
+            acao();
+          }}
+        />
+      )}
     </div>
   );
 }

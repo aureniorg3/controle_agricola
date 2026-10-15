@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IconBusca, IconSetaDireita } from "@/components/icons";
+import { useJanela } from "@/components/janela";
 import { telasParaBusca } from "@/lib/menu";
 
 const CHAVE_RECENTES = "ca_recentes";
@@ -35,6 +36,8 @@ const normalizar = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase
  * Sem nada digitado, mostra as telas abertas por último e, depois, todas as do menu do usuário.
  */
 export default function PaletaComandos({ secoes, onFechar }) {
+  // aberta, fica por cima das janelas de lançamento: o F2 da página não abre um lançamento atrás dela
+  useJanela(true, { camada: 70 });
   const router = useRouter();
   const [termo, setTermo] = useState("");
   const [sel, setSel] = useState(0);
