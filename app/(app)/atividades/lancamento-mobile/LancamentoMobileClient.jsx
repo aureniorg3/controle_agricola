@@ -7,6 +7,7 @@ import {
   IconCompartilhar,
   IconCopiar,
   IconEditar,
+  IconEstrela,
   IconExcluir,
   IconFechar,
   IconMais,
@@ -108,6 +109,14 @@ const BOTAO_PRIMARIO =
 const BOTAO_WHATSAPP =
   "inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-crv-verde px-5 text-[16px] font-semibold text-white hover:bg-[#24724A] disabled:pointer-events-none disabled:opacity-50";
 const CARTAO = "rounded-xl2 border border-line bg-card shadow-card";
+
+/** Pessoas procuradas no aparelho: as favoritas ficam sempre; das outras, as últimas `MAX_RECENTES`. */
+const MAX_RECENTES = 8;
+const MAX_FAVORITAS = 20;
+const ehListaPessoas = (v) =>
+  Array.isArray(v) &&
+  v.length <= MAX_RECENTES + MAX_FAVORITAS &&
+  v.every((x) => x && typeof x.mat === "string" && x.mat.length <= 30 && typeof (x.nome ?? "") === "string" && typeof (x.area ?? "") === "string");
 const TITULO_PASSO = "font-display text-[21px] font-semibold leading-tight text-ink focus:outline-none";
 
 const nf = (n, c = 2) => (Number.isFinite(n) ? n.toLocaleString("pt-BR", { minimumFractionDigits: c, maximumFractionDigits: c }) : "—");
@@ -469,6 +478,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
   const [dt, setDt] = useState("");
   const [matricula, setMatricula] = usarPersistido("lancMobile.matricula", "", (v) => typeof v === "string" && v.length <= 20);
   const [soFalta, setSoFalta] = usarPersistido("lancMobile.soFalta", false, ehBooleano);
+  // últimas pessoas procuradas e as favoritas (★), neste aparelho e por usuário do sistema
+  const [pessoas, setPessoas] = usarPersistido(`lancMobile.pessoas.${nomeUsuario || "sem-usuario"}`, [], ehListaPessoas);
   const [matDigitada, setMatDigitada] = useState("");
   const [minhas, setMinhas] = useState(null); // { responsavel, ordens, mat, dt }
   const [buscandoOS, setBuscandoOS] = useState(false);
@@ -587,6 +598,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       if (!r) return;
       setMatricula(r.mat);
       setMatDigitada(r.mat);
+      lembrarPessoa(r);
       setPasso((p) => (p === 1 ? 2 : p));
     });
   }, [matricula, dt, buscarOS]);
@@ -800,6 +812,32 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
 
   // ------------------------------------------------------------------ passo 1: quem está lançando
 
+  /** Pessoa encontrada vai para o topo das últimas consultas (favorita continua favorita). */
+  function lembrarPessoa(r) {
+    const mat = String(r.mat ?? "").trim();
+    if (!mat) return;
+    const nome = String(r.responsavel?.nome || r.ordens?.find((o) => o.resp)?.resp || "").slice(0, 80);
+    const area = String(r.responsavel?.area ?? "").slice(0, 60);
+    setPessoas((lista) => {
+      const antiga = lista.find((x) => mesmaMatricula(x.mat, mat));
+      const nova = { mat, nome: nome || antiga?.nome || "", area: area || antiga?.area || "", fav: !!antiga?.fav };
+      const todas = [nova, ...lista.filter((x) => !mesmaMatricula(x.mat, mat))];
+      const favoritas = new Set(todas.filter((x) => x.fav).slice(0, MAX_FAVORITAS));
+      const recentes = new Set(todas.filter((x) => !x.fav).slice(0, MAX_RECENTES));
+      // a ordem guardada é a das consultas (a mais recente primeiro); a tela separa as favoritas
+      return todas.filter((x) => favoritas.has(x) || recentes.has(x));
+    });
+  }
+
+  function alternarFavorita(mat) {
+    setPessoas((lista) => {
+      const favoritas = lista.filter((x) => x.fav).length;
+      return lista.map((x) => (mesmaMatricula(x.mat, mat) ? { ...x, fav: x.fav ? false : favoritas < MAX_FAVORITAS } : x));
+    });
+  }
+
+  const esquecerPessoa = (mat) => setPessoas((lista) => lista.filter((x) => !mesmaMatricula(x.mat, mat)));
+
   /**
    * Busca as O.S. de quem lança: pela matrícula escolhida nas sugestões (`valor`) ou pelo digitado. Digitado um nome (ou
    * trecho dele), vale o único responsável que casa; com mais de um, pede para escolher na lista.
@@ -832,6 +870,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       if (!r) return;
       setMatricula(r.mat);
       setMatDigitada(r.mat);
+      lembrarPessoa(r);
       if (outra) {
         zerarLancamento();
         setResultado(null);
@@ -1681,6 +1720,17 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                 </button>
               </form>
               {erroMat && <Aviso msg={{ texto: erroMat, erro: true }} onFechar={() => setErroMat(null)} />}
+              <PessoasSalvas
+                lista={pessoas}
+                atual={minhas?.mat}
+                ocupado={buscandoOS}
+                onEscolher={(x) => {
+                  setMatDigitada(x.mat);
+                  buscarMatricula(null, x.mat);
+                }}
+                onFavorita={alternarFavorita}
+                onEsquecer={esquecerPessoa}
+              />
               {minhas && !buscandoOS && (
                 <div className={`${CARTAO} p-3`}>
                   <Pessoa nome={nomePessoa} mat={minhas.mat} area={minhas.responsavel?.area} />
@@ -1723,6 +1773,16 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                       Trocar
                     </button>
                   </div>
+                )}
+                {minhas && pessoas.some((x) => x.fav && !mesmaMatricula(x.mat, minhas.mat)) && (
+                  <AtalhosFavoritas
+                    lista={pessoas.filter((x) => x.fav && !mesmaMatricula(x.mat, minhas.mat))}
+                    ocupado={buscandoOS}
+                    onEscolher={(x) => {
+                      setMatDigitada(x.mat);
+                      buscarMatricula(null, x.mat);
+                    }}
+                  />
                 )}
                 <div className="flex items-center gap-3 p-3">
                   <label htmlFor="lm-dt" className="w-24 flex-shrink-0 text-[13px] font-medium leading-tight text-muted">
@@ -3939,6 +3999,110 @@ function teclasDaLista(e, { aberta, n, ativo, setAtivo, setAberta, escolher, fec
     e.preventDefault();
     fechar();
   }
+}
+
+/**
+ * Favoritas (★, sempre aqui) e as últimas pessoas procuradas neste aparelho: tocar busca as O.S. dela; a estrela marca ou
+ * tira dos favoritos; o × tira das últimas consultas.
+ */
+function PessoasSalvas({ lista, atual, ocupado, onEscolher, onFavorita, onEsquecer }) {
+  if (!lista.length) return null;
+  const favoritas = lista.filter((x) => x.fav);
+  const recentes = lista.filter((x) => !x.fav);
+  const linha = (x) => {
+    const emUso = !!atual && mesmaMatricula(x.mat, atual);
+    const quem = x.nome || `matrícula ${x.mat}`;
+    return (
+      <li key={x.mat} className="flex items-center gap-1 py-1">
+        <button
+          type="button"
+          disabled={ocupado}
+          onClick={() => onEscolher(x)}
+          className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2E5FA8] disabled:opacity-60"
+          aria-label={`Lançar como ${quem}, matrícula ${x.mat}${emUso ? " (em uso)" : ""}`}
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[14.5px] font-semibold text-ink">{x.nome || "Sem nome no cadastro"}</span>
+            <span className="block truncate text-[12.5px] text-muted tabular">
+              Mat. {x.mat}
+              {x.area ? ` · ${x.area}` : ""}
+            </span>
+          </span>
+          {emUso && <span className="flex-shrink-0 rounded-full bg-good-50 px-2 py-0.5 text-[11px] font-semibold text-good-600">em uso</span>}
+        </button>
+        <button
+          type="button"
+          onClick={() => onFavorita(x.mat)}
+          aria-pressed={!!x.fav}
+          aria-label={x.fav ? `Tirar ${quem} dos favoritos` : `Marcar ${quem} como favorito`}
+          title={x.fav ? "Tirar dos favoritos" : "Marcar como favorito (fica sempre aqui)"}
+          className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2E5FA8] ${
+            x.fav ? "text-amber-500" : "text-muted"
+          }`}
+        >
+          <IconEstrela size={20} cheia={!!x.fav} />
+        </button>
+        {!x.fav && (
+          <button
+            type="button"
+            onClick={() => onEsquecer(x.mat)}
+            aria-label={`Tirar ${quem} das últimas consultas`}
+            title="Tirar das últimas consultas"
+            className="flex h-11 w-9 flex-shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2E5FA8]"
+          >
+            <IconFechar size={15} />
+          </button>
+        )}
+      </li>
+    );
+  };
+  return (
+    <div className={`${CARTAO} space-y-2 p-3`}>
+      {favoritas.length > 0 && (
+        <section aria-label="Favoritos">
+          <h3 className="flex items-center gap-1.5 text-[12.5px] font-semibold text-muted">
+            <IconEstrela size={14} cheia className="text-amber-500" /> Favoritos
+          </h3>
+          <ul className="divide-y divide-line">{favoritas.map(linha)}</ul>
+        </section>
+      )}
+      {recentes.length > 0 && (
+        <section aria-label="Últimas consultas">
+          <h3 className="text-[12.5px] font-semibold text-muted">Últimas consultas</h3>
+          <ul className="divide-y divide-line">{recentes.map(linha)}</ul>
+        </section>
+      )}
+      <p className="text-[11.5px] text-muted">
+        Toque no nome para lançar como essa pessoa; a estrela deixa ela sempre aqui. Fica guardado neste aparelho.
+      </p>
+    </div>
+  );
+}
+
+/** Passo 2: as favoritas (menos a que está em uso) para trocar de pessoa com um toque. */
+function AtalhosFavoritas({ lista, ocupado, onEscolher }) {
+  return (
+    <div className="p-3">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-muted">
+        <IconEstrela size={13} cheia className="text-amber-500" /> Lançar como
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {lista.map((x) => (
+          <button
+            key={x.mat}
+            type="button"
+            disabled={ocupado}
+            onClick={() => onEscolher(x)}
+            title={`Matrícula ${x.mat}${x.area ? ` · ${x.area}` : ""}`}
+            aria-label={`Lançar como ${x.nome || "matrícula " + x.mat}, matrícula ${x.mat}`}
+            className="h-10 max-w-[220px] flex-shrink-0 truncate rounded-full border border-line bg-card px-3 text-[13px] font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2E5FA8] disabled:opacity-60"
+          >
+            {x.nome ? x.nome.split(/\s+/).slice(0, 2).join(" ") : `Mat. ${x.mat}`}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /**

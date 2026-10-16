@@ -530,6 +530,18 @@ export function IconCopiar(p) {
   );
 }
 
+/** Estrela de favorito: `cheia` pinta por dentro (marcado). */
+export function IconEstrela({ cheia = false, ...p }) {
+  return (
+    <Svg {...p}>
+      <path
+        d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8Z"
+        fill={cheia ? "currentColor" : "none"}
+      />
+    </Svg>
+  );
+}
+
 /** Compartilhar / enviar (a mensagem no grupo do WhatsApp). */
 export function IconCompartilhar(p) {
   return (
