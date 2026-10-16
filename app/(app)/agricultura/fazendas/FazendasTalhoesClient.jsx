@@ -29,6 +29,21 @@ const areaDoTalhao = (t) => (t.areaTlh > 0 ? t.areaTlh : t.somaPartes > 0 ? r3(t
  * ou sem filtro: o filtro escolhe os talhões, mas não faz parecer divergente o talhão que entrou só com algumas partes
  */
 const diverge = (t) => t.inteiro.partes.length > 1 && t.areaTlh > 0 && Math.abs(t.areaTlh - t.inteiro.somaPartes) > 0.005;
+/**
+ * Partes do mesmo talhão (de todas as partes dele, `inteiro`) com a mesma data de plantio, variedade, estágio de corte
+ * e espaçamento: podem virar uma parte só no ERP (sistema agrícola). Parte sem variedade e sem plantio (carreador, APP…)
+ * não entra. Devolve os grupos de 2 ou mais partes, na ordem da 1ª parte de cada um.
+ */
+function partesIguais(partes) {
+  const grupos = new Map();
+  for (const p of partes) {
+    if (!String(p.variedade ?? "").trim() && !p.plantio) continue;
+    const k = [p.plantio ?? "", String(p.variedade ?? "").trim().toUpperCase(), p.estagio ?? "", p.esp ?? ""].join("|");
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(p);
+  }
+  return [...grupos.values()].filter((g) => g.length > 1);
+}
 /** diferença em ha com sinal (+1,25 / -0,40); zero sem sinal */
 const nfSinal = (n) => (Math.abs(n) > 0.005 ? `${n > 0 ? "+" : ""}${nf(n)}` : nf(0));
 const qtd = (n, um, varios) => `${int(n)} ${n === 1 ? um : varios}`;
@@ -204,6 +219,9 @@ export default function FazendasTalhoesClient({ perfil, acessos = null }) {
       fora: r3(area - producao),
       areaPartes: r3(fazendas.reduce((s, f) => s + f.areaPartes, 0)),
       divergentes: talhoes.filter(diverge).length,
+      // talhões com partes iguais (podem ser agrupadas no ERP) e quantos grupos
+      agrupar: talhoes.filter((t) => partesIguais(t.inteiro.partes).length > 0).length,
+      gruposAgrupar: talhoes.reduce((n, t) => n + partesIguais(t.inteiro.partes).length, 0),
     };
   }, [fazendas]);
 
@@ -275,6 +293,14 @@ export default function FazendasTalhoesClient({ perfil, acessos = null }) {
       cor: "laranja",
       apoio: "Talhões com várias partes cuja soma não bate",
       title: "Ver o detalhe · nesses talhões a soma da Área Parte é diferente da Área Talhão; o apontamento usa a Área Talhão.",
+    },
+    {
+      k: "agrupar",
+      rotulo: "Partes para agrupar",
+      valor: int(totais.agrupar),
+      cor: totais.agrupar > 0 ? "laranja" : "cinza",
+      apoio: "Talhões com partes iguais: plantio, variedade, estágio e espaçamento",
+      title: "Ver o detalhe · essas partes têm os mesmos dados e podem ser agrupadas numa parte só no ERP.",
     },
   ];
 
@@ -404,7 +430,7 @@ export default function FazendasTalhoesClient({ perfil, acessos = null }) {
             {erro && <p className="mb-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
 
             {/* cada card abre a janela com o detalhe dos mesmos números (mesmos filtros) */}
-            <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
               {cards.map((c) => (
                 <button
                   key={c.k}
@@ -514,6 +540,7 @@ export default function FazendasTalhoesClient({ perfil, acessos = null }) {
       {janela === "fora" && <JanelaForaProducao fazendas={fazendas} totais={totais} base={baseJanela} />}
       {janela === "partes" && <JanelaSomaPartes fazendas={fazendas} totais={totais} base={baseJanela} />}
       {janela === "divergentes" && <JanelaDivergentes fazendas={fazendas} totais={totais} algumFiltro={algumFiltro} base={baseJanela} />}
+      {janela === "agrupar" && <JanelaAgrupar fazendas={fazendas} totais={totais} algumFiltro={algumFiltro} base={baseJanela} />}
       {importar && (
         <ImportarTalhoesModal
           onFechar={async (importada) => {
@@ -1112,8 +1139,84 @@ function JanelaDivergentes({ fazendas, totais, algumFiltro, base }) {
   );
 }
 
+/**
+ * Card Partes para agrupar: os talhões com duas ou mais partes com a mesma data de plantio, variedade, estágio de corte
+ * e espaçamento — uma linha por grupo de partes iguais (um talhão pode ter mais de um grupo). Sempre com todas as
+ * partes do talhão (`inteiro`), como em Validações; o filtro só escolhe os talhões.
+ */
+function JanelaAgrupar({ fazendas, totais, algumFiltro, base }) {
+  const linhas = useMemo(
+    () =>
+      fazendas.flatMap((f) =>
+        f.talhoes.flatMap((t) =>
+          partesIguais(t.inteiro.partes).map((g) => ({ f, t, g, area: r3(g.reduce((s, p) => s + (p.areaParte ?? 0), 0)) })),
+        ),
+      ),
+    [fazendas],
+  );
+  const colunas = [
+    colCodigo,
+    colFazenda(base.onFazenda),
+    { rotulo: "Talhão", num: "cod", valor: (z) => z.t.tlh, classe: () => "font-medium text-ink" },
+    { rotulo: "Bloco", num: "cod", valor: (z) => z.t.bloco, classe: () => "text-muted" },
+    { rotulo: "Partes iguais", valor: (z) => z.g.map((p) => p.parte).join(", "), classe: () => DESTAQUE },
+    { rotulo: "Qtd. partes", num: "int", valor: (z) => z.g.length, total: linhas.reduce((s, z) => s + z.g.length, 0) },
+    { rotulo: "Partes do talhão", num: "int", valor: (z) => z.t.inteiro.partes.length, classe: () => "text-muted" },
+    { rotulo: "Data de plantio", valor: (z) => data(z.g[0].plantio) || "–" },
+    { rotulo: "Variedade", valor: (z) => z.g[0].variedade || "–" },
+    { rotulo: "Estágio de corte", num: "cod", valor: (z) => z.g[0].estagio ?? "–" },
+    { rotulo: "Espaçamento", num: "cod", valor: (z) => (z.g[0].esp ? nf(z.g[0].esp, 1) : "–") },
+    {
+      rotulo: "Área das partes (ha)",
+      num: "ha",
+      valor: (z) => z.area,
+      total: r3(linhas.reduce((s, z) => s + z.area, 0)),
+      dica: (z) => `Área de cada parte (ha): ${areasDasPartes(z.g)}`,
+    },
+  ];
+  return (
+    <JanelaCard
+      titulo="Partes para agrupar"
+      base={base}
+      largura="6xl"
+      inconsistencias
+      exportar={{ nome: "Partes para agrupar no ERP", colunas, linhas }}
+    >
+      {totais.agrupar > 0 ? (
+        <Nota>
+          {qtd(totais.agrupar, "talhão", "talhões")} com partes que têm a mesma data de plantio, variedade, estágio de corte e espaçamento (
+          {qtd(totais.gruposAgrupar, "grupo", "grupos")} de partes iguais): elas podem ser agrupadas numa parte só no ERP (sistema agrícola); depois,
+          reimporte o Relatório de Talhões. Partes sem variedade e sem plantio (carreador, APP…) não entram.
+          {algumFiltro ? " Com filtro, entram os talhões que têm alguma parte no filtro, mas a comparação é com todas as partes do talhão." : ""}
+        </Nota>
+      ) : (
+        <Nota>Nenhum talhão com partes iguais (mesma data de plantio, variedade, estágio de corte e espaçamento).</Nota>
+      )}
+      <TabelaJanela
+        colunas={colunas}
+        linhas={linhas}
+        chave={(z) => `${z.f.propCod}|${z.t.tlh}|${z.g.map((p) => p.parte).join(",")}`}
+        vazio="Nenhum talhão com partes iguais no filtro."
+      />
+    </JanelaCard>
+  );
+}
+
 /** Talhões e partes de uma fazenda: a primeira parte de cada talhão traz o talhão, a ocupação e a área do talhão. */
 function TalhoesDaFazenda({ fazenda }) {
+  // parte → as outras partes iguais a ela no talhão (para a marca "agrupar")
+  const iguaisPorTalhao = useMemo(() => {
+    const m = new Map();
+    for (const t of fazenda.talhoes) {
+      const porParte = new Map();
+      for (const g of partesIguais(t.inteiro.partes)) {
+        for (const p of g) porParte.set(p.parte, g.filter((x) => x.parte !== p.parte).map((x) => x.parte));
+      }
+      m.set(t.tlh, porParte);
+    }
+    return m;
+  }, [fazenda]);
+  const iguais = (t) => iguaisPorTalhao.get(t.tlh) ?? new Map();
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-card">
       <table className="w-full text-[12px]" data-sem-ordenar>
@@ -1174,7 +1277,19 @@ function TalhoesDaFazenda({ fazenda }) {
                     </span>
                   )}
                 </td>
-                <td className="px-2.5 py-1 text-right tabular text-ink">{p.parte}</td>
+                <td className="whitespace-nowrap px-2.5 py-1 text-right tabular text-ink">
+                  {iguais(t).has(p.parte) && (
+                    <span
+                      className="mr-1 rounded bg-amber-50 px-1 text-[10.5px] font-semibold text-amber-700"
+                      title={`Mesma data de plantio, variedade, estágio de corte e espaçamento que a(s) parte(s) ${iguais(t)
+                        .get(p.parte)
+                        .join(", ")}: pode ser agrupada no ERP`}
+                    >
+                      agrupar
+                    </span>
+                  )}
+                  {p.parte}
+                </td>
                 <td className="px-2.5 py-1 text-ink">{p.variedade}</td>
                 <td className="px-2.5 py-1 text-right tabular text-ink">{p.estagio ?? ""}</td>
                 <td className="px-2.5 py-1 text-muted">{p.ambiente}</td>
