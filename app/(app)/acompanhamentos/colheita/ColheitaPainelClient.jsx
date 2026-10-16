@@ -100,7 +100,13 @@ export default function ColheitaPainelClient({ safras, dimensoes, variedadeCorte
   const [busca, setBusca] = usarPersistido("colheita.busca", "", ehTexto);
   const [verTudo, setVerTudo] = usarPersistido("colheita.verTudo", false, ehBooleano);
   // tipos de propriedade marcados (vazio = todas as propriedades): valem para a tela toda — caixas, tabelas e janelas
-  const [tiposSel, setTiposSel] = usarPersistido("colheita.tiposPropriedade", [], ehListaTexto);
+  const [tiposGuardados, setTiposSel] = usarPersistido("colheita.tiposPropriedade", [], ehListaTexto);
+  // tipo lembrado que não existe mais no Cadastro de Fazenda (ex.: o antigo "S"/"F" da coluna Tipo de Propriedade) não
+  // vale — senão a tela zera com um filtro que ninguém vê marcado
+  const tiposSel = useMemo(() => {
+    const existentes = new Set(tipos.map((o) => o.cod));
+    return tiposGuardados.filter((t) => existentes.has(t));
+  }, [tiposGuardados, tipos]);
   const algumFiltroAtivo = busca !== "" || verTudo !== false || tiposSel.length > 0;
   function limparFiltros() {
     setBusca("");
