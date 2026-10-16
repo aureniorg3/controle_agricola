@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
 import {
+  DIAS_VERIFICAR_OS,
   excluirApontamento,
   listarApontamentos,
   opcoesApontamento,
   proximoBoletimAtividade,
   salvarApontamento,
-  verificarSemOS,
+  verificarOSDoPeriodo,
   vincularOS,
 } from "@/lib/db-atividades";
 import { analisarConferencia, conferirApontamento, niveisConferencia } from "@/lib/db-conferencia-bot";
@@ -53,7 +54,18 @@ export async function GET(req) {
   if (!ISO.test(de) || !ISO.test(ate) || de > ate) return NextResponse.json({ error: "Informe um período válido." }, { status: 400 });
   // `?conferencia=lista` o resultado da conferência dos apontamentos a conferir do período (selo da lista)
   if (conf === "lista") return NextResponse.json({ niveis: await niveisConferencia(de, ate) });
-  if (p.get("verificar") !== null) return NextResponse.json({ semOS: await verificarSemOS(de, ate) });
+  // `?verificar=1` Verificar O.S.: os apontamentos do período (de qualquer origem) sem O.S. ou fora dela, com as O.S. em
+  // aberto compatíveis; período limitado (a varredura lê todos os apontamentos dele)
+  if (p.get("verificar") !== null) {
+    const dias = Math.round((Date.parse(ate) - Date.parse(de)) / 86400000) + 1;
+    if (dias > DIAS_VERIFICAR_OS) {
+      return NextResponse.json(
+        { error: `Para verificar as O.S., use um período de até ${DIAS_VERIFICAR_OS} dias (o da lista tem ${dias}).` },
+        { status: 400 },
+      );
+    }
+    return NextResponse.json(await verificarOSDoPeriodo(de, ate));
+  }
   const boletim = Number(p.get("boletim") ?? "");
   return NextResponse.json({
     apontamentos: await listarApontamentos({ de, ate, os: p.get("os") ?? "", boletim: Number.isInteger(boletim) && boletim > 0 ? boletim : undefined }),
@@ -114,7 +126,7 @@ export async function DELETE(req) {
   return NextResponse.json({ ok: true });
 }
 
-/** Confere um apontamento do bot, ou liga um apontamento lançado sem O.S. à O.S. encontrada na verificação (ou informada na correção). */
+/** Confere um apontamento do bot, ou liga um apontamento à O.S. encontrada na Verificar O.S. (ou informada na correção). */
 export async function PATCH(req) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
@@ -132,7 +144,11 @@ export async function PATCH(req) {
   }
   const os = typeof b?.os === "string" ? b.os.replace(/\D/g, "") : "";
   if (!Number.isInteger(id) || !os) return NextResponse.json({ error: "Informe o apontamento e a O.S." }, { status: 400 });
-  const r = await vincularOS(id, os, usuario.nome);
-  if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 400 });
+  // `opCod`: a operação da O.S. escolhida (sem ela, a do apontamento); `versao`: a do apontamento verificado na tela
+  const r = await vincularOS(id, os, usuario.nome, {
+    opCod: typeof b.opCod === "string" ? b.opCod : undefined,
+    versao: typeof b.versao === "string" ? b.versao : "",
+  });
+  if ("erro" in r) return NextResponse.json({ error: r.erro, mudou: r.mudou }, { status: r.status ?? 400 });
   return NextResponse.json(r);
 }

@@ -1124,7 +1124,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
               <Comando
                 icone={<IconBusca size={16} />}
                 onClick={() => setVerificar(true)}
-                title="Procura O.S. aberta para os apontamentos lançados sem O.S. no período da lista"
+                title="Varre os apontamentos do período da lista (tela, Lançamento Mobile e bot do WhatsApp) sem O.S. ou fora dela e procura as O.S. em aberto com as fazendas e os talhões lançados"
               >
                 Verificar O.S.
               </Comando>
@@ -1966,159 +1966,440 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
             setVerificar(false);
             if (mudou) carregarLista(true);
           }}
+          // "Usar esta O.S.": a edição abre com a O.S. escolhida, a operação e as áreas nos talhões dela (como na conferência)
+          onUsarOS={(a, candidata, respOS, mudou) => {
+            setVerificar(false);
+            if (mudou) carregarLista(true);
+            editar(a, { candidata, respOS });
+          }}
         />
       )}
     </Pagina>
   );
 }
 
-/** Apontamentos sem O.S. do período: procura a O.S. aberta da mesma operação e talhões, com campo para corrigir. */
-function VerificarOSModal({ de, ate, onFechar }) {
-  const [itens, setItens] = useState(null);
-  const [os, setOs] = useState({});
+/** Origem do apontamento na Verificar O.S. (selo e filtro). */
+const ORIGEM_VERIFICAR = {
+  mobile: { rotulo: "Lançamento Mobile", cor: "bg-brand-50 text-brand-700" },
+  bot: { rotulo: "Bot do WhatsApp", cor: "bg-good-50 text-good-600" },
+  tela: { rotulo: "Tela", cor: "bg-surface text-navy-800" },
+  carga: { rotulo: "Carga inicial", cor: "bg-amber-100 text-amber-800" },
+};
+
+/** Por que o apontamento entrou na Verificar O.S. */
+const MOTIVO_VERIFICAR = {
+  "sem-os": { rotulo: "Sem O.S.", resumo: "sem O.S.", cor: "bg-amber-100 text-amber-800" },
+  "os-fora-base": { rotulo: "O.S. fora da base", resumo: "com a O.S. fora da base", cor: "bg-alert-50 text-alert-600" },
+  "operacao-fora": { rotulo: "Operação fora da O.S.", resumo: "com a operação fora da O.S.", cor: "bg-alert-50 text-alert-600" },
+  "talhoes-fora": { rotulo: "Talhões fora da O.S.", resumo: "com talhões fora da O.S.", cor: "bg-alert-50 text-alert-600" },
+  codigo: { rotulo: "Código diferente do da O.S.", resumo: "com código diferente do da O.S.", cor: "bg-amber-100 text-amber-800" },
+};
+
+/**
+ * Verificar O.S.: os apontamentos do período da lista, de qualquer origem (tela, Lançamento Mobile, bot do WhatsApp e
+ * carga inicial), sem O.S. ou fora dela, com as O.S. em aberto na data que têm as fazendas e os talhões lançados.
+ * "Usar esta O.S." fecha a janela e abre a edição com a O.S., a operação e as áreas já nos talhões dela (como na
+ * conferência); "Ligar" grava direto, com os talhões passados para os códigos da O.S. (não confere o do bot).
+ */
+function VerificarOSModal({ de, ate, onFechar, onUsarOS }) {
+  const [dados, setDados] = useState(null);
+  const [erro, setErro] = useState(null);
+  const [filtro, setFiltro] = useState("todas");
+  const [osDigitada, setOsDigitada] = useState({});
+  /** id → o que foi ligado (o apontamento mudou: sem mais ações nele até verificar de novo) */
   const [feitos, setFeitos] = useState({});
   const [erros, setErros] = useState({});
   const [ocupado, setOcupado] = useState(null);
-  const [erro, setErro] = useState(null);
+  const [confirmar, setConfirmar] = useState(null);
+  /** algum apontamento foi ligado: ao fechar, a lista recarrega */
+  const [alterou, setAlterou] = useState(false);
+  /** só vale a resposta da última verificação */
+  const seq = useRef(0);
 
-  useEffect(() => {
-    fetch(`/api/atividades/apontamentos?verificar=1&de=${de}&ate=${ate}`, { cache: "no-store" })
-      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
-      .then(({ ok, j }) => {
-        if (!ok) return setErro(j.error ?? "Não foi possível verificar.");
-        const lista = j.semOS;
-        setItens(lista);
-        setOs(Object.fromEntries(lista.map((x) => [x.id, x.candidatos[0]?.os ?? ""])));
-      })
-      .catch(() => setErro("Não foi possível verificar."));
+  const carregar = useCallback(async () => {
+    const n = ++seq.current;
+    try {
+      const res = await fetch(`/api/atividades/apontamentos?${new URLSearchParams({ verificar: "1", de, ate })}`, { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      if (n !== seq.current) return;
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível verificar.");
+      setDados(j);
+    } catch (e) {
+      if (n === seq.current) setErro(e instanceof Error ? e.message : "Não foi possível verificar.");
+    }
   }, [de, ate]);
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
 
-  async function vincular(id) {
-    const numero = (os[id] ?? "").trim();
-    if (!numero) return;
-    setOcupado(id);
-    setErros((e) => ({ ...e, [id]: "" }));
+  function verificarDeNovo() {
+    if (ocupado) return;
+    setDados(null);
+    setErro(null);
+    setFeitos({});
+    setErros({});
+    setOsDigitada({});
+    carregar();
+  }
+
+  const fechar = () => !ocupado && onFechar(alterou);
+  useJanela(true, { onEsc: fechar });
+  // clicar fora fecha (gravando, não); a barra de rolagem do fundo e a seleção arrastada para fora, não
+  const cliqueFora = useCliqueFora(fechar);
+
+  /** Liga o apontamento à O.S. (`opCod`: a operação da O.S. escolhida; sem ela, a do apontamento), na versão verificada. */
+  async function ligar(x, os, opCod) {
+    setOcupado(x.id);
+    setErros((m) => ({ ...m, [x.id]: "" }));
     try {
       const res = await fetch("/api/atividades/apontamentos", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, os: numero }),
+        body: JSON.stringify({ id: x.id, os, opCod, versao: x.apontamento.versao }),
       });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error ?? "Não foi possível corrigir.");
-      setFeitos((f) => ({
-        ...f,
-        [id]: j.foraDaOS?.length ? `Ligado à O.S. ${numero} (talhões fora da O.S.: ${j.foraDaOS.join(", ")})` : `Ligado à O.S. ${numero}`,
-      }));
+      if (!res.ok) throw new Error(j.error ?? "Não foi possível ligar a O.S.");
+      const partes = [`Ligado à O.S. ${j.os}, operação ${j.opCod}${j.opDs ? ` · ${j.opDs}` : ""}`];
+      if (j.acertados) partes.push(`${j.acertados} talhão(ões) passaram para o código da O.S.`);
+      if (j.foraDaOS?.length) partes.push(`ficaram fora da O.S., como estavam: ${j.foraDaOS.join(", ")}`);
+      setFeitos((f) => ({ ...f, [x.id]: `${partes.join("; ")}.${x.aConferir ? " Continua a conferir." : ""}` }));
+      setAlterou(true);
     } catch (e) {
-      setErros((x) => ({ ...x, [id]: e instanceof Error ? e.message : "Não foi possível corrigir." }));
+      setErros((m) => ({ ...m, [x.id]: e instanceof Error ? e.message : "Não foi possível ligar a O.S." }));
     } finally {
       setOcupado(null);
     }
   }
 
-  const mudou = Object.keys(feitos).length > 0;
-  useJanela(true, { onEsc: () => !ocupado && onFechar(mudou) });
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-xl2 bg-card p-5 shadow-pop">
-        <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-ink">Verificar O.S. dos apontamentos sem O.S.</h2>
-          <button type="button" onClick={() => onFechar(mudou)} aria-label="Fechar" className="px-1 text-[20px] leading-none text-muted">
+  /** "Ligar" de uma O.S. candidata: o que muda além da O.S. (operação, talhões de fora, área sem talhão) pede confirmação. */
+  function pedirLigar(x, c) {
+    if (ocupado) return;
+    const avisos = [];
+    if (x.os && semZeros(x.os) !== semZeros(c.os)) avisos.push(`A O.S. ${x.os} do boletim é trocada pela ${c.os}.`);
+    const operacao = `${c.opCod} · ${c.opDs || "sem descrição"}`;
+    if (!x.opCod) avisos.push(`O boletim está sem operação: fica a ${operacao}, da O.S.`);
+    else if (semZeros(x.opCod) !== semZeros(c.opCod)) avisos.push(`A operação ${x.opCod} do boletim é trocada pela ${operacao}, da O.S.`);
+    if (c.sobras?.length) avisos.push(`Ficam fora da O.S. ${c.os}, como estão: ${c.sobras.join("; ")}.`);
+    const rateada = x.apontamento.talhoes.some(
+      (t) => !String(t.tlh ?? "").trim() && t.area > 0 && !(c.sobras ?? []).some((s) => s.startsWith(`${t.propCod} (sem talhão)`)),
+    );
+    if (rateada) avisos.push("A área sem talhão é rateada nos talhões da O.S. naquela fazenda.");
+    if (avisos.length === 0) return ligar(x, c.os, c.opCod);
+    setConfirmar({
+      titulo: `Ligar o boletim nº ${x.boletim ?? x.id} à O.S. ${c.os}?`,
+      texto: `${avisos.map((a) => `• ${a}`).join("\n")}\n\nOs talhões passam para os códigos da O.S. ${c.os}.${x.aConferir ? " O apontamento do bot continua a conferir." : ""}`,
+      botao: "Ligar",
+      acao: () => ligar(x, c.os, c.opCod),
+    });
+  }
+
+  /** "Ligar" com o nº digitado: a operação é a do boletim (tem de estar na O.S.). */
+  function ligarDigitada(x) {
+    const os = (osDigitada[x.id] ?? "").trim();
+    if (!os || ocupado) return;
+    if (x.os && semZeros(x.os) !== semZeros(os)) {
+      return setConfirmar({
+        titulo: `Trocar a O.S. do boletim nº ${x.boletim ?? x.id}?`,
+        texto: `A O.S. ${x.os} do boletim é trocada pela ${os}, com a operação ${x.opCod || "do boletim"}. Os talhões passam para os códigos da O.S. ${os}; os que não estão nela ficam como estão.`,
+        botao: "Ligar",
+        acao: () => ligar(x, os),
+      });
+    }
+    ligar(x, os);
+  }
+
+  const itens = dados?.itens ?? [];
+  const contagem = { todas: itens.length };
+  for (const x of itens) contagem[x.origem] = (contagem[x.origem] ?? 0) + 1;
+  const filtros = [
+    ["todas", "Todas"],
+    ["mobile", ORIGEM_VERIFICAR.mobile.rotulo],
+    ["bot", ORIGEM_VERIFICAR.bot.rotulo],
+    ["tela", ORIGEM_VERIFICAR.tela.rotulo],
+    ...(contagem.carga || filtro === "carga" ? [["carga", ORIGEM_VERIFICAR.carga.rotulo]] : []),
+  ];
+  const visiveis = filtro === "todas" ? itens : itens.filter((x) => x.origem === filtro);
+  const porMotivo = Object.entries(MOTIVO_VERIFICAR)
+    .map(([k, m]) => [m.resumo, itens.filter((x) => x.motivo === k).length])
+    .filter(([, n]) => n > 0);
+
+  return createPortal(
+    <div
+      translate="no"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-navy-950/50 px-3 py-6"
+      {...cliqueFora}
+    >
+      <div role="dialog" aria-modal="true" aria-label="Verificar O.S. dos apontamentos" className="w-full max-w-7xl rounded-xl2 bg-card shadow-pop">
+        <header className="flex items-start gap-3 border-b border-line px-5 py-3.5">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[16px] font-semibold text-ink">Verificar O.S. dos apontamentos</h2>
+            <div className="mt-0.5 text-[12.5px] text-muted">
+              Período de {fmtDateBR(de)} a {fmtDateBR(ate)} (o da lista) · tela, Lançamento Mobile e bot do WhatsApp · Esc fecha
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={fechar}
+            aria-label="Fechar"
+            title="Fechar (Esc)"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[20px] leading-none text-muted hover:bg-surface"
+          >
             ×
           </button>
+        </header>
+
+        <div className="space-y-3 px-5 py-4">
+          <p className="text-[12px] text-muted">
+            Mostra os apontamentos sem O.S., com a O.S. fora da base, com a operação ou talhões fora da O.S. ou com código diferente do da O.S. Para cada um,
+            as O.S. em aberto na data com as fazendas e os talhões lançados (sem zeros à esquerda e sem a sequência da fazenda): a operação lançada primeiro;
+            as de outra operação vêm marcadas. &quot;Usar esta O.S.&quot; abre a edição com a O.S., a operação e as áreas nos talhões dela, para conferir e
+            gravar; &quot;Ligar&quot; grava direto, com os talhões nos códigos da O.S. Ligar não confere o apontamento do bot.
+          </p>
+          {erro && <Aviso msg={{ texto: erro, erro: true }} />}
+          {!dados && !erro && <p className="py-6 text-center text-[12.5px] text-muted">Verificando os apontamentos do período…</p>}
+
+          {dados && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Origem">
+                {filtros.map(([k, t]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setFiltro(k)}
+                    aria-pressed={filtro === k}
+                    className={`rounded-full border px-3 py-1 text-[12px] font-medium ${filtro === k ? "border-navy-900 bg-navy-900 text-white" : "border-line bg-card text-navy-800 hover:bg-surface"}`}
+                  >
+                    {t} ({contagem[k] ?? 0})
+                  </button>
+                ))}
+              </div>
+              <span className="text-[12px] text-muted">
+                {itens.length} de {dados.analisados} apontamento(s) do período para ver
+                {porMotivo.length > 0 && <> · {porMotivo.map(([r, n]) => `${n} ${r}`).join(" · ")}</>}
+              </span>
+            </div>
+          )}
+
+          {dados && itens.length === 0 && (
+            <p className="rounded-md border border-line bg-surface px-3 py-3 text-[12.5px] text-muted">
+              Todos os {dados.analisados} apontamento(s) do período estão na O.S., com a operação e os talhões dela.
+            </p>
+          )}
+          {dados && itens.length > 0 && visiveis.length === 0 && (
+            <p className="rounded-md border border-line bg-surface px-3 py-3 text-[12.5px] text-muted">Nenhum apontamento desta origem para ver.</p>
+          )}
+
+          {visiveis.length > 0 && (
+            <ul className="space-y-3">
+              {visiveis.map((x) => {
+                const origem = ORIGEM_VERIFICAR[x.origem] ?? ORIGEM_VERIFICAR.tela;
+                const motivo = MOTIVO_VERIFICAR[x.motivo];
+                const fora = new Set(x.fora ?? []);
+                const fazendas = new Map();
+                for (const t of x.apontamento.talhoes) {
+                  if (!fazendas.has(t.propCod)) fazendas.set(t.propCod, { nm: t.propNm, ts: [] });
+                  fazendas.get(t.propCod).ts.push(t);
+                }
+                const feito = feitos[x.id];
+                return (
+                  <li key={x.id} className="overflow-hidden rounded-lg border border-line">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line/60 bg-surface px-3 py-2 text-[12.5px]">
+                      <span className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold ${origem.cor}`}>
+                        {origem.rotulo}
+                        {x.aConferir ? " · a conferir" : ""}
+                      </span>
+                      {motivo && <span className={`whitespace-nowrap rounded px-1.5 py-0.5 text-[10.5px] font-semibold ${motivo.cor}`}>{motivo.rotulo}</span>}
+                      <span className="font-semibold text-ink">Boletim nº {x.boletim ?? `#${x.id}`}</span>
+                      <span className="tabular text-muted">{fmtDateBR(x.dt)}</span>
+                      <span className="text-ink">{x.os ? `O.S. ${x.os}` : "Sem O.S."}</span>
+                      <span className="min-w-0 max-w-[320px] truncate text-ink" title={x.opDs || undefined}>
+                        {x.opCod ? `${x.opCod} · ${x.opDs || "sem descrição"}` : <span className="text-alert-600">Sem operação</span>}
+                      </span>
+                      <span className="ml-auto whitespace-nowrap tabular font-semibold text-ink">{nf(x.area)} ha</span>
+                    </div>
+                    <div className="space-y-2 px-3 py-2">
+                      <div className="text-[12px] leading-relaxed text-muted">
+                        {x.apontamento.talhoes.length === 0
+                          ? "Sem talhão nem área."
+                          : [...fazendas].map(([cod, f]) => (
+                              <span key={cod} className="mr-3 inline-block">
+                                <span className="font-medium text-ink">{cod}</span>
+                                {f.nm && <span> · {f.nm}</span>}:{" "}
+                                {f.ts.map((t, i) => (
+                                  <span key={i} className={fora.has(chaveTalhao(t.propCod, t.tlh)) ? "font-semibold text-alert-600" : "text-ink"}>
+                                    {String(t.tlh ?? "").trim() || "sem talhão"} ({nf(t.area)}){i < f.ts.length - 1 ? ", " : ""}
+                                  </span>
+                                ))}
+                              </span>
+                            ))}
+                      </div>
+                      {x.motivo !== "sem-os" && <p className="text-[12px] text-ink">{x.motivoTexto}</p>}
+
+                      {feito ? (
+                        <p className="rounded-md border border-good-500/40 bg-good-50 px-3 py-1.5 text-[12.5px] text-good-600">{feito}</p>
+                      ) : x.candidatas.length === 0 ? (
+                        <p className="rounded-md border border-line bg-surface px-3 py-1.5 text-[12.5px] text-muted">
+                          Nenhuma O.S. em aberto em {fmtDateBR(x.dt)} com as fazendas lançadas. Confira a fazenda e a data, ou mantenha como está.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto rounded-lg border border-line">
+                          <table className="w-full min-w-[980px] text-[12.5px]">
+                            <thead className="bg-surface text-left text-muted">
+                              <tr>
+                                <th className="px-3 py-1.5 font-medium">O.S.</th>
+                                <th className="px-3 py-1.5 font-medium">Operação</th>
+                                <th className="px-3 py-1.5 font-medium">Situação · emissão</th>
+                                <th className="px-3 py-1.5 font-medium">Responsável</th>
+                                <th className="px-3 py-1.5 font-medium" title="Talhões lançados que estão na O.S. e a área de cada um já no talhão da O.S.">
+                                  Talhões · áreas na O.S.
+                                </th>
+                                <th className="px-3 py-1.5 text-right font-medium">Área coberta</th>
+                                <th className="px-3 py-1.5 text-right font-medium">Saldo</th>
+                                <th className="w-[124px]" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {x.candidatas.map((c) => {
+                                const areas = Object.entries(c.areas ?? {}).map(([k, v]) => `${nomeChave(k)}: ${nf(v)}`);
+                                return (
+                                  <tr key={`${c.os}|${c.opCod}`} className="border-t border-line/60 align-top">
+                                    <td className="px-3 py-1.5">
+                                      <div className="tabular font-semibold text-ink">{c.os}</div>
+                                      <div className="flex max-w-[110px] flex-wrap gap-1">
+                                        {c.atual && <span className="whitespace-nowrap rounded bg-surface px-1 text-[10.5px] font-medium text-muted">a do apontamento</span>}
+                                        {/* citada na mensagem: só no que veio do WhatsApp (nos outros, "citada" é a própria O.S. gravada) */}
+                                        {c.citada && !c.atual && (x.origem === "bot" || x.origem === "carga") && (
+                                          <span className="whitespace-nowrap rounded bg-brand-50 px-1 text-[10.5px] font-medium text-brand-700">citada na mensagem</span>
+                                        )}
+                                        {c.base === "antiga" && <span className="whitespace-nowrap rounded bg-surface px-1 text-[10.5px] text-muted">base antiga</span>}
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-1.5">
+                                      <div className="max-w-[190px] truncate" title={`${c.opCod} · ${c.opDs || "sem descrição"}`}>
+                                        {c.opCod} · {c.opDs || "sem descrição"}
+                                      </div>
+                                      {x.opCod && !c.mesmaOperacao && (
+                                        <span className="whitespace-nowrap rounded bg-amber-100 px-1 text-[10.5px] font-medium text-amber-800">outra operação</span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-1.5">
+                                      <span className={`inline-block max-w-[130px] rounded-md px-2 py-0.5 text-[11px] font-medium ${corStatus(c.situacao)}`}>{c.situacao}</span>
+                                      <div className="whitespace-nowrap text-[11px] tabular text-muted">{c.dtOs ? `emitida em ${fmtDateBR(c.dtOs)}` : "sem emissão"}</div>
+                                    </td>
+                                    <td className="px-3 py-1.5">
+                                      <div className="max-w-[130px] truncate" title={c.resp || undefined}>
+                                        {c.resp || "—"}
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-1.5" title={areas.length ? `Áreas nos talhões da O.S. (ha): ${areas.join(" · ")}` : undefined}>
+                                      <div className="whitespace-nowrap tabular">
+                                        {c.talhoesCobertos} de {c.talhoesApontados}
+                                        <span className="text-[11px] text-muted"> · {c.talhoesDaOS} na O.S.</span>
+                                      </div>
+                                      <div className="max-w-[230px] truncate text-[11px] tabular text-ink">{areas.length ? areas.join(" · ") : "—"}</div>
+                                      {c.sobras?.length > 0 && (
+                                        <div className="max-w-[230px] truncate text-[11px] text-amber-700" title={c.sobras.join("; ")}>
+                                          Fora: {c.sobras.join("; ")}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular">
+                                      {nf(c.areaCoberta)}
+                                      <div className="text-[11px] text-muted">de {nf(c.areaApontada)}</div>
+                                    </td>
+                                    <td
+                                      className={`whitespace-nowrap px-3 py-1.5 text-right tabular ${c.saldoOk ? "text-good-600" : "text-amber-700"}`}
+                                      title={c.saldoOk ? "A área lançada cabe no saldo de cada talhão" : "A área lançada passa do saldo em algum talhão (ou nenhum talhão casou)"}
+                                    >
+                                      {nf(c.saldo)}
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right">
+                                      {/* a do apontamento só quando ela acerta os códigos (O.S., operação, talhões) ou rateia área sem talhão */}
+                                      {(!c.atual || c.acerta) && (
+                                        <div className="flex flex-col items-stretch gap-1">
+                                          <button
+                                            type="button"
+                                            className={`${BOTAO} whitespace-nowrap`}
+                                            disabled={!!ocupado}
+                                            onClick={() => onUsarOS(x.apontamento, c, x.respOS ?? "", alterou)}
+                                            title="Fecha esta janela e abre a edição com esta O.S., a operação dela e as áreas já nos talhões dela; confira e grave"
+                                          >
+                                            Usar esta O.S.
+                                          </button>
+                                          {c.talhoesCobertos > 0 && (
+                                            <button
+                                              type="button"
+                                              className={`${BOTAO} whitespace-nowrap`}
+                                              disabled={!!ocupado}
+                                              onClick={() => pedirLigar(x, c)}
+                                              title="Grava direto: liga o apontamento a esta O.S. e operação, com os talhões nos códigos dela (os que não estão nela ficam como estão)"
+                                            >
+                                              {ocupado === x.id ? "…" : "Ligar"}
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {!feito && (
+                        <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                          <span className="text-muted">Outra O.S.:</span>
+                          <input
+                            value={osDigitada[x.id] ?? ""}
+                            onChange={(e) => setOsDigitada((o) => ({ ...o, [x.id]: e.target.value.replace(/\D/g, "") }))}
+                            onKeyDown={(e) => e.key === "Enter" && ligarDigitada(x)}
+                            placeholder="Nº da O.S."
+                            inputMode="numeric"
+                            className="w-[100px] rounded-md border border-line bg-card px-2 py-1 text-right tabular"
+                            aria-label={`Outra O.S. para o boletim ${x.boletim ?? x.id}`}
+                          />
+                          <button type="button" className={BOTAO} disabled={!osDigitada[x.id] || !!ocupado} onClick={() => ligarDigitada(x)}>
+                            {ocupado === x.id ? "…" : "Ligar"}
+                          </button>
+                          <span className="text-muted">com a operação do boletim{x.opCod ? ` (${x.opCod})` : ""}</span>
+                        </div>
+                      )}
+                      {erros[x.id] && <p className="text-[12px] text-alert-600">{erros[x.id]}</p>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
-        <p className="mb-3 text-[12.5px] text-muted">
-          Período de {fmtDateBR(de)} a {fmtDateBR(ate)} (o da lista de lançados). Para cada apontamento sem O.S., procura uma O.S. aberta com a mesma operação e
-          os mesmos talhões. Confira o número, corrija se precisar e clique em Ligar.
-        </p>
-        {erro && <p className="rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
-        {!itens && !erro && <p className="text-[12.5px] text-muted">Verificando…</p>}
-        {itens && itens.length === 0 && (
-          <p className="rounded-md border border-line bg-surface px-3 py-3 text-[12.5px] text-muted">Nenhum apontamento sem O.S. no período.</p>
-        )}
-        {itens && itens.length > 0 && (
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-line">
-            <table className="w-full text-[12.5px]">
-              <thead className="sticky top-0 bg-surface">
-                <tr className="border-b border-line text-left text-muted">
-                  <th className="px-3 py-1.5 font-medium">Boletim</th>
-                  <th className="px-3 py-1.5 font-medium">Data</th>
-                  <th className="px-3 py-1.5 font-medium">Fazenda</th>
-                  <th className="px-3 py-1.5 font-medium">Operação</th>
-                  <th className="px-3 py-1.5 text-right font-medium">Área (ha)</th>
-                  <th className="px-3 py-1.5 font-medium">O.S. encontrada</th>
-                  <th className="w-[200px] px-3 py-1.5 font-medium">Correção</th>
-                </tr>
-              </thead>
-              <tbody>
-                {itens.map((x) => {
-                  const melhor = x.candidatos[0];
-                  return (
-                    <tr key={x.id} className="border-t border-line/60 align-top">
-                      <td className="px-3 py-1.5 tabular font-medium text-ink">{x.boletim ?? `#${x.id}`}</td>
-                      <td className="px-3 py-1.5 tabular">{fmtDateBR(x.dt)}</td>
-                      <td className="max-w-[200px] px-3 py-1.5">{x.fazendas.join(" / ")}</td>
-                      <td className="max-w-[220px] px-3 py-1.5">
-                        {x.opCod} · {x.opDs}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular">{nf(x.area)}</td>
-                      <td className="px-3 py-1.5">
-                        {melhor ? (
-                          <div>
-                            <span className="font-medium text-ink">O.S. {melhor.os}</span>{" "}
-                            <span className="text-muted">
-                              · {melhor.talhoes} de {x.nTalhoes} talhão(ões) · {melhor.situacao}
-                            </span>
-                            {x.candidatos.length > 1 && (
-                              <div className="text-[11.5px] text-muted">
-                                Outras:{" "}
-                                {x.candidatos
-                                  .slice(1)
-                                  .map((c) => `${c.os} (${c.talhoes})`)
-                                  .join(", ")}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-amber-700">Realizado sem Ordem de Serviço</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        {feitos[x.id] ? (
-                          <span className="text-good-700">{feitos[x.id]}</span>
-                        ) : (
-                          <div className="flex gap-1.5">
-                            <input
-                              value={os[x.id] ?? ""}
-                              onChange={(e) => setOs((o) => ({ ...o, [x.id]: e.target.value.replace(/\D/g, "") }))}
-                              onKeyDown={(e) => e.key === "Enter" && vincular(x.id)}
-                              placeholder="Nº da O.S."
-                              inputMode="numeric"
-                              className="w-[100px] rounded-md border border-line bg-card px-2 py-1 text-right tabular"
-                              aria-label={`O.S. do boletim ${x.boletim ?? x.id}`}
-                            />
-                            <button type="button" className={BOTAO} disabled={!os[x.id] || ocupado === x.id} onClick={() => vincular(x.id)}>
-                              {ocupado === x.id ? "…" : "Ligar"}
-                            </button>
-                          </div>
-                        )}
-                        {erros[x.id] && <div className="mt-1 text-[11.5px] text-alert-700">{erros[x.id]}</div>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+
+        <footer className="flex flex-wrap items-center gap-2 border-t border-line px-5 py-3">
+          {alterou && <span className="text-[11.5px] text-good-600">A lista é atualizada ao fechar.</span>}
+          <div className="ml-auto flex flex-wrap gap-2">
+            <button type="button" className={BOTAO} onClick={verificarDeNovo} disabled={!!ocupado || (!dados && !erro)}>
+              Verificar de novo
+            </button>
+            <button type="button" className={BOTAO} onClick={fechar} disabled={!!ocupado}>
+              Fechar
+            </button>
           </div>
-        )}
-        <div className="mt-4 flex justify-end">
-          <button type="button" className={BOTAO} onClick={() => onFechar(mudou)}>
-            Fechar
-          </button>
-        </div>
+        </footer>
       </div>
-    </div>
+      {confirmar && (
+        <JanelaConfirmar
+          {...confirmar}
+          onCancelar={() => setConfirmar(null)}
+          onConfirmar={() => {
+            const acao = confirmar.acao;
+            setConfirmar(null);
+            acao();
+          }}
+        />
+      )}
+    </div>,
+    document.body,
   );
 }
 

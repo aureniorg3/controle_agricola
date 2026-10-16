@@ -21,8 +21,9 @@ export const dynamic = "force-dynamic";
  * Lançamento Mobile (Atividades): o apontamento diário lançado no campo pelo celular.
  *
  * GET (com sessão):
- *   ?opcoes=1                              listas da tela (operações com a classificação, etapas, tipos de aplicação do
- *                                          cadastro, solicitantes, equipes, equipamentos e status da O.S.)
+ *   ?opcoes=1                              listas da tela (operações com a classificação e o modelo do texto, etapas, tipos
+ *                                          de aplicação do cadastro, solicitantes, equipes, equipamentos e status da O.S.)
+ *                                          e as regras dos Parâmetros › Apontamento Diário (O.S. e etapa obrigatórias)
  *   ?responsaveis=<trecho>                 sugestões de quem lança: código (matrícula) ou nome dos responsáveis (cadastro
  *                                          Responsáveis ativo + os das O.S.), sem acento nem caixa; até 20
  *   ?mat=<matrícula ou código>&dt=         quem lança e as O.S. em aberto dele (404 se a matrícula não está em lugar nenhum)
@@ -40,7 +41,9 @@ export const dynamic = "force-dynamic";
  *                                          Mobile, os apontamentos do lançamento e o texto para o WhatsApp
  * POST (pode editar): inclui ou altera um lançamento de uma ou várias O.S. (`ordens`: os, opCod, statusOS, talhões e,
  * na edição, o id de cada uma; `id` = um apontamento do lançamento aberto e `boletins`, os dele ao abrir); com avisos e
- * sem `confirmar`, 409 com os avisos. Aceita também o formato de uma O.S. só (os, opCod, statusOS e talhões soltos).
+ * sem `confirmar`, 409 com os avisos. A O.S. em branco é o lançamento sem O.S. (um por lançamento, com a operação, a
+ * etapa e as fazendas/talhões do cadastro; recusado com a O.S. obrigatória nos Parâmetros). Aceita também o formato de
+ * uma O.S. só (os, opCod, statusOS e talhões soltos).
  */
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -127,8 +130,8 @@ export async function GET(req) {
 }
 
 /**
- * Inclui (sem id) ou altera (com id, só o que o Lançamento Mobile lançou) o lançamento de uma ou várias O.S. e devolve os
- * boletins e o texto para o grupo do WhatsApp.
+ * Inclui (sem id) ou altera (com id, só o que o Lançamento Mobile lançou) o lançamento de uma ou várias O.S. (e o sem
+ * O.S.) e devolve os boletins e o texto para o grupo do WhatsApp.
  */
 export async function POST(req) {
   const usuario = await usuarioDaRequisicao(req);

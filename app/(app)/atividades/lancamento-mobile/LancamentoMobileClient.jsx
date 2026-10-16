@@ -20,7 +20,7 @@ import { Aviso, JanelaConfirmar, JanelaInfo } from "@/components/janela";
 import { CabecalhoPagina, CorpoPagina, Pagina, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
 import { round2 } from "@/lib/atividades";
 import { fmtDateBR, todayISO } from "@/lib/format";
-import { chaveBusca, fmtNum, lerNumero as lerNumeroComMilhar, listaDeBoletins, tipoDoCadastro } from "@/lib/lancamento-mobile";
+import { chaveBusca, fmtNum, lerNumero as lerNumeroComMilhar, listaDeBoletins, modeloDaClassificacao, tipoDoCadastro } from "@/lib/lancamento-mobile";
 import { normFaz, normTlh } from "@/lib/ocupacao";
 import { addDays } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
@@ -35,6 +35,11 @@ import { ehBooleano, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
  *   3. os talhões realizados (da O.S. ou incluídos de fora dela), com a área de cada um — com "Adicionar outra O.S.",
  *      o mesmo lançamento leva várias O.S./operações, cada uma num bloco com os talhões e o status dela;
  *   4. os dados do serviço (o cabeçalho, o mesmo para todas as O.S. do lançamento).
+ * O serviço que ainda não tem O.S. entra pelo "Lançar sem O.S." (laranja, no passo 2): a operação escolhida no cadastro,
+ * as fazendas e os talhões incluídos pelo Cadastro de Fazenda (área do talhão pela base Fazenda e Talhões da safra da
+ * data, sem "Já apontado" nem "Falta") e a etapa escolhida no passo 4. É um bloco só, sempre depois das O.S. do
+ * lançamento (o cabeçalho e os padrões vêm da 1ª O.S.), e vira mais um apontamento do grupo; com a O.S. obrigatória nos
+ * Parâmetros › Apontamento Diário, o botão fica desligado.
  * Ao gravar mostra o texto padrão para copiar e mandar no grupo do WhatsApp; a última linha do texto (a marca do
  * boletim, ou dos boletins: um por O.S.) faz o bot reconhecer que o apontamento já está no sistema. A tela Apontamento
  * continua sendo a de lançamento na plataforma: aqui só se lança, e só se edita o que foi lançado por esta tela com a
@@ -79,7 +84,9 @@ const SERVICO_VAZIO = {
 // o apontamento gravado (edição); marcas: área digitada de cada talhão da O.S. marcado ("propCod|tlh" → texto);
 // extras: talhões de fora da O.S.; pendentes: talhões do boletim aberto para edição, encaixados quando os talhões da
 // O.S. chegam; gravados: os talhões do boletim como estão gravados (para a O.S. tirada e posta de novo); statusOS: o
-// status informado da O.S.
+// status informado da O.S. O bloco sem O.S. (Lançar sem O.S.) tem a O.S. em branco, os talhões todos em `extras` (do
+// Cadastro de Fazenda e da base da safra), sem status, e ainda opDs (a descrição da operação escolhida) e etapaCod (a
+// etapa escolhida no passo 4)
 const ORDEM_VAZIA = {
   chave: "",
   id: null,
@@ -91,6 +98,8 @@ const ORDEM_VAZIA = {
   extras: [],
   pendentes: null,
   gravados: null,
+  opDs: "",
+  etapaCod: "",
 };
 // id, ids e boletins: o lançamento aberto para editar (id = o primeiro apontamento dele; ids = todos, que o "Já apontado"
 // não conta: a gravação reescreve ou exclui cada um); removidas: as O.S. dele (com o apontamento) tiradas nesta edição,
@@ -108,6 +117,11 @@ const BOTAO_PRIMARIO =
   "inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-navy-900 px-5 text-[16px] font-semibold text-white hover:bg-navy-800 dark:bg-crv-acao dark:hover:bg-[#3A6DBA] disabled:pointer-events-none disabled:opacity-50";
 const BOTAO_WHATSAPP =
   "inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-crv-verde px-5 text-[16px] font-semibold text-white hover:bg-[#24724A] disabled:pointer-events-none disabled:opacity-50";
+// Lançar sem O.S.: o laranja CRV (#D77B38) num tom mais escuro, para o texto branco ter contraste (4,6:1) nos dois temas
+const BOTAO_LARANJA =
+  "inline-flex h-10 flex-shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[#B85C22] bg-[#B85C22] px-3 text-[13.5px] font-semibold text-white hover:bg-[#A0501D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D77B38] disabled:pointer-events-none disabled:opacity-50";
+// selo e destaque do lançamento sem O.S. (o laranja dos selos do sistema; no tema escuro, o texto mais claro)
+const SELO_SEM_OS = "rounded-full border border-[#D77B38]/40 bg-[#D77B38]/10 px-2 py-0.5 text-[11.5px] font-semibold text-[#A24F1C] dark:text-[#F0A066]";
 const CARTAO = "rounded-xl2 border border-line bg-card shadow-card";
 
 /** Pessoas procuradas no aparelho: as favoritas ficam sempre; das outras, as últimas `MAX_RECENTES`. */
@@ -156,10 +170,30 @@ const rotBoletins = (l) => `${l.length > 1 ? "boletins" : "boletim"} nº ${lista
 const tituloBoletins = (l) => `${l.length > 1 ? "Boletins" : "Boletim"} nº ${listaDeBoletins(l)}`;
 /** "do boletim nº 160" / "dos boletins nº 160 e 161" */
 const doBoletins = (l) => `${l.length > 1 ? "dos" : "do"} ${rotBoletins(l)}`;
-/** "da O.S. 6052" / "das O.S. 6052, 6053" */
+/** O bloco do lançamento (ou o apontamento gravado) sem O.S.: a O.S. em branco. */
+const ehSemOS = (o) => !String(o?.os ?? "").trim();
+/** "O.S. 6052" ou "Sem O.S." */
+const rotuloOS = (o) => (ehSemOS(o) ? "Sem O.S." : `O.S. ${o.os}`);
+/** Código da operação sem os zeros à esquerda ("010" = "10"), como o servidor compara. */
+const codOp = (c) =>
+  String(c ?? "")
+    .trim()
+    .replace(/^0+(?=\d)/, "");
+/** "da O.S. 6052" / "das O.S. 6052, 6053" (e "sem O.S." com o bloco sem O.S.: "da O.S. 6052 e sem O.S.") */
 function rotuloDasOS(ordens) {
   const l = unicos(ordens.map((o) => o.os));
-  return l.length > 1 ? `das O.S. ${l.join(", ")}` : `da O.S. ${l[0] ?? ""}`;
+  const comOS = l.length > 1 ? `das O.S. ${l.join(", ")}` : l.length ? `da O.S. ${l[0]}` : "";
+  return [comOS, ordens.some(ehSemOS) ? "sem O.S." : ""].filter(Boolean).join(" e ") || "da O.S.";
+}
+/** "O.S. 6052, 6053 · Sem O.S." (as O.S. de um lançamento gravado) */
+function osDoLancamento(l) {
+  const com = unicos(l.map((x) => String(x.os ?? "").trim()));
+  return [com.length ? `O.S. ${com.join(", ")}` : "", l.some(ehSemOS) ? "Sem O.S." : ""].filter(Boolean).join(" · ");
+}
+/** As O.S. novas entram antes do bloco sem O.S., que fica sempre por último (o cabeçalho vem da 1ª O.S.). */
+function inserirAntesDoSemOS(ordens, novas) {
+  const i = ordens.findIndex(ehSemOS);
+  return i < 0 ? [...ordens, ...novas] : [...ordens.slice(0, i), ...novas, ...ordens.slice(i)];
 }
 /**
  * Status da O.S. de um lançamento (as O.S. dele): um só quando é uma O.S. ou todas iguais; senão o de cada O.S.
@@ -246,6 +280,43 @@ function filtrarTipos(tipos, q) {
     .filter((x) => x.n !== null)
     .sort((a, b) => a.n - b.n)
     .map((x) => x.t);
+}
+
+/**
+ * Operações do cadastro que casam com o digitado (sem acento nem caixa): o código igual ou começando pelo digitado
+ * primeiro ("10" = "010"), depois o nome começando por ele, com todas as palavras digitadas e, por último, contendo.
+ */
+function filtrarOperacoes(lista, q) {
+  const k = chaveBusca(q);
+  if (!k) return lista;
+  const kCod = codOp(k);
+  const palavras = k.split(" ");
+  const nota = (o) => {
+    const cod = codOp(o.cod).toLowerCase();
+    const ds = chaveBusca(o.ds);
+    if (cod && cod === kCod) return 0;
+    if (cod && /^\d+$/.test(k) && cod.startsWith(kCod)) return 1;
+    if (ds.startsWith(k)) return 2;
+    if (palavras.every((p) => ds.split(" ").some((n) => n.startsWith(p)))) return 3;
+    if (ds.includes(k) || chaveBusca(codDs(o.cod, o.ds)).includes(k)) return 4;
+    return null;
+  };
+  return lista
+    .map((o) => ({ o, n: nota(o) }))
+    .filter((x) => x.n !== null)
+    .sort((a, b) => a.n - b.n)
+    .map((x) => x.o);
+}
+
+/**
+ * A operação do bloco sem O.S. na lista do cadastro (`operacoes`, de ?opcoes=1: classificação e modelo do texto); sem
+ * a lista (ainda carregando) ou fora dela, a que o bloco guarda (código e descrição).
+ */
+function operacaoDaLista(operacoes, o) {
+  const l = Array.isArray(operacoes) ? operacoes : [];
+  const x = l.find((y) => y.cod === o.opCod) ?? l.find((y) => codOp(y.cod) === codOp(o.opCod));
+  const op = x ?? { cod: o.opCod, ds: o.opDs ?? "", etapaCod: "", classificacao: "" };
+  return { ...op, ds: op.ds || o.opDs || "", etapaDs: "", modelo: op.modelo || modeloDaClassificacao(op.classificacao ?? "") };
 }
 
 let seqExtra = 0;
@@ -431,11 +502,21 @@ function servicoDoLancamento(grupo) {
   return s;
 }
 
-/** Rascunho guardado no aparelho que dá para continuar (o da primeira versão da tela, v1, tinha uma O.S. só). */
+/**
+ * Rascunho guardado no aparelho que dá para continuar (o da primeira versão da tela, v1, tinha uma O.S. só; a O.S. em
+ * branco é o bloco sem O.S., um só).
+ */
 function rascunhoValido(r) {
   if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(r.dt ?? "")) return false;
   if (r.v === 1) return !!(r.lanc?.os && r.lanc?.opCod);
-  return r.v === 2 && Array.isArray(r.lanc?.ordens) && r.lanc.ordens.length > 0 && r.lanc.ordens.every((o) => o && o.os && o.opCod);
+  const ordens = r.lanc?.ordens;
+  return (
+    r.v === 2 &&
+    Array.isArray(ordens) &&
+    ordens.length > 0 &&
+    ordens.every((o) => o && typeof (o.os ?? "") === "string" && o.opCod) &&
+    ordens.filter(ehSemOS).length <= 1
+  );
 }
 
 /** Rascunho → lançamento na tela (chaves novas para os blocos e os talhões de fora da O.S.). */
@@ -446,21 +527,29 @@ function lancDoRascunho(r) {
     r.v === 1
       ? [{ id: l.id, boletim: l.boletim, os: l.os, opCod: l.opCod, statusOS: statusOS ?? STATUS_INICIAL, marcas: l.marcas, extras: l.extras, pendentes: l.pendentes }]
       : l.ordens;
-  const ordemDoRascunho = (o) => ({
-    ...ORDEM_VAZIA,
-    chave: novaChaveOrdem(),
-    id: o.id ?? null,
-    boletim: o.boletim ?? null,
-    os: String(o.os),
-    opCod: String(o.opCod),
-    statusOS: typeof o.statusOS === "string" ? o.statusOS : STATUS_INICIAL,
-    marcas: o.marcas && typeof o.marcas === "object" ? o.marcas : {},
-    extras: (Array.isArray(o.extras) ? o.extras : []).map((x) => ({ ...x, chave: novaChaveExtra() })),
-    pendentes: Array.isArray(o.pendentes) ? o.pendentes : null,
-    gravados: Array.isArray(o.gravados) ? o.gravados : null,
-  });
-  const ordens = brutas.slice(0, MAX_ORDENS).map(ordemDoRascunho);
-  const removidas = (r.v === 2 && Array.isArray(l.removidas) ? l.removidas : []).filter((o) => o && o.id && o.os && o.opCod).map(ordemDoRascunho);
+  const ordemDoRascunho = (o) => {
+    const ordem = {
+      ...ORDEM_VAZIA,
+      chave: novaChaveOrdem(),
+      id: o.id ?? null,
+      boletim: o.boletim ?? null,
+      os: String(o.os ?? ""),
+      opCod: String(o.opCod),
+      statusOS: typeof o.statusOS === "string" ? o.statusOS : STATUS_INICIAL,
+      marcas: o.marcas && typeof o.marcas === "object" ? o.marcas : {},
+      extras: (Array.isArray(o.extras) ? o.extras : []).map((x) => ({ ...x, chave: novaChaveExtra() })),
+      pendentes: Array.isArray(o.pendentes) ? o.pendentes : null,
+      gravados: Array.isArray(o.gravados) ? o.gravados : null,
+      opDs: typeof o.opDs === "string" ? o.opDs : "",
+      etapaCod: typeof o.etapaCod === "string" ? o.etapaCod : "",
+    };
+    // sem O.S. não há talhões da O.S. a buscar: os do boletim ainda a encaixar entram já como incluídos
+    return ehSemOS(ordem) && ordem.pendentes ? encaixarTalhoes(ordem, ordem.pendentes, []) : ordem;
+  };
+  // o bloco sem O.S. por último (o cabeçalho vem da 1ª O.S.)
+  const lidas = brutas.slice(0, MAX_ORDENS).map(ordemDoRascunho);
+  const ordens = [...lidas.filter((o) => !ehSemOS(o)), ...lidas.filter(ehSemOS)];
+  const removidas = (r.v === 2 && Array.isArray(l.removidas) ? l.removidas : []).filter((o) => o && o.id && o.opCod).map(ordemDoRascunho);
   const boletins = r.v === 1 ? (l.boletim ? [l.boletim] : []) : Array.isArray(l.boletins) ? l.boletins : [];
   // ids do lançamento aberto (o rascunho de antes deles: os das O.S. que estão nele)
   const ids =
@@ -504,6 +593,9 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
   const [abrindo, setAbrindo] = useState(null); // boletim sendo carregado
   const [detalhe, setDetalhe] = useState(null); // { apontamento, apontamentos, texto }: lançamento aberto em Meus lançamentos
   const [janelaOS, setJanelaOS] = useState(null); // passo 2: { os, ordem } — a janela da O.S. aberta
+  // janela do Lançar sem O.S. (a operação): { chave } — null acrescenta o bloco; a chave do bloco troca a operação dele
+  const [janelaSemOS, setJanelaSemOS] = useState(null);
+  const [erroOpcoes, setErroOpcoes] = useState(null); // as listas da tela não carregaram (a janela do sem O.S. tenta de novo)
   // lançamentos de cada O.S. (de qualquer origem): os → { carregando, lista, total, erro }
   const [historico, setHistorico] = useState({});
   const [consulta, setConsulta] = useState(null); // { id, resumo, carregando, dados, erro }: lançamento aberto só para consulta
@@ -540,20 +632,39 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
 
   const matAtual = minhas?.mat ?? "";
   const nomePessoa = minhas?.responsavel?.nome || minhas?.ordens?.find((o) => o.resp)?.resp || "";
+  // Parâmetros › Apontamento Diário: com a O.S. obrigatória não se lança sem O.S.; a etapa obrigatória vale sem O.S.
+  const regras = opcoes?.regras ?? null;
+  const semOSDesligado = regras?.os === true;
+  /** A operação do bloco sem O.S. (da lista do cadastro, com a classificação e o modelo). */
+  const operacaoSemOS = (o) => operacaoDaLista(opcoes?.operacoes, o);
+  /**
+   * Padrões do cabeçalho que o bloco sem O.S. dá quando é o único do lançamento (com O.S., os padrões vêm da 1ª O.S.):
+   * atividade = descrição da operação, solicitante = quem lança (Cadastro de Responsáveis) e o modelo pela
+   * classificação da operação; a etapa fica no bloco.
+   */
+  const padroesSemOS = (op) => ({ atividade: op?.ds ?? "", solicitante: nomePessoa, etapaCod: "", modelo: op?.modelo ?? "", tipoAplicacao: "" });
+
+  /** Listas da tela (operações, etapas, tipos…) e as regras dos Parâmetros. */
+  const carregarOpcoes = useCallback(async () => {
+    setErroOpcoes(null);
+    const { ok, json } = await obter({ opcoes: "1" });
+    if (ok) setOpcoes(json);
+    else setErroOpcoes(json.error ?? "Não foi possível carregar as operações.");
+  }, []);
 
   // data de hoje no aparelho (no servidor o fuso pode ser outro); opções dos campos; rascunho guardado
   useEffect(() => {
     const h = todayISO();
     setHoje(h);
     setDt((d) => d || h);
-    obter({ opcoes: "1" }).then(({ ok, json }) => ok && setOpcoes(json));
+    carregarOpcoes();
     try {
       const r = JSON.parse(localStorage.getItem(CHAVE_RASCUNHO) ?? "null");
       if (rascunhoValido(r)) setRascunho(r);
     } catch {
       /* sem armazenamento: sem rascunho */
     }
-  }, []);
+  }, [carregarOpcoes]);
 
   const irPara = useCallback((n) => {
     focarPasso.current = true;
@@ -669,10 +780,27 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
 
   const varias = lanc.ordens.length > 1;
   // por O.S.: os talhões dela (valem depois de encaixados os do boletim aberto), as linhas que vão no lançamento
-  // (talhões da O.S. marcados + os de fora dela), o total e o que falta fazer depois do lançamento
+  // (talhões da O.S. marcados + os de fora dela), o total e o que falta fazer depois do lançamento. `pronta`: os talhões
+  // da O.S. chegaram (o bloco sem O.S. não busca nada: está sempre pronto, com a operação da lista e sem "falta")
   const resumo = useMemo(
     () =>
       lanc.ordens.map((o) => {
+        if (ehSemOS(o)) {
+          const linhas = o.extras.map((x) => ({ propCod: x.propCod, tlh: x.tlh, texto: x.area }));
+          const total = round2(linhas.reduce((a, l) => a + (lerNumero(l.texto) > 0 ? lerNumero(l.texto) : 0), 0));
+          return {
+            semOS: true,
+            pronta: true,
+            info: null,
+            operacao: operacaoDaLista(opcoes?.operacoes, o),
+            talhoesOS: [],
+            linhas,
+            total,
+            faltaDepois: null,
+            carregando: false,
+            erro: null,
+          };
+        }
         const e = infos[chaveInfo(o)];
         const info = e?.info && !o.pendentes ? e.info : null;
         const talhoesOS = info ? info.talhoes : [];
@@ -689,13 +817,16 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
               }, 0),
             )
           : null;
-        return { info, talhoesOS, linhas, total, faltaDepois, carregando: !!carregandoInfo[chaveInfo(o)], erro: e?.erro ?? null };
+        return { pronta: !!info, info, talhoesOS, linhas, total, faltaDepois, carregando: !!carregandoInfo[chaveInfo(o)], erro: e?.erro ?? null };
       }),
-    [lanc.ordens, infos, carregandoInfo],
+    [lanc.ordens, infos, carregandoInfo, opcoes],
   );
   const total = round2(resumo.reduce((a, r) => a + r.total, 0));
   const nLinhas = resumo.reduce((a, r) => a + r.linhas.length, 0);
-  const todasProntas = lanc.ordens.length > 0 && resumo.every((r) => !!r.info);
+  const todasProntas = lanc.ordens.length > 0 && resumo.every((r) => r.pronta);
+  // o bloco sem O.S. do lançamento (um só, o último)
+  const blocoSemOS = lanc.ordens.find(ehSemOS) ?? null;
+  const iSemOS = blocoSemOS ? lanc.ordens.indexOf(blocoSemOS) : -1;
   const temNaoGravado = !resultado && (varias || lanc.ordens.some((o) => Object.keys(o.marcas).length > 0 || o.extras.length > 0));
 
   // rascunho no aparelho: se a aba do navegador for fechada (ou o celular a descartar), dá para continuar depois
@@ -735,6 +866,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     const l = lancDoRascunho(r);
     setRascunho(null);
     zerarLancamento();
+    // só o bloco sem O.S.: os padrões do cabeçalho são os dele (com O.S., vêm quando os talhões da 1ª chegam)
+    if (l.ordens[0] && ehSemOS(l.ordens[0])) padroes.current = padroesSemOS(operacaoSemOS(l.ordens[0]));
     if (dtAntesDeAbrir.current === null) dtAntesDeAbrir.current = dt;
     setDt(r.dt);
     setLanc(l);
@@ -936,8 +1069,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
   /**
    * Acrescenta ao lançamento as operações marcadas na janela da O.S., cada uma num bloco (com os talhões e o boletim
    * dela), como o "Adicionar outra O.S." uma a uma: a que já está no lançamento não entra de novo; a do lançamento aberto
-   * que foi tirada nesta edição volta com o boletim e os talhões gravados nele; a 1ª do lançamento dá os padrões do
-   * cabeçalho; as operações da mesma O.S. levam o mesmo status.
+   * que foi tirada nesta edição volta com o boletim e os talhões gravados nele; a 1ª O.S. do lançamento dá os padrões do
+   * cabeçalho (no lugar dos do bloco sem O.S., que fica por último); as operações da mesma O.S. levam o mesmo status.
    */
   function acrescentarOperacoes(ordemLista, lista) {
     const l0 = lancRef.current;
@@ -949,7 +1082,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       return irPara(3);
     }
     if (l0.ordens.length + novas.length > MAX_ORDENS) return setMsg({ texto: `No máximo ${MAX_ORDENS} O.S. por lançamento.`, erro: true });
-    const primeira = l0.ordens.length === 0;
+    const primeira = !l0.ordens.some((o) => !ehSemOS(o));
     const voltas = novas.map((op) => (l0.removidas ?? []).find((x) => mesma(x, op)) ?? null);
     const statusDaOS = l0.ordens.find((o) => o.os === ordemLista.os)?.statusOS ?? voltas.find(Boolean)?.statusOS ?? STATUS_INICIAL;
     const emCache = (op) => infosRef.current[chaveInfo({ os: ordemLista.os, opCod: op.cod })]?.info ?? null;
@@ -975,7 +1108,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     const idsVolta = new Set(voltas.filter(Boolean).map((v) => v.id));
     setLanc((l) => ({
       ...l,
-      ordens: [...l.ordens, ...blocos],
+      ordens: inserirAntesDoSemOS(l.ordens, blocos),
       removidas: (l.removidas ?? []).filter((x) => !idsVolta.has(x.id)),
       servico: novos ? aplicarPadroes(l.servico, anteriores, novos) : l.servico,
     }));
@@ -1028,8 +1161,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       return irPara(3);
     }
     if (!alvo && lanc.ordens.length >= MAX_ORDENS) return setMsg({ texto: `No máximo ${MAX_ORDENS} O.S. por lançamento.`, erro: true });
-    // só a 1ª O.S. dá os padrões do cabeçalho
-    const primeira = alvo ? lanc.ordens[0]?.chave === alvo.chave : lanc.ordens.length === 0;
+    // só a 1ª O.S. dá os padrões do cabeçalho (a O.S. nova entra antes do bloco sem O.S.)
+    const primeira = alvo ? lanc.ordens[0]?.chave === alvo.chave : !lanc.ordens.some((o) => !ehSemOS(o));
     // a O.S. que já está no lançamento com outra operação leva o mesmo status
     const statusDaOS = lanc.ordens.find((o) => o !== alvo && o.os === ordemLista.os)?.statusOS;
     const chave = alvo?.chave ?? novaChaveOrdem();
@@ -1071,7 +1204,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
         }
         return {
           ...l,
-          ordens: antiga ? l.ordens.map((o) => (o.chave === chave ? nova : o)) : [...l.ordens, nova],
+          ordens: antiga ? l.ordens.map((o) => (o.chave === chave ? nova : o)) : inserirAntesDoSemOS(l.ordens, [nova]),
           removidas: volta ? (l.removidas ?? []).filter((x) => x.id !== volta.id) : l.removidas,
           servico: primeira ? aplicarPadroes(l.servico, anteriores, novos) : l.servico,
         };
@@ -1143,16 +1276,107 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     irPara(2);
   }
 
+  // ------------------------------------------------------------------ lançar sem O.S.
+
+  /**
+   * "Lançar sem O.S." (passo 2): abre a janela para escolher a operação do bloco sem O.S. que entra no lançamento (o
+   * vazio começa com ele; com O.S., ele vai depois delas). Um bloco sem O.S. por lançamento: já havendo um, abre ele.
+   * `chave`: o bloco sem O.S. que troca de operação (o "Trocar" dele).
+   */
+  function abrirSemOS(chave = null) {
+    if (semOSDesligado) {
+      return setMsg({ texto: "A O.S. é obrigatória nos Parâmetros › Apontamento Diário: não dá para lançar sem O.S.", erro: true });
+    }
+    setMsg(null);
+    const ja = lancRef.current.ordens.find(ehSemOS);
+    if (!chave && ja) {
+      setEscolha(null);
+      setAbertas((a) => ({ ...a, [ja.chave]: true }));
+      setMsg({
+        texto: `Este lançamento já tem o bloco sem O.S. (operação ${ja.opCod}): inclua nele as fazendas e os talhões ou troque a operação. Para outra operação sem O.S., grave este e faça um novo lançamento.`,
+        erro: false,
+      });
+      return irPara(3);
+    }
+    if (!chave && lancRef.current.ordens.length >= MAX_ORDENS) return setMsg({ texto: `No máximo ${MAX_ORDENS} O.S. por lançamento.`, erro: true });
+    setJanelaSemOS({ chave });
+    if (!opcoes) carregarOpcoes();
+  }
+
+  /**
+   * Operação escolhida na janela do sem O.S.: acrescenta o bloco (por último) ou troca a operação do bloco (os talhões
+   * incluídos e o boletim, na edição, ficam: sem O.S. eles não dependem da operação). O bloco sem O.S. do lançamento
+   * aberto que foi tirado nesta edição volta com o boletim e os talhões gravados nele se a operação for a mesma. Sozinho
+   * no lançamento, ele dá os padrões do cabeçalho (atividade, solicitante = quem lança, modelo).
+   */
+  function escolherSemOS(op) {
+    const chaveAlvo = janelaSemOS?.chave ?? null;
+    setJanelaSemOS(null);
+    const l0 = lancRef.current;
+    const alvo = chaveAlvo ? (l0.ordens.find((o) => o.chave === chaveAlvo && ehSemOS(o)) ?? null) : null;
+    if (alvo && codOp(alvo.opCod) === codOp(op.cod)) {
+      setAbertas((a) => ({ ...a, [alvo.chave]: true }));
+      return irPara(3);
+    }
+    if (!alvo && l0.ordens.some(ehSemOS)) return abrirSemOS();
+    if (!alvo && l0.ordens.length >= MAX_ORDENS) return setMsg({ texto: `No máximo ${MAX_ORDENS} O.S. por lançamento.`, erro: true });
+    const chave = alvo?.chave ?? novaChaveOrdem();
+    // o bloco sem O.S. só é o 1º quando não há O.S. no lançamento
+    const primeira = alvo ? l0.ordens[0]?.chave === alvo.chave : l0.ordens.length === 0;
+    const op2 = operacaoDaLista(opcoes?.operacoes, { opCod: op.cod, opDs: op.ds });
+    const novos = primeira ? padroesSemOS(op2) : null;
+    const anteriores = padroes.current;
+    const volta = alvo ? null : ((l0.removidas ?? []).find((x) => ehSemOS(x) && codOp(x.opCod) === codOp(op.cod)) ?? null);
+    setLanc((l) => {
+      const antiga = l.ordens.find((o) => o.chave === chave);
+      let nova;
+      if (antiga) {
+        // a etapa passa à da operação nova (quando ela tem); sem, fica a escolhida
+        nova = { ...antiga, opCod: op.cod, opDs: op.ds ?? "", etapaCod: op.etapaCod || antiga.etapaCod || "" };
+      } else if (volta) {
+        // os talhões gravados no boletim (os incluídos antes de tirar foram descartados); sem eles, como estava
+        const base = { ...volta, chave, statusOS: "", opDs: volta.opDs || op.ds || "" };
+        nova = volta.gravados ? encaixarTalhoes(base, volta.gravados, []) : { ...base, pendentes: null };
+      } else {
+        nova = { ...ORDEM_VAZIA, chave, os: "", opCod: op.cod, opDs: op.ds ?? "", etapaCod: op.etapaCod ?? "", statusOS: "" };
+      }
+      return {
+        ...l,
+        ordens: antiga ? l.ordens.map((o) => (o.chave === chave ? nova : o)) : [...l.ordens, nova],
+        removidas: volta ? (l.removidas ?? []).filter((x) => x.id !== volta.id) : l.removidas,
+        servico: novos ? aplicarPadroes(l.servico, anteriores, novos) : l.servico,
+      };
+    });
+    if (novos) padroes.current = novos;
+    // o bloco fica aberto (acrescentado, os outros recolhidos)
+    setAbertas((a) => (alvo ? { ...a, [chave]: true } : { [chave]: true }));
+    setEscolha(null);
+    setRascunho(null);
+    setMsg(
+      volta
+        ? {
+            texto: `O lançamento sem O.S. (operação ${volta.opCod}) voltou com o boletim nº ${volta.boletim}${volta.gravados ? " e os talhões gravados nele" : ""}: ele não será mais excluído.`,
+            erro: false,
+          }
+        : null,
+    );
+    irPara(3);
+  }
+
+  /** Etapa do bloco sem O.S. (passo 4). */
+  const mudarEtapaSemOS = useCallback((chave, v) => mudarOrdem(chave, (o) => ({ ...o, etapaCod: v })), [mudarOrdem]);
+
   function removerOrdem(chave) {
     const o = lanc.ordens.find((x) => x.chave === chave);
     if (!o) return;
     const fazer = () => {
       const atuais = lancRef.current.ordens;
       // saindo a 1ª O.S., o cabeçalho passa a ter os padrões da seguinte (onde ainda estava com os da que saiu); sem os
-      // talhões dela ainda (carregando, erro), os padrões entram quando eles chegarem (buscarInfo)
+      // talhões dela ainda (carregando, erro), os padrões entram quando eles chegarem (buscarInfo). Sobrando só o bloco
+      // sem O.S., os padrões são os dele
       const seguinte = atuais[0]?.chave === chave ? atuais[1] : null;
-      const infoSeguinte = seguinte ? infosRef.current[chaveInfo(seguinte)]?.info : null;
-      const novos = infoSeguinte ? padroesDaInfo(infoSeguinte) : null;
+      const infoSeguinte = seguinte && !ehSemOS(seguinte) ? infosRef.current[chaveInfo(seguinte)]?.info : null;
+      const novos = seguinte && ehSemOS(seguinte) ? padroesSemOS(operacaoSemOS(seguinte)) : infoSeguinte ? padroesDaInfo(infoSeguinte) : null;
       const anteriores = padroes.current;
       setLanc((l) => {
         const saiu = l.ordens.find((x) => x.chave === chave);
@@ -1169,13 +1393,14 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       setMsg(null);
     };
     const n = Object.keys(o.marcas).length + o.extras.length;
+    const semOS = ehSemOS(o);
     if (n > 0 || o.id) {
       setPergunta({
-        titulo: "Tirar a O.S. do lançamento?",
+        titulo: semOS ? "Tirar o lançamento sem O.S.?" : "Tirar a O.S. do lançamento?",
         texto: [
-          `O.S. ${o.os} (operação ${o.opCod})${n ? `: ${plural(n, "talhão marcado", "talhões marcados")} ${n === 1 ? "será descartado" : "serão descartados"}` : ""}.`,
+          `${rotuloOS(o)} (operação ${o.opCod})${n ? `: ${plural(n, semOS ? "talhão incluído" : "talhão marcado", semOS ? "talhões incluídos" : "talhões marcados")} ${n === 1 ? "será descartado" : "serão descartados"}` : ""}.`,
           o.id
-            ? `O boletim nº ${o.boletim} será excluído ao gravar a alteração (se a O.S. com a operação ${o.opCod} voltar ao lançamento antes disso, volta com o boletim e os talhões dele).`
+            ? `O boletim nº ${o.boletim} será excluído ao gravar a alteração (se ${semOS ? "o lançamento sem O.S." : "a O.S."} com a operação ${o.opCod} voltar ao lançamento antes disso, volta com o boletim e os talhões dele).`
             : "",
         ]
           .filter(Boolean)
@@ -1191,12 +1416,14 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
 
   const upd = useCallback((p) => setLanc((l) => ({ ...l, servico: { ...l.servico, ...p } })), []);
   const s = lanc.servico;
-  const ops = useMemo(() => resumo.map((r) => r.info?.operacao).filter(Boolean), [resumo]);
+  const ops = useMemo(() => resumo.map((r) => r.info?.operacao ?? r.operacao).filter(Boolean), [resumo]);
   const statusOpcoes = opcoes?.statusOS?.length ? opcoes.statusOS : STATUS_PADRAO;
-  // status por O.S. (a O.S. com mais de uma operação no lançamento tem um só) e o que falta nela depois do lançamento
+  // status por O.S. (a O.S. com mais de uma operação no lançamento tem um só) e o que falta nela depois do lançamento;
+  // o lançamento sem O.S. não tem status de O.S.
   const statusPorOS = useMemo(() => {
     const m = new Map();
     lanc.ordens.forEach((o, i) => {
+      if (ehSemOS(o)) return;
       const r = resumo[i];
       let x = m.get(o.os);
       if (!x) {
@@ -1218,7 +1445,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
    * dela abre (com erro, volta aos talhões, onde está o "Tentar de novo"). false: todas prontas.
    */
   function avisarSemTalhoes() {
-    const i = resumo.findIndex((r) => !r.info);
+    const i = resumo.findIndex((r) => !r.pronta);
     if (i < 0) return false;
     const o = lanc.ordens[i];
     const qual = varias ? `da O.S. ${o.os} (operação ${o.opCod})` : "da O.S.";
@@ -1243,18 +1470,32 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     // com várias O.S., o erro diz qual e abre o bloco dela
     for (const [i, o] of lanc.ordens.entries()) {
       const { linhas } = resumo[i];
-      const naOS = varias ? ` da O.S. ${o.os} (operação ${o.opCod})` : "";
+      const semOS = ehSemOS(o);
+      const naOS = !varias ? "" : semOS ? ` do lançamento sem O.S. (operação ${o.opCod})` : ` da O.S. ${o.os} (operação ${o.opCod})`;
       if (linhas.length === 0) {
         setAbertas((a) => ({ ...a, [o.chave]: true }));
         irPara(3);
-        return setMsg({ texto: `Marque pelo menos um talhão realizado${naOS}.`, erro: true });
+        return setMsg({ texto: semOS ? `Inclua pelo menos uma fazenda/talhão realizado${naOS}.` : `Marque pelo menos um talhão realizado${naOS}.`, erro: true });
       }
       const ruim = linhas.find((l) => !(lerNumero(l.texto) > 0));
       if (ruim) {
         setAbertas((a) => ({ ...a, [o.chave]: true }));
         irPara(3);
-        return setMsg({ texto: `Informe a área realizada do ${rotTalhao(ruim.tlh)} da fazenda ${ruim.propCod}${naOS} (ou desmarque o talhão).`, erro: true });
+        return setMsg({
+          texto: `Informe a área realizada do ${rotTalhao(ruim.tlh)} da fazenda ${ruim.propCod}${naOS} (ou ${semOS ? "tire" : "desmarque"} o talhão).`,
+          erro: true,
+        });
       }
+    }
+    // sem O.S.: a regra dos Parâmetros pode ter mudado depois de o bloco entrar; a etapa é escolhida no passo 4
+    if (blocoSemOS && semOSDesligado) {
+      setAbertas((a) => ({ ...a, [blocoSemOS.chave]: true }));
+      irPara(3);
+      return setMsg({ texto: "A O.S. é obrigatória nos Parâmetros › Apontamento Diário: tire o lançamento sem O.S. para gravar.", erro: true });
+    }
+    if (blocoSemOS && regras?.etapa && !String(blocoSemOS.etapaCod ?? "").trim()) {
+      irPara(4);
+      return setMsg({ texto: "Escolha a etapa do lançamento sem O.S. (obrigatória nos Parâmetros › Apontamento Diário).", erro: true });
     }
     // "1.500" na calda é milhar (o teclado do Android tem o ponto); "0.035" e "12.5" continuam decimais
     const vazao = lerNumeroComMilhar(s.vazaoRec);
@@ -1277,9 +1518,22 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       });
     }
     // solicitante, etapa e tipo de aplicação: com várias O.S., o do cabeçalho mudado à mão vale para todas e, sem
-    // mudança, cada O.S. leva o dela (o responsável da O.S., a etapa e o tipo da operação)
+    // mudança, cada O.S. leva o dela (o responsável da O.S., a etapa e o tipo da operação). O lançamento sem O.S. leva a
+    // etapa escolhida para ele, o tipo do cabeçalho e, sem mudança no cabeçalho, quem lança como solicitante
     const aMao = (k) => !!String(s[k] ?? "").trim() && s[k] !== padroes.current[k];
     const ordens = lanc.ordens.map((o, i) => {
+      if (ehSemOS(o)) {
+        return {
+          ...(o.id ? { id: o.id } : {}),
+          os: "",
+          opCod: o.opCod,
+          statusOS: "",
+          solicitante: (varias && !aMao("solicitante") ? nomePessoa || s.solicitante : s.solicitante).trim(),
+          etapaCod: String(o.etapaCod ?? "").trim(),
+          tipoAplicacao: s.tipoAplicacao.trim(),
+          talhoes: resumo[i].linhas.map((l) => ({ propCod: l.propCod, tlh: l.tlh, area: lerNumero(l.texto) })),
+        };
+      }
       const info = resumo[i].info;
       const opi = info.operacao ?? {};
       return {
@@ -1339,8 +1593,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       avisos: Array.isArray(json.avisos) ? json.avisos : [],
       editado: !!lanc.id,
       ordens: lanc.ordens.map((o, i) => {
-        const opi = resumo[i].info?.operacao;
-        return { os: o.os, op: opi ? `${opi.cod} - ${opi.ds}` : o.opCod };
+        const opi = resumo[i].info?.operacao ?? resumo[i].operacao;
+        return { os: o.os, op: opi ? codDs(opi.cod, opi.ds) : o.opCod };
       }),
       area: total,
       dt,
@@ -1448,24 +1702,37 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       // recarrega os talhões mesmo se for a mesma O.S. (agora sem contar o boletim) — e mesmo se for o lançamento que já
       // está aberto
       zerarLancamento();
-      const ordens = grupo.map((x) => ({
-        ...ORDEM_VAZIA,
-        chave: novaChaveOrdem(),
-        id: x.id,
-        boletim: x.boletim,
-        os: String(x.os ?? ""),
-        opCod: String(x.opCod ?? ""),
-        statusOS: x.statusOS ?? "",
-        pendentes: x.talhoes ?? [],
-        gravados: x.talhoes ?? [],
-      }));
+      // o apontamento sem O.S. por último: o cabeçalho e os padrões vêm da 1ª O.S.
+      const ordenado = [...grupo.filter((x) => !ehSemOS(x)), ...grupo.filter(ehSemOS)];
+      const ordens = ordenado.map((x) => {
+        const ordem = {
+          ...ORDEM_VAZIA,
+          chave: novaChaveOrdem(),
+          id: x.id,
+          boletim: x.boletim,
+          os: String(x.os ?? ""),
+          opCod: String(x.opCod ?? ""),
+          statusOS: x.statusOS ?? "",
+          pendentes: x.talhoes ?? [],
+          gravados: x.talhoes ?? [],
+        };
+        // sem O.S. não há talhões da O.S. a buscar: os gravados entram já como incluídos, com a etapa gravada
+        if (!ehSemOS(ordem)) return ordem;
+        return encaixarTalhoes({ ...ordem, statusOS: "", opDs: x.opDs ?? "", etapaCod: x.etapaCod ?? "" }, ordem.gravados, []);
+      });
+      const servico = servicoDoLancamento(ordenado);
+      // só sem O.S.: a etapa fica no bloco, e os padrões do cabeçalho são os dele (com O.S., vêm com os talhões da 1ª)
+      if (ordens[0] && ehSemOS(ordens[0])) {
+        servico.etapaCod = "";
+        padroes.current = padroesSemOS(operacaoSemOS(ordens[0]));
+      }
       setLanc({
         ...LANC_VAZIO,
         id: a.id,
         ids: grupo.map((x) => x.id),
         boletins: grupo.map((x) => x.boletim),
         ordens,
-        servico: servicoDoLancamento(grupo),
+        servico,
       });
       setAbertas(ordens.length ? { [ordens[0].chave]: true } : {});
       setAba("lancar");
@@ -1518,7 +1785,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     return { situacao: x?.situacao, opDs: x?.operacoes?.find((y) => y.cod === o.opCod)?.ds ?? "" };
   };
   const infoDe = (o) => infos[chaveInfo(o)]?.info ?? null;
-  const dsDe = (o) => infoDe(o)?.operacao?.ds ?? daLista(o).opDs;
+  const dsDe = (o) => (ehSemOS(o) ? operacaoSemOS(o).ds : (infoDe(o)?.operacao?.ds ?? daLista(o).opDs));
   const situacaoDe = (o) => infoDe(o)?.situacao ?? daLista(o).situacao;
   const doDetalhe = detalhe?.apontamentos ?? [];
   const boletinsResultado = resultado?.boletins ?? [];
@@ -1620,7 +1887,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
               titulo={tituloBoletins(doDetalhe.map((x) => x.boletim))}
               linha={[
                 fmtDateBR(detalhe.apontamento.dt),
-                `O.S. ${unicos(doDetalhe.map((x) => x.os)).join(", ")}`,
+                osDoLancamento(doDetalhe),
                 unicos(doDetalhe.map((x) => `${x.opCod}${x.opDs ? ` - ${x.opDs}` : ""}`)).join(", "),
                 `${nf(round2(doDetalhe.reduce((a, x) => a + (Number.isFinite(x.areaTotal) ? x.areaTotal : 0), 0)))} ha`,
                 statusResumo(doDetalhe),
@@ -1677,7 +1944,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
             <VistaTexto
               tituloRef={tituloPasso}
               titulo={`${resultado.editado ? "Alterado" : "Lançado"} — ${tituloBoletins(boletinsResultado)}`}
-              linha={`${resultado.ordens.map((o) => `O.S. ${o.os} · ${o.op}`).join("; ")} · ${fmtDateBR(resultado.dt)} · ${nf(resultado.area)} ha`}
+              linha={`${resultado.ordens.map((o) => `${rotuloOS(o)} · ${o.op}`).join("; ")} · ${fmtDateBR(resultado.dt)} · ${nf(resultado.area)} ha`}
               sucesso
               avisos={resultado.avisos}
               boletins={boletinsResultado}
@@ -1748,20 +2015,38 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
             </section>
           ) : passo === 2 ? (
             <section aria-labelledby="lm-p2" className="space-y-3">
-              <div className="flex items-center gap-2">
+              {/* no celular, os dois botões ficam numa linha abaixo do título (o laranja ocupa o que sobra) */}
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 id="lm-p2" ref={tituloPasso} tabIndex={-1} className={`${TITULO_PASSO} min-w-0 flex-1`}>
                   Minhas O.S. em aberto
                 </h2>
-                <button
-                  type="button"
-                  className={BOTAO_MENOR}
-                  onClick={() => minhas && buscarOS(minhas.mat, dt)}
-                  disabled={buscandoOS || !minhas}
-                  aria-label="Atualizar as O.S."
-                >
-                  <IconAtualizar size={16} /> Atualizar
-                </button>
+                <div className="flex w-full items-center gap-2 sm:w-auto">
+                  <button
+                    type="button"
+                    className={`${BOTAO_LARANJA} flex-1 sm:flex-none`}
+                    onClick={() => abrirSemOS()}
+                    disabled={!minhas || semOSDesligado}
+                    aria-haspopup="dialog"
+                    aria-describedby={semOSDesligado ? "lm-semos-regra" : undefined}
+                  >
+                    <IconMais size={16} /> Lançar sem O.S.
+                  </button>
+                  <button
+                    type="button"
+                    className={BOTAO_MENOR}
+                    onClick={() => minhas && buscarOS(minhas.mat, dt)}
+                    disabled={buscandoOS || !minhas}
+                    aria-label="Atualizar as O.S."
+                  >
+                    <IconAtualizar size={16} /> Atualizar
+                  </button>
+                </div>
               </div>
+              {semOSDesligado && (
+                <p id="lm-semos-regra" className="-mt-1.5 text-[12px] text-muted">
+                  Lançar sem O.S. está desligado: a O.S. é obrigatória nos Parâmetros › Apontamento Diário.
+                </p>
+              )}
               {/* quem lança e a data do lançamento (o que falta e o último apontamento são até ela) */}
               <div className={`${CARTAO} divide-y divide-line`}>
                 {minhas && (
@@ -1811,7 +2096,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                   <p className="mt-0.5">
                     {alvoTroca
                       ? "Toque na O.S. e escolha a operação que entra no lugar dela."
-                      : `Já no lançamento: ${lanc.ordens.map((o) => `O.S. ${o.os} · ${o.opCod}`).join("; ")}. Toque na O.S. e marque as operações: pode ser outra O.S. ou outra operação da mesma.`}
+                      : `Já no lançamento: ${lanc.ordens.map((o) => `${rotuloOS(o)} · ${o.opCod}`).join("; ")}. Toque na O.S. e marque as operações: pode ser outra O.S. ou outra operação da mesma.`}
                   </p>
                   <button
                     type="button"
@@ -1851,6 +2136,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                     <p className="text-[15px] font-semibold text-ink">Nenhuma O.S. em aberto</p>
                     <p className="mx-auto mt-1 max-w-sm text-[13px] text-muted">
                       Não há O.S. em aberto no nome desta matrícula até {fmtDateBR(dt)}. Confira a data ou fale com o planejamento.
+                      {!semOSDesligado && " Serviço que ainda não tem O.S.: toque em Lançar sem O.S."}
                     </p>
                   </div>
                 )}
@@ -1874,44 +2160,64 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
               </h2>
               {lanc.id && (
                 <p className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-[13px] text-brand-700">
-                  Editando {lanc.boletins.length > 1 ? "os" : "o"} {rotBoletins(lanc.boletins)}. O “Já apontado” e o “Falta” não contam{" "}
-                  {lanc.boletins.length > 1 ? "estes boletins" : "este boletim"}.
+                  Editando {lanc.boletins.length > 1 ? "os" : "o"} {rotBoletins(lanc.boletins)}.
+                  {/* sem O.S. não há "Já apontado" nem "Falta" */}
+                  {lanc.ordens.some((o) => !ehSemOS(o)) && (
+                    <> O “Já apontado” e o “Falta” não contam {lanc.boletins.length > 1 ? "estes boletins" : "este boletim"}.</>
+                  )}
                 </p>
               )}
               {varias && resumo.some((r) => r.info) && <CaixaSoFalta checked={soFalta} onChange={setSoFalta} />}
-              {lanc.ordens.map((o, i) => (
-                <BlocoOrdem
-                  key={o.chave}
-                  ordem={o}
-                  r={resumo[i]}
-                  dt={dt}
-                  unica={!varias}
-                  aberto={!!abertas[o.chave]}
-                  soFalta={soFalta}
-                  onSoFalta={setSoFalta}
-                  opDs={dsDe(o)}
-                  situacao={situacaoDe(o)}
-                  statusOpcoes={statusOpcoes}
-                  onAlternar={alternarBloco}
-                  onRemover={removerOrdem}
-                  onTrocar={trocarOrdem}
-                  onMudar={mudarOrdem}
-                  onTentar={tentarDeNovo}
-                  onStatus={mudarStatus}
-                  hist={historico[o.os]}
-                  emEdicao={emEdicao}
-                  onHistorico={carregarHistorico}
-                  onAbrirLancamento={abrirConsulta}
-                />
-              ))}
+              {lanc.ordens.map((o, i) =>
+                ehSemOS(o) ? (
+                  <BlocoSemOS
+                    key={o.chave}
+                    ordem={o}
+                    r={resumo[i]}
+                    dt={dt}
+                    unica={!varias}
+                    aberto={!!abertas[o.chave]}
+                    onAlternar={alternarBloco}
+                    onRemover={removerOrdem}
+                    onTrocar={abrirSemOS}
+                    onMudar={mudarOrdem}
+                  />
+                ) : (
+                  <BlocoOrdem
+                    key={o.chave}
+                    ordem={o}
+                    r={resumo[i]}
+                    dt={dt}
+                    unica={!varias}
+                    aberto={!!abertas[o.chave]}
+                    soFalta={soFalta}
+                    onSoFalta={setSoFalta}
+                    opDs={dsDe(o)}
+                    situacao={situacaoDe(o)}
+                    statusOpcoes={statusOpcoes}
+                    onAlternar={alternarBloco}
+                    onRemover={removerOrdem}
+                    onTrocar={trocarOrdem}
+                    onMudar={mudarOrdem}
+                    onTentar={tentarDeNovo}
+                    onStatus={mudarStatus}
+                    hist={historico[o.os]}
+                    emEdicao={emEdicao}
+                    onHistorico={carregarHistorico}
+                    onAbrirLancamento={abrirConsulta}
+                  />
+                ),
+              )}
               {lanc.ordens.length > 0 && lanc.ordens.length < MAX_ORDENS && (
                 <div>
                   <button type="button" className={`${BOTAO} w-full border-dashed`} onClick={adicionarOS}>
-                    <IconMais size={18} /> Adicionar outra O.S.
+                    <IconMais size={18} /> Adicionar {blocoSemOS && !varias ? "uma O.S." : "outra O.S."}
                   </button>
                   {!varias && (
                     <p className="mt-1 text-center text-[12px] text-muted">
-                      Outra O.S. (ou outra operação desta) no mesmo lançamento: o mesmo cabeçalho, um boletim para cada.
+                      {blocoSemOS
+                        ? "Uma O.S. no mesmo lançamento: o mesmo cabeçalho, um boletim para cada."
+                        : "Outra O.S. (ou outra operação desta) no mesmo lançamento: o mesmo cabeçalho, um boletim para cada."}
                     </p>
                   )}
                 </div>
@@ -1924,6 +2230,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
               </h2>
               {varias ? (
                 <ResumoLancamento ordens={lanc.ordens} resumo={resumo} dsDe={dsDe} dt={dt} onTalhoes={() => irPara(3)} />
+              ) : lanc.ordens[0] && ehSemOS(lanc.ordens[0]) ? (
+                <ResumoSemOS op={resumo[0]?.operacao} boletim={lanc.ordens[0].boletim} dt={dt} onTrocar={() => abrirSemOS(lanc.ordens[0].chave)} />
               ) : lanc.ordens[0] ? (
                 <ResumoEscolha
                   os={lanc.ordens[0].os}
@@ -1948,6 +2256,12 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                 statusOpcoes={statusOpcoes}
                 onStatus={mudarStatus}
                 onTipoRecusado={setTipoRecusado}
+                semOS={
+                  blocoSemOS ? { chave: blocoSemOS.chave, etapaCod: blocoSemOS.etapaCod ?? "", rotulo: codDs(blocoSemOS.opCod, resumo[iSemOS]?.operacao?.ds) } : null
+                }
+                soSemOS={!!blocoSemOS && !varias}
+                etapaObrigatoria={regras?.etapa === true}
+                onEtapaSemOS={mudarEtapaSemOS}
               />
               {!pode && <Aviso msg={{ texto: "Seu perfil é somente leitura: dá para conferir os dados, mas não gravar.", erro: true }} />}
             </section>
@@ -2046,6 +2360,17 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
           onFechar={() => setJanelaOS(null)}
         />
       )}
+      {janelaSemOS && (
+        <JanelaSemOS
+          operacoes={Array.isArray(opcoes?.operacoes) ? opcoes.operacoes : null}
+          erro={erroOpcoes}
+          onRecarregar={carregarOpcoes}
+          trocar={janelaSemOS.chave ? (lanc.ordens.find((o) => o.chave === janelaSemOS.chave) ?? null) : null}
+          dt={dt}
+          onEscolher={escolherSemOS}
+          onFechar={() => setJanelaSemOS(null)}
+        />
+      )}
       {consulta && (
         <JanelaConsulta consulta={consulta} matAtual={matAtual} pode={pode} abrindo={abrindo} onEditar={editarDaConsulta} onFechar={fecharConsulta} />
       )}
@@ -2117,7 +2442,7 @@ function BannerRascunho({ r, onContinuar, onDescartar }) {
     <div role="status" className="rounded-lg border border-amber-500/40 bg-amber-50 p-3 text-[13px] text-amber-600">
       <p className="font-semibold">Lançamento não gravado neste aparelho</p>
       <p className="mt-0.5">
-        {l.id ? `Edição ${doBoletins(boletins)}` : "Lançamento novo"} · {ordens.map((o) => `O.S. ${o.os} · operação ${o.opCod}`).join("; ")} ·{" "}
+        {l.id ? `Edição ${doBoletins(boletins)}` : "Lançamento novo"} · {ordens.map((o) => `${rotuloOS(o)} · operação ${o.opCod}`).join("; ")} ·{" "}
         {fmtDateBR(r.dt)}
         {n ? ` · ${plural(n, "talhão", "talhões")}` : ""}
       </p>
@@ -2453,6 +2778,114 @@ function JanelaOS({ ordem, trocar, noLancamento, nNoLancamento, hist, emEdicao, 
   );
 }
 
+/** Operações mostradas de cada vez na janela do sem O.S. (digitar filtra). */
+const MAX_OPERACOES_LISTA = 60;
+
+/**
+ * Janela do "Lançar sem O.S." (passo 2): a operação do serviço que ainda não tem O.S., buscada pelo código ou pelo nome
+ * no cadastro Operações (as ativas, como no Apontamento), com a classificação que dá o modelo do texto. Tocar escolhe:
+ * entra no lançamento o bloco sem O.S. com ela ou, trocando (`trocar`: o bloco), ela passa a ser a operação dele.
+ * `operacoes` null: as listas ainda não chegaram (`erro`: não carregaram; `onRecarregar` tenta de novo).
+ */
+function JanelaSemOS({ operacoes, erro, onRecarregar, trocar, dt, onEscolher, onFechar }) {
+  const [q, setQ] = useState("");
+  const filtradas = useMemo(() => (operacoes ? filtrarOperacoes(operacoes, q) : []), [operacoes, q]);
+  const mostradas = filtradas.slice(0, MAX_OPERACOES_LISTA);
+  const idBase = "lm-jsemos";
+  return (
+    <JanelaInfo
+      titulo={trocar ? "Trocar a operação do lançamento sem O.S." : "Lançar sem O.S."}
+      subtitulo={`Serviço que ainda não tem O.S. · ${fmtDateBR(dt)}`}
+      largura="lg"
+      onFechar={onFechar}
+      rodape={
+        <button type="button" className={`${BOTAO} !h-12`} onClick={onFechar}>
+          Fechar
+        </button>
+      }
+    >
+      <div className="space-y-3">
+        <p className="rounded-lg border border-[#D77B38]/40 bg-[#D77B38]/10 px-3 py-2 text-[12.5px] text-[#A24F1C] dark:text-[#F0A066]">
+          {trocar
+            ? `Escolha a operação que entra no lugar da ${trocar.opCod}: as fazendas e os talhões incluídos ficam.`
+            : "Escolha a operação. Depois inclua as fazendas e os talhões realizados: a área do talhão vem da base Fazenda e Talhões da safra da data."}
+        </p>
+        <div>
+          <label htmlFor={`${idBase}-q`} className={ROTULO}>
+            Operação (código ou nome)
+          </label>
+          <input
+            id={`${idBase}-q`}
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value.slice(0, 60))}
+            placeholder="Ex.: 10 ou herbicida"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="search"
+            disabled={!operacoes}
+            className={CAMPO}
+          />
+        </div>
+        <div aria-live="polite">
+          {!operacoes && !erro && <p className="py-4 text-center text-[13.5px] text-muted">Carregando as operações…</p>}
+          {!operacoes && erro && (
+            <div className="space-y-2">
+              <Aviso msg={{ texto: erro, erro: true }} />
+              <button type="button" className={`${BOTAO} w-full`} onClick={onRecarregar}>
+                <IconAtualizar size={16} /> Tentar de novo
+              </button>
+            </div>
+          )}
+          {operacoes && filtradas.length === 0 && (
+            <p className="py-4 text-center text-[13.5px] text-muted">
+              {q.trim() ? `Nenhuma operação com “${q.trim()}”.` : "O cadastro Operações não tem operações ativas."}
+            </p>
+          )}
+        </div>
+        {mostradas.length > 0 && (
+          <ul aria-label="Operações do cadastro" className="overflow-hidden rounded-lg border border-line bg-card">
+            {mostradas.map((op) => {
+              const atual = !!trocar && codOp(trocar.opCod) === codOp(op.cod);
+              const modelo = rotModelo(op.modelo || modeloDaClassificacao(op.classificacao ?? ""));
+              return (
+                <li key={op.cod} className="border-b border-line last:border-b-0">
+                  <button
+                    type="button"
+                    onClick={() => onEscolher(op)}
+                    className="flex min-h-[56px] w-full items-center gap-3 px-3 py-2 text-left hover:bg-hover"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[14.5px] font-semibold leading-snug text-ink">
+                        {codDs(op.cod, op.ds)}
+                        {atual && (
+                          <span className="ml-1.5 inline-block align-middle">
+                            <SeloNoLancamento>atual</SeloNoLancamento>
+                          </span>
+                        )}
+                      </span>
+                      <span className="block text-[12.5px] text-muted">
+                        {op.classificacao ? `${op.classificacao} · ${modelo}` : "Sem classificação no cadastro"}
+                      </span>
+                    </span>
+                    <IconSetaDireita size={18} className="flex-shrink-0 text-muted" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {filtradas.length > mostradas.length && (
+          <p className="text-[12px] text-muted">
+            Mostrando {mostradas.length} de {filtradas.length}: digite o código ou parte do nome para achar a operação.
+          </p>
+        )}
+      </div>
+    </JanelaInfo>
+  );
+}
+
 /** Selo da origem de um lançamento da O.S. */
 function SeloOrigem({ origem }) {
   const cor = origem === "mobile" ? "bg-brand-50 text-brand-700" : origem === "bot" || origem === "whatsapp" ? "bg-good-50 text-good-600" : "bg-surface text-muted";
@@ -2744,12 +3177,12 @@ function JanelaConsulta({ consulta, matAtual, pode, abrindo, onEditar, onFechar 
             {grupo.length > 1 && (
               <section aria-label="Lançamento com várias O.S." className="space-y-1">
                 <h3 className="text-[14px] font-semibold text-ink">
-                  Lançamento com {grupo.length} O.S. · {rotBoletins(grupo.map((x) => x.boletim))}
+                  Lançamento com {contarOSOperacoes(grupo)} · {rotBoletins(grupo.map((x) => x.boletim))}
                 </h3>
                 <ul className="space-y-0.5 text-[13px]">
                   {grupo.map((x) => (
                     <li key={x.id} className={x.id === a.id ? "font-semibold text-ink" : "text-ink"}>
-                      O.S. {x.os} · {codDs(x.opCod, x.opDs)} · <span className="tabular">{nf(x.areaTotal ?? 0)} ha</span>
+                      {rotuloOS(x)} · {codDs(x.opCod, x.opDs)} · <span className="tabular">{nf(x.areaTotal ?? 0)} ha</span>
                       {x.boletim ? <span className="text-muted"> · boletim nº {x.boletim}</span> : null}
                     </li>
                   ))}
@@ -2837,10 +3270,45 @@ function ResumoEscolha({ os, opCod, opDs, situacao, dt, info, talhoes, onTrocar,
   );
 }
 
-/** "2 O.S." ou, com mais operações que O.S., "1 O.S. · 3 operações" (cada bloco é uma O.S. + operação). */
+/**
+ * O lançamento sem O.S. (passos 3 e 4): o selo laranja, a operação escolhida (com a classificação e o modelo do texto),
+ * a data e o "Trocar" da operação.
+ */
+function ResumoSemOS({ op, boletim, dt, onTrocar }) {
+  return (
+    <div className={`${CARTAO} border-l-4 border-l-[#D77B38] p-3`}>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="font-display text-[19px] font-semibold leading-tight text-ink">Sem O.S.</span>
+            <span className={SELO_SEM_OS}>Lançar sem O.S.</span>
+            <span className="text-[12.5px] text-muted">{fmtDateBR(dt)}</span>
+            {boletim && <span className="text-[12px] text-muted">boletim nº {boletim}</span>}
+          </div>
+          <div className="text-[14px] font-medium leading-snug text-ink">{codDs(op?.cod, op?.ds) || "Operação não escolhida"}</div>
+          <div className="text-[12.5px] text-muted">
+            {op?.classificacao ? [op.classificacao, rotModelo(op.modelo)].filter(Boolean).join(" · ") : "Sem classificação no cadastro"}
+          </div>
+        </div>
+        <button type="button" className={BOTAO_MENOR} onClick={onTrocar} aria-haspopup="dialog" aria-label="Trocar a operação do lançamento sem O.S.">
+          Trocar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "2 O.S." ou, com mais operações que O.S., "1 O.S. · 3 operações" (cada bloco é uma O.S. + operação); com o bloco sem
+ * O.S., "2 O.S. + sem O.S.".
+ */
 function contarOSOperacoes(ordens) {
-  const nOS = new Set(ordens.map((o) => String(o.os ?? ""))).size;
-  return nOS === ordens.length ? `${nOS} O.S.` : `${nOS} O.S. · ${ordens.length} operações`;
+  const com = ordens.filter((o) => !ehSemOS(o));
+  const nOS = new Set(com.map((o) => String(o.os ?? ""))).size;
+  const partes = [];
+  if (com.length) partes.push(nOS === com.length ? `${nOS} O.S.` : `${nOS} O.S. · ${com.length} operações`);
+  if (com.length < ordens.length) partes.push("sem O.S.");
+  return partes.join(" + ");
 }
 
 /** Passo 4 do lançamento com várias O.S.: as O.S./operações com a área de cada uma e o caminho de volta aos talhões. */
@@ -2865,7 +3333,7 @@ function ResumoLancamento({ ordens, resumo, dsDe, dt, onTalhoes }) {
           return (
             <li key={o.chave} className="flex items-baseline gap-2 py-1.5 text-[13px]">
               <span className="min-w-0 flex-1 truncate text-ink">
-                <b className="font-semibold">O.S. {o.os}</b> · {o.opCod}
+                <b className={`font-semibold ${ehSemOS(o) ? "text-[#A24F1C] dark:text-[#F0A066]" : ""}`}>{rotuloOS(o)}</b> · {o.opCod}
                 {ds ? ` - ${ds}` : ""}
               </span>
               <span className="flex-shrink-0 tabular text-muted">{nf(resumo[i]?.total ?? 0)} ha</span>
@@ -3088,6 +3556,103 @@ function BlocoOrdem({
   );
 }
 
+/** O bloco sem O.S. não tem talhões da O.S. (Incluir fazenda/talhão os separa dos dela): listas vazias fixas. */
+const SEM_TALHOES = [];
+const SEM_MARCAS = {};
+const NADA = () => {};
+
+/**
+ * O lançamento sem O.S. no passo 3: a operação escolhida (com Trocar), as fazendas e os talhões incluídos pelo Cadastro
+ * de Fazenda com a área de cada um (o padrão é a área do talhão na base Fazenda e Talhões da safra da data; sem "Já
+ * apontado" nem "Falta", que só existem na O.S.) e o "Incluir fazenda/talhão" — aberto enquanto não há nenhum. Com O.S.
+ * no mesmo lançamento, fica num bloco que abre e fecha (o último, com o selo laranja) e tem o botão de tirar; sozinho
+ * (`unica`), fica como sempre aberto. Não tem status de O.S. nem os lançamentos da O.S.
+ */
+function BlocoSemOS({ ordem, r, dt, unica, aberto, onAlternar, onRemover, onTrocar, onMudar }) {
+  const ch = ordem.chave;
+  const mudarArea = useCallback(
+    (chave, v) => onMudar(ch, (o) => ({ ...o, extras: o.extras.map((x) => (x.chave === chave ? { ...x, area: v } : x)) })),
+    [ch, onMudar],
+  );
+  const remover = useCallback((chave) => onMudar(ch, (o) => ({ ...o, extras: o.extras.filter((x) => x.chave !== chave) })), [ch, onMudar]);
+  const incluir = useCallback(
+    (itens) =>
+      onMudar(ch, (o) => {
+        const novos = itens.filter((x) => !o.extras.some((e) => mesmoTalhao(e, x)));
+        return { ...o, extras: [...o.extras, ...novos.map((x) => ({ ...x, chave: novaChaveExtra() }))] };
+      }),
+    [ch, onMudar],
+  );
+  const idBloco = `lm-b-${idSeguro(ch)}`;
+  const op = r.operacao;
+  const nome = `Sem O.S. · operação ${ordem.opCod}`;
+
+  const conteudo = (
+    <>
+      <ResumoSemOS op={op} boletim={unica ? ordem.boletim : null} dt={dt} onTrocar={() => onTrocar(ch)} />
+      {ordem.extras.length === 0 && (
+        <p className={`${CARTAO} px-4 py-5 text-center text-[13.5px] text-muted`}>
+          Inclua abaixo as fazendas e os talhões realizados: a área de cada talhão vem da base Fazenda e Talhões da safra de {fmtDateBR(dt)}.
+        </p>
+      )}
+      <ListaForaDaOS extras={ordem.extras} onArea={mudarArea} onRemover={remover} semOS />
+      <IncluirForaDaOS
+        idBase={idBloco}
+        dt={dt}
+        talhoesOS={SEM_TALHOES}
+        marcas={SEM_MARCAS}
+        extras={ordem.extras}
+        onIncluir={incluir}
+        onMarcarDaOS={NADA}
+        onAreaDaOS={NADA}
+        semOS
+        abertoInicial={ordem.extras.length === 0}
+      />
+    </>
+  );
+  if (unica) return conteudo;
+
+  return (
+    <section aria-label={nome} className="space-y-2.5">
+      <div className={`${CARTAO} flex items-stretch overflow-hidden border-l-4 border-l-[#D77B38]`}>
+        <button
+          type="button"
+          onClick={() => onAlternar(ch)}
+          aria-expanded={aberto}
+          aria-controls={aberto ? idBloco : undefined}
+          className="flex min-h-[64px] min-w-0 flex-1 items-center gap-3 px-3.5 py-2.5 text-left hover:bg-hover"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-display text-[19px] font-semibold leading-tight text-ink">Sem O.S.</span>
+              <span className={SELO_SEM_OS}>Lançar sem O.S.</span>
+              {ordem.boletim && <span className="text-[12px] text-muted">boletim nº {ordem.boletim}</span>}
+            </span>
+            <span className="block truncate text-[13.5px] font-medium text-ink">{codDs(ordem.opCod, op?.ds)}</span>
+            <span className="block text-[12.5px] tabular text-muted">
+              {plural(r.linhas.length, "talhão", "talhões")} · {nf(r.total)} ha
+            </span>
+          </span>
+          <IconSetaBaixo size={18} className={`flex-shrink-0 text-muted transition-transform ${aberto ? "rotate-180" : ""}`} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onRemover(ch)}
+          className="flex w-12 flex-shrink-0 items-center justify-center border-l border-line text-muted hover:bg-hover hover:text-alert-600"
+          aria-label={`Tirar o bloco sem O.S. (operação ${ordem.opCod}) do lançamento`}
+        >
+          <IconExcluir size={18} />
+        </button>
+      </div>
+      {aberto && (
+        <div id={idBloco} className="space-y-3 border-l-2 border-[#D77B38] pl-2.5">
+          {conteudo}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CampoArea({ id, valor, onChange, alerta = false, rotuloAria }) {
   return (
     <div className="relative">
@@ -3223,13 +3788,21 @@ function LinhaTalhao({ prefixo, t, valor, onMarcar, onArea }) {
   );
 }
 
-function ListaForaDaOS({ extras, onArea, onRemover }) {
+/**
+ * Talhões incluídos de fora da O.S. com a área de cada um; no lançamento sem O.S. (`semOS`), todos os talhões dele (a
+ * área do talhão é a da base da safra).
+ */
+function ListaForaDaOS({ extras, onArea, onRemover, semOS = false }) {
   if (!extras.length) return null;
   return (
-    <section className={`${CARTAO} overflow-hidden`} aria-label="Talhões fora da O.S.">
+    <section className={`${CARTAO} overflow-hidden`} aria-label={semOS ? "Fazendas e talhões do lançamento sem O.S." : "Talhões fora da O.S."}>
       <header className="border-b border-line px-3 py-2">
-        <h3 className="text-[14.5px] font-semibold text-ink">Fora da O.S.</h3>
-        <p className="text-[12px] text-muted">Incluídos neste lançamento; não entram no que falta da O.S.</p>
+        <h3 className="text-[14.5px] font-semibold text-ink">{semOS ? "Fazendas e talhões" : "Fora da O.S."}</h3>
+        <p className="text-[12px] text-muted">
+          {semOS
+            ? "Área do talhão pela base Fazenda e Talhões da safra; informe a área realizada em cada um."
+            : "Incluídos neste lançamento; não entram no que falta da O.S."}
+        </p>
       </header>
       <ul className="divide-y divide-line">
         {extras.map((x) => {
@@ -3267,7 +3840,7 @@ function ListaForaDaOS({ extras, onArea, onRemover }) {
                 valor={x.area}
                 onChange={(a) => onArea(x.chave, a)}
                 alerta={acima || invalido}
-                rotuloAria={`Área realizada do ${rotTalhao(x.tlh)} da fazenda ${x.propCod} (fora da O.S.)`}
+                rotuloAria={`Área realizada do ${rotTalhao(x.tlh)} da fazenda ${x.propCod}${semOS ? "" : " (fora da O.S.)"}`}
               />
               <div aria-live="polite">
                 {acima && <p className="mt-1 text-[12px] font-medium text-amber-600">Acima da área do talhão ({nf(x.areaTlh)} ha).</p>}
@@ -3283,10 +3856,12 @@ function ListaForaDaOS({ extras, onArea, onRemover }) {
 
 /**
  * Incluir fazenda/talhão que não está na O.S.: código da fazenda → talhões da base Fazenda e Talhões da safra da data
- * (ou o talhão digitado). Talhão que já está na O.S. é marcado lá em cima, não entra como "fora da O.S.".
+ * (ou o talhão digitado). Talhão que já está na O.S. é marcado lá em cima, não entra como "fora da O.S.". No
+ * lançamento sem O.S. (`semOS`), é por aqui que entram todos os talhões; `abertoInicial`: começa aberto (sem o foco no
+ * campo, que só vai quando a pessoa abre).
  */
-function IncluirForaDaOS({ idBase, dt, talhoesOS, marcas, extras, onIncluir, onMarcarDaOS, onAreaDaOS }) {
-  const [aberto, setAberto] = useState(false);
+function IncluirForaDaOS({ idBase, dt, talhoesOS, marcas, extras, onIncluir, onMarcarDaOS, onAreaDaOS, semOS = false, abertoInicial = false }) {
+  const [aberto, setAberto] = useState(abertoInicial);
   const [cod, setCod] = useState("");
   const [busca, setBusca] = useState(null); // { fazenda, talhoes }
   const [buscando, setBuscando] = useState(false);
@@ -3296,9 +3871,12 @@ function IncluirForaDaOS({ idBase, dt, talhoesOS, marcas, extras, onIncluir, onM
   const [outroTlh, setOutroTlh] = useState("");
   const [outraArea, setOutraArea] = useState("");
   const campoCod = useRef(null);
+  const montou = useRef(false);
 
+  // o foco vai ao código da fazenda quando a pessoa abre (o que já começa aberto não abre o teclado sozinho)
   useEffect(() => {
-    if (aberto) campoCod.current?.focus();
+    if (aberto && montou.current) campoCod.current?.focus();
+    montou.current = true;
   }, [aberto]);
 
   async function buscar(e) {
@@ -3332,7 +3910,7 @@ function IncluirForaDaOS({ idBase, dt, talhoesOS, marcas, extras, onIncluir, onM
     if (naOS.length) onMarcarDaOS(naOS.filter((o) => marcas[chaveDe(o)] === undefined), true);
     if (fora.length) onIncluir(fora);
     const partes = [];
-    if (fora.length) partes.push(`${plural(fora.length, "talhão incluído", "talhões incluídos")} como fora da O.S.`);
+    if (fora.length) partes.push(`${plural(fora.length, "talhão incluído", "talhões incluídos")}${semOS ? "" : " como fora da O.S."}`);
     if (naOS.length) partes.push(`${naOS.map((o) => rotTalhao(o.tlh)).join(", ")} já ${naOS.length === 1 ? "está" : "estão"} na O.S.: marcado na lista acima`);
     const frase = partes.join("; ");
     setAviso(!frase ? "Nada novo para incluir." : frase.endsWith(".") ? frase : `${frase}.`);
@@ -3384,7 +3962,7 @@ function IncluirForaDaOS({ idBase, dt, talhoesOS, marcas, extras, onIncluir, onM
   if (!aberto) {
     return (
       <button type="button" className={`${BOTAO} w-full border-dashed`} onClick={() => setAberto(true)}>
-        <IconMais size={18} /> Incluir fazenda/talhão fora da O.S.
+        <IconMais size={18} /> {semOS ? (extras.length ? "Incluir outra fazenda/talhão" : "Incluir fazenda/talhão") : "Incluir fazenda/talhão fora da O.S."}
       </button>
     );
   }
@@ -3394,7 +3972,7 @@ function IncluirForaDaOS({ idBase, dt, talhoesOS, marcas, extras, onIncluir, onM
     <section className="caixa-form space-y-3" aria-labelledby={`${idBase}-fora-t`}>
       <div className="flex items-center gap-2">
         <h3 id={`${idBase}-fora-t`} className="min-w-0 flex-1 text-[15px] font-semibold text-ink">
-          Incluir fora da O.S.
+          {semOS ? "Incluir fazenda/talhão" : "Incluir fora da O.S."}
         </h3>
         <button type="button" onClick={fechar} className="flex h-10 w-10 items-center justify-center rounded-lg text-muted hover:bg-surface" aria-label="Fechar a inclusão">
           <IconFechar size={18} />
@@ -3549,17 +4127,67 @@ function Opcoes({ nome, legenda, valor, opcoes, onChange, colunas = 2, dica }) {
 
 /**
  * Cabeçalho do lançamento (o mesmo para todas as O.S.) e o status de cada O.S. `ops`: as operações do lançamento (a
- * primeira dá as dicas); `statusPorOS`: { os, chave, valor, falta, nTalhoes, nOps } de cada O.S.
+ * primeira dá as dicas); `statusPorOS`: { os, chave, valor, falta, nTalhoes, nOps } de cada O.S. `semOS`: o bloco sem
+ * O.S. ({ chave, etapaCod, rotulo }), com a etapa escolhida para ele (`onEtapaSemOS`; obrigatória com
+ * `etapaObrigatoria`); `soSemOS`: só ele no lançamento — a etapa dele fica no lugar da do cabeçalho.
  */
-function DadosServico({ s, upd, dt, hoje, onDt, ops, opcoes, varias, statusPorOS, statusOpcoes, onStatus, onTipoRecusado }) {
+function DadosServico({
+  s,
+  upd,
+  dt,
+  hoje,
+  onDt,
+  ops,
+  opcoes,
+  varias,
+  statusPorOS,
+  statusOpcoes,
+  onStatus,
+  onTipoRecusado,
+  semOS = null,
+  soSemOS = false,
+  etapaObrigatoria = false,
+  onEtapaSemOS,
+}) {
   const op = ops[0] ?? null;
-  // etapas do cadastro + as das operações (e a gravada) quando não estão nele
+  const etapaSemOSCod = semOS?.etapaCod ?? "";
+  // etapas do cadastro + as das operações (e a gravada, a do lançamento sem O.S. também) quando não estão nele
   const etapas = useMemo(() => {
     const l = [...(opcoes?.etapas ?? [])];
     for (const o of ops) if (o.etapaCod && !l.some((x) => x.cod === o.etapaCod)) l.unshift({ cod: o.etapaCod, ds: o.etapaDs ?? "" });
-    if (s.etapaCod && !l.some((x) => x.cod === s.etapaCod)) l.unshift({ cod: s.etapaCod, ds: "" });
+    for (const c of [s.etapaCod, etapaSemOSCod]) if (c && !l.some((x) => x.cod === c)) l.unshift({ cod: c, ds: "" });
     return l;
-  }, [opcoes, ops, s.etapaCod]);
+  }, [opcoes, ops, s.etapaCod, etapaSemOSCod]);
+  const opcoesEtapa = etapas.map((x) => (
+    <option key={x.cod} value={x.cod}>
+      {x.cod}
+      {x.ds ? ` - ${x.ds}` : ""}
+    </option>
+  ));
+  // a etapa do lançamento sem O.S. (a dele, não a do cabeçalho: sem O.S. ela não vem de nenhuma O.S.)
+  const campoEtapaSemOS = semOS && (
+    <Campo
+      id="lm-etapa-semos"
+      rotulo={`${soSemOS ? "Etapa" : "Etapa do lançamento sem O.S."}${etapaObrigatoria ? " (obrigatória)" : ""}`}
+      dica={soSemOS ? undefined : `Sem O.S. · ${semOS.rotulo}`}
+    >
+      <select
+        id="lm-etapa-semos"
+        value={etapaSemOSCod}
+        onChange={(e) => onEtapaSemOS(semOS.chave, e.target.value)}
+        aria-required={etapaObrigatoria || undefined}
+        className={CAMPO}
+      >
+        <option value="">—</option>
+        {opcoesEtapa}
+      </select>
+    </Campo>
+  );
+  const dicaSolicitante = soSemOS
+    ? "Padrão: o nome de quem está lançando."
+    : varias
+      ? `Sem mudar, cada O.S. leva o responsável dela${semOS ? " (e o lançamento sem O.S., o nome de quem está lançando)" : ""}.`
+      : undefined;
   // tipos de aplicação: só os do cadastro Tipo Aplicação ativos ({ cod, ds }; null enquanto as listas não chegam)
   const tipos = useMemo(
     () => (Array.isArray(opcoes?.tipos) ? opcoes.tipos.map((t) => (typeof t === "string" ? { cod: "", ds: t } : t)).filter((t) => t && t.ds) : null),
@@ -3576,7 +4204,7 @@ function DadosServico({ s, upd, dt, hoje, onDt, ops, opcoes, varias, statusPorOS
       <Campo id="lm-ativ" rotulo="Atividade" dica={op?.ds && s.atividade !== op.ds ? `Operação: ${op.ds}` : undefined}>
         <input id="lm-ativ" value={s.atividade} onChange={(e) => upd({ atividade: e.target.value.slice(0, 120) })} autoComplete="off" className={CAMPO} />
       </Campo>
-      <Campo id="lm-solic" rotulo="Solicitante" dica={varias ? "Sem mudar, cada O.S. leva o responsável dela." : undefined}>
+      <Campo id="lm-solic" rotulo="Solicitante" dica={dicaSolicitante}>
         <input
           id="lm-solic"
           list="lm-solicitantes"
@@ -3592,19 +4220,25 @@ function DadosServico({ s, upd, dt, hoje, onDt, ops, opcoes, varias, statusPorOS
         </datalist>
       </Campo>
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        <Campo id="lm-etapa" rotulo="Etapa">
-          <select id="lm-etapa" value={s.etapaCod} onChange={(e) => upd({ etapaCod: e.target.value })} className={CAMPO}>
-            <option value="">—</option>
-            {etapas.map((x) => (
-              <option key={x.cod} value={x.cod}>
-                {x.cod}
-                {x.ds ? ` - ${x.ds}` : ""}
-              </option>
-            ))}
-          </select>
-        </Campo>
+        {/* só o lançamento sem O.S.: a etapa é a dele; com O.S., a do cabeçalho e, abaixo, a do sem O.S. */}
+        {soSemOS ? (
+          campoEtapaSemOS
+        ) : (
+          <Campo id="lm-etapa" rotulo="Etapa">
+            <select id="lm-etapa" value={s.etapaCod} onChange={(e) => upd({ etapaCod: e.target.value })} className={CAMPO}>
+              <option value="">—</option>
+              {opcoesEtapa}
+            </select>
+          </Campo>
+        )}
         <CampoTipoAplicacao id="lm-tipo" valor={s.tipoAplicacao} tipos={tipos} onChange={(v) => upd({ tipoAplicacao: v })} onRecusado={onTipoRecusado} />
-        {varias && <p className="-mt-2 text-[12px] text-muted sm:col-span-2">Etapa e tipo de aplicação: sem mudar, cada O.S. leva os da operação dela.</p>}
+        {varias && (
+          <p className="-mt-2 text-[12px] text-muted sm:col-span-2">
+            Etapa e tipo de aplicação: sem mudar, cada O.S. leva os da operação dela
+            {semOS ? "; o lançamento sem O.S. leva a etapa escolhida abaixo e o tipo daqui" : ""}.
+          </p>
+        )}
+        {!soSemOS && campoEtapaSemOS && <div className="sm:col-span-2">{campoEtapaSemOS}</div>}
       </div>
       <Campo id="lm-equipe" rotulo={`Prestador / Equipe${recomendado(s.modelo === "manual")}`}>
         <input
@@ -3905,7 +4539,7 @@ function MeusLancamentos({ tituloRef, mat, nome, pode, dias, onDias, estado, abr
                 </div>
                 {ordens.map((o, i) => (
                   <p key={o.id ?? i} className="truncate text-[13.5px] text-ink">
-                    O.S. {o.os} · {o.opCod}
+                    {ehSemOS(o) ? <b className="font-semibold text-[#A24F1C] dark:text-[#F0A066]">Sem O.S.</b> : `O.S. ${o.os}`} · {o.opCod}
                     {o.opDs ? ` - ${o.opDs}` : ""}
                     {ordens.length > 1 && Number.isFinite(o.area) && <span className="tabular text-muted"> · {nf(o.area)} ha</span>}
                   </p>
