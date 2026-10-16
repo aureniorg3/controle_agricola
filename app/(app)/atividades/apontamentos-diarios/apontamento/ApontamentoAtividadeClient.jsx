@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
+import SelecaoMultipla from "@/components/SelecaoMultipla";
 import { IconAlerta, IconBusca, IconMais } from "@/components/icons";
 import JanelaFormulario, { Aviso, JanelaConfirmar, useAtalhoTela, useCliqueFora, useJanela } from "@/components/janela";
 import { CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina, Painel } from "@/components/pagina";
@@ -15,6 +16,8 @@ import { addDays } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
 
 const INPUT = "w-full rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink disabled:opacity-60";
+/** botão dos filtros de um ou mais itens, com a altura dos campos acima da lista */
+const FILTRO_MULTIPLO = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[13px] text-ink focus:border-brand-600 focus:outline-none";
 const ROTULO = "mb-1 block truncate text-[11.5px] font-medium text-muted";
 const BOTAO = "rounded-lg border border-line bg-card px-3 py-1.5 text-[12.5px] font-medium text-navy-800 hover:bg-surface disabled:opacity-50";
 const CELULA = "w-full rounded border border-line bg-card px-2 py-1 text-[12.5px] text-ink";
@@ -31,6 +34,30 @@ const semZeros = (s) =>
   String(s ?? "")
     .trim()
     .replace(/^0+(?=\d)/, "");
+/**
+ * Opções dos filtros da lista, dos apontamentos do período: operações e fazendas ({ cod, nome }, em ordem de código;
+ * o código sem zeros à esquerda / sem a sequência da fazenda) e solicitantes e apontadores (o nome, em ordem alfabética).
+ */
+function opcoesDosFiltros(lista) {
+  const ops = new Map();
+  const faz = new Map();
+  const sol = new Set();
+  const apo = new Set();
+  for (const a of lista) {
+    const op = semZeros(a.opCod);
+    if (op && !ops.get(op)) ops.set(op, a.opDs ?? "");
+    for (const t of a.talhoes) {
+      const f = normFaz(t.propCod);
+      if (f && !faz.get(f)) faz.set(f, t.propNm ?? "");
+    }
+    if (String(a.solicitante ?? "").trim()) sol.add(String(a.solicitante).trim());
+    if (String(a.apontador ?? "").trim()) apo.add(String(a.apontador).trim());
+  }
+  const porCodigo = (m) => [...m].map(([cod, nome]) => ({ cod, nome })).sort((x, y) => x.cod.localeCompare(y.cod, "pt-BR", { numeric: true }));
+  const porNome = (s) => [...s].sort((x, y) => x.localeCompare(y, "pt-BR")).map((n) => ({ cod: n, nome: "" }));
+  return { ops: porCodigo(ops), faz: porCodigo(faz), sol: porNome(sol), apo: porNome(apo) };
+}
+
 /** O.S. do boletim que não está mais na base (saiu numa importação do Relatório de Ordens de Serviço). */
 const OS_FORA_DA_BASE = (os) =>
   `A O.S. ${os} não está mais na base de O.S. (saiu numa importação do Relatório de Ordens de Serviço): ligue o apontamento a outra O.S. pela Verificar O.S. ou edite-o.`;
@@ -156,12 +183,22 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   const [ate, setAte] = useState(todayISO());
   const [filtroOS, setFiltroOS] = useState("");
   const [filtroBoletim, setFiltroBoletim] = useState("");
-  const algumFiltroAtivo = de !== addDays(todayISO(), -6) || ate !== todayISO() || filtroOS !== "" || filtroBoletim !== "";
+  // filtros sobre os apontamentos do período (um ou mais de cada): operação, fazenda, solicitante e apontador
+  const [filtroOp, setFiltroOp] = useState([]);
+  const [filtroFaz, setFiltroFaz] = useState([]);
+  const [filtroSolic, setFiltroSolic] = useState([]);
+  const [filtroApont, setFiltroApont] = useState([]);
+  const filtroNaLista = filtroOp.length > 0 || filtroFaz.length > 0 || filtroSolic.length > 0 || filtroApont.length > 0;
+  const algumFiltroAtivo = de !== addDays(todayISO(), -6) || ate !== todayISO() || filtroOS !== "" || filtroBoletim !== "" || filtroNaLista;
   function limparFiltros() {
     setDe(addDays(todayISO(), -6));
     setAte(todayISO());
     setFiltroOS("");
     setFiltroBoletim("");
+    setFiltroOp([]);
+    setFiltroFaz([]);
+    setFiltroSolic([]);
+    setFiltroApont([]);
   }
   const [lista, setLista] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -1005,10 +1042,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
     setConferencia({ id: a.id });
   }
 
-  /** O próximo apontamento a conferir da lista depois de `id` (no fim, volta ao começo). */
+  /** O próximo apontamento a conferir da lista (com os filtros) depois de `id` (no fim, volta ao começo). */
   function proximoAConferir(id) {
-    const i = lista.findIndex((x) => x.id === id);
-    return lista.slice(i + 1).find((x) => x.aConferir && x.id !== id) ?? lista.slice(0, Math.max(0, i)).find((x) => x.aConferir && x.id !== id) ?? null;
+    const i = filtrada.findIndex((x) => x.id === id);
+    return filtrada.slice(i + 1).find((x) => x.aConferir && x.id !== id) ?? filtrada.slice(0, Math.max(0, i)).find((x) => x.aConferir && x.id !== id) ?? null;
   }
 
   function excluir(a) {
@@ -1043,22 +1080,34 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   // vazão utilizada calculada: volume de calda ÷ área do dia (vale quando o campo fica em branco)
   const vazaoCalculada = numero(form.volCalda) > 0 && totalDia > 0 ? round2(numero(form.volCalda) / totalDia) : null;
 
-  const totalLista = round2(lista.reduce((a, x) => a + x.areaTotal, 0));
-  const qtdConferir = lista.filter((a) => a.aConferir).length;
-  const qtdSemOS = lista.filter((a) => !a.os).length;
+  // opções dos filtros de operação, fazenda, solicitante e apontador: as dos apontamentos do período
+  const opcoesFiltro = opcoesDosFiltros(lista);
+  // a lista com esses filtros: os cartões, os atalhos e o total contam só ela
+  const filtrada = filtroNaLista
+    ? lista.filter(
+        (a) =>
+          (filtroOp.length === 0 || filtroOp.includes(semZeros(a.opCod))) &&
+          (filtroFaz.length === 0 || a.talhoes.some((t) => filtroFaz.includes(normFaz(t.propCod)))) &&
+          (filtroSolic.length === 0 || filtroSolic.includes(String(a.solicitante ?? "").trim())) &&
+          (filtroApont.length === 0 || filtroApont.includes(String(a.apontador ?? "").trim())),
+      )
+    : lista;
+  const totalLista = round2(filtrada.reduce((a, x) => a + x.areaTotal, 0));
+  const qtdConferir = filtrada.filter((a) => a.aConferir).length;
+  const qtdSemOS = filtrada.filter((a) => !a.os).length;
   // lançados com uma O.S. que não está mais na base (saiu numa importação): a linha fica destacada
-  const qtdForaBase = lista.filter((a) => a.osForaDaBase).length;
+  const qtdForaBase = filtrada.filter((a) => a.osForaDaBase).length;
   // atalho escolhido nos cartões / botões acima da lista
   const visiveis =
     rapido === "conferir"
-      ? lista.filter((a) => a.aConferir)
+      ? filtrada.filter((a) => a.aConferir)
       : rapido === "whatsapp"
-        ? lista.filter((a) => a.orig === "whatsapp")
+        ? filtrada.filter((a) => a.orig === "whatsapp")
         : rapido === "semOS"
-          ? lista.filter((a) => !a.os)
+          ? filtrada.filter((a) => !a.os)
           : rapido === "foraBase"
-            ? lista.filter((a) => a.osForaDaBase)
-            : lista;
+            ? filtrada.filter((a) => a.osForaDaBase)
+            : filtrada;
   const totalVisiveis = round2(visiveis.reduce((a, x) => a + x.areaTotal, 0));
   const marcadosQtd = linhas.filter((l) => l.marcado && (comOS || (l.propCod && l.tlh))).length;
   const somaPeso = round2(linhas.filter((l) => l.marcado).reduce((a, l) => a + (l.areaRec ?? l.areaTlh ?? 0), 0));
@@ -1146,7 +1195,13 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         {/* Resumo do período da lista: os cartões filtram a lista */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           {[
-            { k: "todos", rotulo: "Apontamentos no período", valor: lista.length, apoio: `${fmtDateBR(de)} a ${fmtDateBR(ate)}`, cor: "azul" },
+            {
+              k: "todos",
+              rotulo: "Apontamentos no período",
+              valor: filtrada.length,
+              apoio: `${fmtDateBR(de)} a ${fmtDateBR(ate)}${filtroNaLista ? ` · com filtro (${lista.length} no período)` : ""}`,
+              cor: "azul",
+            },
             { k: "area", rotulo: "Área apontada", valor: nf(totalLista), unidade: "ha", apoio: "soma dos talhões", cor: "verde" },
             {
               k: "conferir",
@@ -1773,12 +1828,54 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
               <label className={ROTULO}>O.S.</label>
               <input value={filtroOS} onChange={(e) => setFiltroOS(e.target.value.replace(/\D/g, ""))} className={INPUT} placeholder="Todas" />
             </div>
+            <SelecaoMultipla
+              rotulo="Operação"
+              opcoes={opcoesFiltro.ops}
+              valor={filtroOp}
+              onChange={setFiltroOp}
+              singular="operação"
+              plural="operações"
+              className={`${FILTRO_MULTIPLO} w-[210px]`}
+            />
+            <SelecaoMultipla
+              rotulo="Fazenda"
+              opcoes={opcoesFiltro.faz}
+              valor={filtroFaz}
+              onChange={setFiltroFaz}
+              singular="fazenda"
+              plural="fazendas"
+              className={`${FILTRO_MULTIPLO} w-[200px]`}
+            />
+            <SelecaoMultipla
+              rotulo="Solicitante"
+              opcoes={opcoesFiltro.sol}
+              valor={filtroSolic}
+              onChange={setFiltroSolic}
+              todos="Todos"
+              singular="solicitante"
+              plural="solicitantes"
+              placeholder="Buscar nome…"
+              soNome
+              className={`${FILTRO_MULTIPLO} w-[200px]`}
+            />
+            <SelecaoMultipla
+              rotulo="Apontador"
+              opcoes={opcoesFiltro.apo}
+              valor={filtroApont}
+              onChange={setFiltroApont}
+              todos="Todos"
+              singular="apontador"
+              plural="apontadores"
+              placeholder="Buscar nome…"
+              soNome
+              className={`${FILTRO_MULTIPLO} w-[200px]`}
+            />
             <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
             <div className="ml-auto flex flex-wrap gap-1.5" role="group" aria-label="Mostrar">
               {[
-                ["todos", `Todos (${lista.length})`],
+                ["todos", `Todos (${filtrada.length})`],
                 ["conferir", `A conferir (${qtdConferir})`],
-                ["whatsapp", `Do WhatsApp (${lista.filter((a) => a.orig === "whatsapp").length})`],
+                ["whatsapp", `Do WhatsApp (${filtrada.filter((a) => a.orig === "whatsapp").length})`],
                 ["semOS", `Sem O.S. (${qtdSemOS})`],
                 ...(qtdForaBase || rapido === "foraBase" ? [["foraBase", `O.S. fora da base (${qtdForaBase})`]] : []),
               ].map(([k, t]) => (
@@ -1827,7 +1924,11 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                 {!carregando && visiveis.length === 0 && (
                   <tr>
                     <td colSpan={15} className="px-3 py-6 text-center text-muted">
-                      {lista.length === 0 ? "Nenhum apontamento no período." : "Nenhum apontamento neste atalho."}
+                      {lista.length === 0
+                        ? "Nenhum apontamento no período."
+                        : filtrada.length === 0
+                          ? "Nenhum apontamento com esses filtros de operação, fazenda, solicitante ou apontador."
+                          : "Nenhum apontamento neste atalho."}
                       {lista.length === 0 && podeGravar && (
                         <button type="button" className={`${BOTAO} ml-2`} onClick={novo}>
                           Lançar um apontamento

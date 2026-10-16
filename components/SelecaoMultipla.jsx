@@ -13,6 +13,7 @@ import { IconBusca, IconSetaBaixo } from "./icons";
  * PgUp/PgDn andam, Espaço ou Enter marcam, e digitar volta para a busca; Esc limpa a busca e, depois, fecha.
  *
  * `opcoes`: [{ cod, nome }] (null enquanto carrega); `valor`: códigos marcados (vazio = todos); `maximo` limita a lista.
+ * `soNome`: as opções são só nomes (o `cod` é o nome, sem coluna de código), como solicitantes e apontadores.
  */
 
 /** Mesmo visual dos campos de filtro das telas (o FILTRO das O.S.); quem usa passa a largura em `className`. */
@@ -58,6 +59,7 @@ export default function SelecaoMultipla({
   maximo = 300,
   className = `${CAMPO} w-[200px]`,
   placeholder = "Buscar código ou nome…",
+  soNome = false,
 }) {
   const id = useId();
   const caixaRef = useRef(null);
@@ -320,8 +322,14 @@ export default function SelecaoMultipla({
                     onFocus={() => setAtivo(i)}
                     className="mt-[2px] h-3.5 w-3.5 flex-shrink-0 cursor-pointer accent-[#23396B] dark:accent-[#7FA8E8]"
                   />
-                  <span className="min-w-[2.75rem] flex-shrink-0 tabular text-muted">{o.cod}</span>
-                  <span className="min-w-0 break-words">{o.nome || "—"}</span>
+                  {soNome ? (
+                    <span className="min-w-0 break-words">{o.cod}</span>
+                  ) : (
+                    <>
+                      <span className="min-w-[2.75rem] flex-shrink-0 tabular text-muted">{o.cod}</span>
+                      <span className="min-w-0 break-words">{o.nome || "—"}</span>
+                    </>
+                  )}
                 </label>
               ))
             )}
