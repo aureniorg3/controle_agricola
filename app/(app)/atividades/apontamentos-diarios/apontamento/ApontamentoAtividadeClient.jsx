@@ -583,14 +583,23 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   /**
    * Sem O.S.: o campo de operação aceita "código · descrição" da lista ou o código digitado; a descrição vem do cadastro
    * Operações (o código vale com ou sem zeros à esquerda). O texto digitado fica como está até sair do campo.
+   * A operação inativa no cadastro não está na lista, mas o código digitado ainda é reconhecido.
    */
   function escolherOperacao(v) {
     setOpDigitado(v);
     const cod = v.split("·")[0].trim();
-    const norm = (c) => c.trim().replace(/^0+(?=\d)/, "");
-    const o = cod ? opcoes?.operacoes.find((x) => norm(x.cod) === norm(cod)) : undefined;
+    const o = cod ? operacaoDaLista(cod) : undefined;
     upd({ opCod: o?.cod ?? cod, opDs: o?.ds ?? "", etapaCod: form.etapaCod || o?.etapaCod || "" });
   }
+  const normOp = (c) => c.trim().replace(/^0+(?=\d)/, "");
+  const operacaoDaLista = (cod) =>
+    opcoes?.operacoes.find((x) => normOp(x.cod) === normOp(cod)) ?? opcoes?.inativos?.operacoes.find((x) => normOp(x.cod) === normOp(cod));
+  const operacaoInativa = !!form.opCod && !!opcoes?.inativos?.operacoes.some((x) => normOp(x.cod) === normOp(form.opCod));
+  /** Etapa gravada (apontamento aberto para edição) que não está na lista: inativa no cadastro ou fora dele. */
+  const etapaForaDaLista =
+    form.etapaCod && form.etapaCod !== op?.etapaCod && !opcoes?.etapas.some((x) => x.cod === form.etapaCod)
+      ? { cod: form.etapaCod, inativa: opcoes?.inativos?.etapas.find((x) => x.cod === form.etapaCod) }
+      : null;
 
   const linhas = useMemo(() => {
     let base = [];
@@ -1304,8 +1313,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                       aria-label="Operação"
                     />
                     {opDigitado !== null && form.opCod && (
-                      <div className={`mt-0.5 truncate text-[11px] ${form.opDs ? "text-good-600" : "text-alert-600"}`}>
-                        {form.opDs ? form.opDs : "Código não encontrado no cadastro Operações"}
+                      <div className={`mt-0.5 truncate text-[11px] ${form.opDs ? (operacaoInativa ? "text-amber-600" : "text-good-600") : "text-alert-600"}`}>
+                        {form.opDs ? `${form.opDs}${operacaoInativa ? " (inativa no cadastro Operações)" : ""}` : "Código não encontrado no cadastro Operações"}
                       </div>
                     )}
                     <datalist id="operacoes-ap">
@@ -1357,6 +1366,12 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                   {op?.etapaCod && !opcoes?.etapas.some((x) => x.cod === op.etapaCod) && (
                     <option value={op.etapaCod}>
                       {op.etapaCod} · {op.etapaDs}
+                    </option>
+                  )}
+                  {etapaForaDaLista && (
+                    <option value={etapaForaDaLista.cod}>
+                      {etapaForaDaLista.cod}
+                      {etapaForaDaLista.inativa ? ` · ${etapaForaDaLista.inativa.ds} (inativa)` : ""}
                     </option>
                   )}
                   {opcoes?.etapas.map((x) => (

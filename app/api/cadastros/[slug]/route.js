@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { auditar } from "@/lib/auditar";
 import {
   getPool,
+  alterarSituacaoItemCadastro,
   atualizarItemCadastro,
   excluirItemCadastro,
   listarCadastro,
+  obterItemCadastro,
   sincronizarDescricaoFazendas,
   upsertCadastroLote,
   usuarioDaRequisicao,
@@ -16,6 +18,11 @@ import { operacoesDoGrupo, sincronizarGruposOperacoes } from "@/lib/db-dashboard
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 const TAMANHO_PAGINA = 50;
+/** Máximo de linhas na exportação (todas as do filtro de uma vez, sem paginar). */
+const LIMITE_EXPORTACAO = 30000;
+const SITUACOES = new Set(["ativos", "inativos", "todos"]);
+/** Como a situação vai para o Log de Alterações. */
+const rotuloSituacao = (ativo) => (ativo ? "Ativo" : "Inativo");
 
 function dadosDoCorpo(v) {
   if (!v || typeof v !== "object") return null;
@@ -33,20 +40,34 @@ export async function GET(req, ctx) {
   const { slug } = await ctx.params;
   if (!specPorSlug(slug)) return NextResponse.json({ error: "Cadastro desconhecido." }, { status: 404 });
 
-  const q = req.nextUrl.searchParams.get("q") ?? "";
-  const pagina = Math.max(1, Number(req.nextUrl.searchParams.get("pg")) || 1);
-  const aba = req.nextUrl.searchParams.get("aba");
-  const { total, itens } = await listarCadastro(slug, q, pagina, TAMANHO_PAGINA, filtroDaAba(slug, aba));
-  // quantos itens cada aba tem (com a mesma busca), para mostrar no título das abas
+  const sp = req.nextUrl.searchParams;
+  const q = sp.get("q") ?? "";
+  const pagina = Math.max(1, Number(sp.get("pg")) || 1);
+  const aba = sp.get("aba");
+  // situação: "ativos" nas listas de escolha (ex.: seletor F4 das Rodadas, sugestões das referências), "inativos" ou "todos" (padrão)
+  const situacao = SITUACOES.has(sp.get("situacao")) ? sp.get("situacao") : "todos";
+  // exportação: todas as linhas do filtro (até o limite), sem paginar e sem a contagem das abas
+  if (sp.get("exportar") !== null) {
+    const { total, itens } = await listarCadastro(slug, q, 1, LIMITE_EXPORTACAO, filtroDaAba(slug, aba), situacao);
+    await atualizarReferenciasDaLista(specPorSlug(slug), itens);
+    return NextResponse.json({ total, itens, limite: LIMITE_EXPORTACAO });
+  }
+  const { total, itens } = await listarCadastro(slug, q, pagina, TAMANHO_PAGINA, filtroDaAba(slug, aba), situacao);
+  // quantos itens cada aba tem (com a mesma busca e situação), para mostrar no título das abas
   const abas = FILTROS_ABA[slug]
-    ? Object.fromEntries(await Promise.all(Object.entries(FILTROS_ABA[slug]).map(async ([id, f]) => [id, (await listarCadastro(slug, q, 1, 1, f)).total])))
+    ? Object.fromEntries(
+        await Promise.all(Object.entries(FILTROS_ABA[slug]).map(async ([id, f]) => [id, (await listarCadastro(slug, q, 1, 1, f, situacao)).total])),
+      )
     : undefined;
   // descrições das referências lidas na hora do cadastro de origem (ex.: Operação e Classificação em Grupos de Operações)
   await atualizarReferenciasDaLista(specPorSlug(slug), itens);
   return NextResponse.json({ total, pagina, tamanho: TAMANHO_PAGINA, itens, abas });
 }
 
-/** Cria um item (ou atualiza, se o código já existir). */
+/**
+ * Cria um item (ou atualiza, se o código já existir). `ativo` (opcional) é a situação escolhida na janela: sem ela, o
+ * item novo entra ativo e o que já existe fica com a situação que tem.
+ */
 export async function POST(req, ctx) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
@@ -58,6 +79,7 @@ export async function POST(req, ctx) {
   const body = await req.json().catch(() => null);
   const lido = dadosDoCorpo(body?.dados);
   if (!lido) return NextResponse.json({ error: "Requisição inválida." }, { status: 400 });
+  const ativo = typeof body?.ativo === "boolean" ? body.ativo : undefined;
   const conferido = validarDadosCadastro(spec, lido);
   if (conferido.erro) return NextResponse.json({ error: conferido.erro }, { status: 400 });
   const dados = conferido.dados;
@@ -71,7 +93,7 @@ export async function POST(req, ctx) {
   // nome que já está em outro código (ex.: o mesmo grupo com outra grafia no Grupo Op. Dashboard)
   const [nomeRecusado] = (await separarNomesRepetidos(spec, [{ cod, nm: spec.nome(dados) }])).recusados;
   if (nomeRecusado) return NextResponse.json({ error: `${spec.titulo}: ${nomeRecusado.erro}` }, { status: 400 });
-  const anterior = (await listarCadastro(slug, cod, 1, 50)).itens.find((i) => i.cod === cod);
+  const anterior = await obterItemCadastro(slug, cod);
   if (!anterior && !podeIncluirCadastro(usuario.perfil)) {
     return NextResponse.json(
       { error: "Seu perfil não inclui itens novos nos cadastros; peça a um usuário com perfil Gravação ou Administrador." },
@@ -79,21 +101,27 @@ export async function POST(req, ctx) {
     );
   }
   await upsertCadastroLote(slug, [{ cod, nm: spec.nome(dados), dados }], usuario.nome);
+  // item novo entra ativo (padrão da coluna); a situação só muda se a escolhida for outra
+  const mudaSituacao = ativo !== undefined && ativo !== (anterior ? anterior.ativo : true);
+  if (mudaSituacao) await alterarSituacaoItemCadastro(slug, cod, ativo, usuario.nome);
   await auditar(getPool(), {
     usuario: usuario.nome,
     modulo: "Cadastros",
     entidade: `Cadastro de ${spec.titulo}`,
     chave: `${cod} · ${spec.nome(dados)}`,
     acao: anterior ? "alteracao" : "inclusao",
-    antes: anterior?.dados,
-    depois: dados,
+    antes: anterior && { ...anterior.dados, ...(mudaSituacao ? { situacao: rotuloSituacao(anterior.ativo) } : {}) },
+    depois: { ...dados, ...(mudaSituacao ? { situacao: rotuloSituacao(ativo) } : {}) },
   });
   if (slug === "fazendas") await sincronizarDescricaoFazendas();
   if (slug === "grupos-dashboard") await sincronizarGruposOperacoes();
   return NextResponse.json({ ok: true, cod });
 }
 
-/** Edita um item existente; as colunas que formam o código não mudam. */
+/**
+ * Edita um item existente; as colunas que formam o código não mudam. `ativo` (true/false) muda a situação do item:
+ * sozinho (`{ cod, ativo }`, botão Ativar/Inativar da linha) ou junto com os campos (edição na linha).
+ */
 export async function PATCH(req, ctx) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario || !podeEditar(usuario.perfil)) {
@@ -104,35 +132,43 @@ export async function PATCH(req, ctx) {
   if (!spec) return NextResponse.json({ error: "Cadastro desconhecido." }, { status: 404 });
   const body = await req.json().catch(() => null);
   const cod = typeof body?.cod === "string" ? body.cod : "";
-  const dados = dadosDoCorpo(body?.dados);
+  const ativo = typeof body?.ativo === "boolean" ? body.ativo : undefined;
+  // só a situação: nenhum campo muda
+  const dados = body?.dados === undefined && ativo !== undefined ? {} : dadosDoCorpo(body?.dados);
   if (!cod || !dados) return NextResponse.json({ error: "Requisição inválida." }, { status: 400 });
   for (const k of spec.chaves) delete dados[k];
 
-  // o nome é recalculado com o que já existe + o que mudou
-  const atual = await listarCadastro(slug, cod, 1, 50);
-  const existente = atual.itens.find((i) => i.cod === cod);
+  // o item pelo código exato; o nome é recalculado com o que já existe + o que mudou
+  const existente = await obterItemCadastro(slug, cod);
   if (!existente) return NextResponse.json({ error: "Item não encontrado." }, { status: 404 });
-  // a conferência vale para o item inteiro (o que já existe + o que mudou); grava os campos alterados já normalizados
-  const conferido = validarDadosCadastro(spec, { ...existente.dados, ...dados });
-  if (conferido.erro) return NextResponse.json({ error: conferido.erro }, { status: 400 });
-  for (const k of Object.keys(dados)) dados[k] = conferido.dados[k];
-  const erroRef = await resolverReferencias(spec, dados);
-  if (erroRef) return NextResponse.json({ error: erroRef }, { status: 400 });
-  const nm = spec.nome({ ...existente.dados, ...dados });
-  const [nomeRecusado] = (await separarNomesRepetidos(spec, [{ cod, nm }])).recusados;
-  if (nomeRecusado) return NextResponse.json({ error: `${spec.titulo}: ${nomeRecusado.erro}` }, { status: 400 });
-  await atualizarItemCadastro(slug, cod, nm, dados, usuario.nome);
+  const mudaDados = Object.keys(dados).length > 0;
+  let nm = existente.nm;
+  if (mudaDados) {
+    // a conferência vale para o item inteiro (o que já existe + o que mudou); grava os campos alterados já normalizados
+    const conferido = validarDadosCadastro(spec, { ...existente.dados, ...dados });
+    if (conferido.erro) return NextResponse.json({ error: conferido.erro }, { status: 400 });
+    for (const k of Object.keys(dados)) dados[k] = conferido.dados[k];
+    const erroRef = await resolverReferencias(spec, dados);
+    if (erroRef) return NextResponse.json({ error: erroRef }, { status: 400 });
+    nm = spec.nome({ ...existente.dados, ...dados });
+    const [nomeRecusado] = (await separarNomesRepetidos(spec, [{ cod, nm }])).recusados;
+    if (nomeRecusado) return NextResponse.json({ error: `${spec.titulo}: ${nomeRecusado.erro}` }, { status: 400 });
+  }
+  const mudaSituacao = ativo !== undefined && ativo !== existente.ativo;
+  if (!mudaDados && !mudaSituacao) return NextResponse.json({ ok: true });
+  if (mudaDados) await atualizarItemCadastro(slug, cod, nm, dados, usuario.nome);
+  if (mudaSituacao) await alterarSituacaoItemCadastro(slug, cod, ativo, usuario.nome);
   await auditar(getPool(), {
     usuario: usuario.nome,
     modulo: "Cadastros",
     entidade: `Cadastro de ${spec.titulo}`,
     chave: `${cod} · ${nm}`,
     acao: "alteracao",
-    antes: existente.dados,
-    depois: { ...existente.dados, ...dados },
+    antes: { ...(mudaDados ? existente.dados : {}), ...(mudaSituacao ? { situacao: rotuloSituacao(existente.ativo) } : {}) },
+    depois: { ...(mudaDados ? { ...existente.dados, ...dados } : {}), ...(mudaSituacao ? { situacao: rotuloSituacao(ativo) } : {}) },
   });
-  if (slug === "fazendas") await sincronizarDescricaoFazendas();
-  if (slug === "grupos-dashboard") await sincronizarGruposOperacoes();
+  if (mudaDados && slug === "fazendas") await sincronizarDescricaoFazendas();
+  if (mudaDados && slug === "grupos-dashboard") await sincronizarGruposOperacoes();
   return NextResponse.json({ ok: true });
 }
 

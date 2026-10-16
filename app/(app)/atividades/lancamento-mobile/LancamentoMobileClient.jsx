@@ -15,26 +15,30 @@ import {
   IconSetaDireita,
   IconTalhao,
 } from "@/components/icons";
-import { Aviso, JanelaConfirmar } from "@/components/janela";
+import { Aviso, JanelaConfirmar, JanelaInfo } from "@/components/janela";
 import { CabecalhoPagina, CorpoPagina, Pagina, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
 import { round2 } from "@/lib/atividades";
 import { fmtDateBR, todayISO } from "@/lib/format";
-import { lerNumero as lerNumeroComMilhar, listaDeBoletins } from "@/lib/lancamento-mobile";
+import { chaveBusca, fmtNum, lerNumero as lerNumeroComMilhar, listaDeBoletins, tipoDoCadastro } from "@/lib/lancamento-mobile";
 import { normFaz, normTlh } from "@/lib/ocupacao";
 import { addDays } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
-import { ehBooleano, usarPersistido } from "@/lib/usar-persistido";
+import { ehBooleano, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 
 /*
  * Lançamento Mobile: o apontamento diário feito no campo, pelo celular, em quatro passos —
- *   1. quem está lançando (matrícula ou código, lembrada no aparelho);
- *   2. as O.S. em aberto dessa pessoa, com o que falta fazer em cada operação e o último apontamento;
+ *   1. quem está lançando (matrícula, código ou nome, com sugestões; lembrada no aparelho);
+ *   2. as O.S. em aberto dessa pessoa, com o que falta fazer em cada operação e o último apontamento (o cartão fica
+ *      verde com a O.S. toda apontada e amarelo com apontamento e ainda falta); tocar na O.S. abre a janela dela, com
+ *      as operações para marcar (as marcadas entram juntas no lançamento) e os lançamentos já feitos nela;
  *   3. os talhões realizados (da O.S. ou incluídos de fora dela), com a área de cada um — com "Adicionar outra O.S.",
  *      o mesmo lançamento leva várias O.S./operações, cada uma num bloco com os talhões e o status dela;
  *   4. os dados do serviço (o cabeçalho, o mesmo para todas as O.S. do lançamento).
  * Ao gravar mostra o texto padrão para copiar e mandar no grupo do WhatsApp; a última linha do texto (a marca do
  * boletim, ou dos boletins: um por O.S.) faz o bot reconhecer que o apontamento já está no sistema. A tela Apontamento
- * continua sendo a de lançamento na plataforma: aqui só se lança, e só se edita o que foi lançado por esta tela.
+ * continua sendo a de lançamento na plataforma: aqui só se lança, e só se edita o que foi lançado por esta tela com a
+ * mesma matrícula — os lançamentos da O.S. feitos por outras pessoas, pela tela Apontamento ou pelo bot abrem só para
+ * consulta.
  */
 
 const API = "/api/atividades/lancamento-mobile";
@@ -47,9 +51,12 @@ const PASSOS = [
   { n: 3, rotulo: "Talhões" },
   { n: 4, rotulo: "Dados" },
 ];
-const PERIODOS_MEUS = [7, 15, 30];
+/** Períodos de Meus lançamentos: os últimos 7, 15 e 30 dias ou todos (0). */
+const PERIODOS_MEUS = [7, 15, 30, 0];
 /** Máximo de O.S./operações num lançamento (o servidor recusa mais). */
 const MAX_ORDENS = 20;
+/** Origem de um lançamento da O.S. (como o servidor devolve). */
+const ROTULO_ORIGEM = { mobile: "Lançamento Mobile", tela: "Tela Apontamento", bot: "Bot do WhatsApp", whatsapp: "WhatsApp" };
 
 // cabeçalho do lançamento: o mesmo para todas as O.S. dele
 const SERVICO_VAZIO = {
@@ -168,6 +175,69 @@ function rotTalhao(tlh) {
 }
 /** último apontamento: "07/10 · boletim nº 160 · 3,20 ha" */
 const textoUltimo = (u) => (u ? `${diaMes(u.dt)} · boletim nº ${u.boletim}${Number.isFinite(u.area) ? ` · ${nf(u.area)} ha` : ""}` : "");
+/** "10 - Herbicida" (sem o traço quando falta um dos dois) */
+const codDs = (cod, ds) => [String(cod ?? "").trim(), String(ds ?? "").trim()].filter(Boolean).join(" - ");
+
+/**
+ * Situação dos apontamentos de uma operação da O.S. (lista do passo 2): "nenhum" (sem apontamento), "andamento" (com
+ * apontamento e ainda falta) ou "concluida" (com apontamento e falta 0).
+ */
+function estadoDaOperacao(op) {
+  if (!((op.ja ?? 0) > 0.001 || op.ultimo)) return "nenhum";
+  return (op.saldo ?? 0) > 0.001 ? "andamento" : "concluida";
+}
+/** A da O.S.: toda apontada (falta 0 em todas as operações), com algum apontamento e falta, ou sem nenhum. */
+function estadoDaOS(ordem) {
+  const ops = ordem.operacoes ?? [];
+  if (!ops.some((op) => estadoDaOperacao(op) !== "nenhum")) return "nenhum";
+  return ops.every((op) => !((op.saldo ?? 0) > 0.001)) ? "concluida" : "andamento";
+}
+/** Cores dos cartões e das linhas de operação (o verde e o amarelo claros do sistema; no tema escuro, globals.css). */
+const COR_ESTADO = {
+  nenhum: { fundo: "", borda: "border-line", rotulo: "Sem apontamento" },
+  andamento: { fundo: "bg-amber-50", borda: "border-amber-500/60", rotulo: "Apontada, ainda com falta" },
+  concluida: { fundo: "bg-good-50", borda: "border-good-500/50", rotulo: "Toda apontada" },
+};
+
+/** Texto que parece nome (e não matrícula): com espaço ou com três letras seguidas. */
+const pareceNome = (s) => /\s/.test(String(s ?? "").trim()) || /[A-Za-zÀ-ÿ]{3,}/.test(String(s ?? ""));
+
+/** Quem lançou um lançamento da O.S.: o apontador / informante (com a matrícula) ou, sem ele, o usuário. */
+function quemLancou(a) {
+  const nome = String(a.apontador ?? "").trim();
+  const mat = String(a.apontadorMat ?? "").trim();
+  if (nome) return `${nome}${mat ? ` (mat. ${mat})` : ""}`;
+  return mat ? `Mat. ${mat}` : String(a.usr ?? "").trim();
+}
+
+/**
+ * Tipos do cadastro que casam com o digitado (sem acento nem caixa): o código igual ou começando pelo digitado
+ * primeiro, depois a descrição começando por ele e, por último, contendo.
+ */
+function filtrarTipos(tipos, q) {
+  const k = chaveBusca(q);
+  if (!k) return tipos;
+  const kCod = k.replace(/^0+(?=\d)/, "");
+  const nota = (t) => {
+    const cod = String(t.cod ?? "")
+      .trim()
+      .replace(/^0+(?=\d)/, "")
+      .toLowerCase();
+    const ds = chaveBusca(t.ds);
+    if (cod && cod === kCod) return 0;
+    if (cod && /^\d+$/.test(k) && cod.startsWith(kCod)) return 1;
+    if (ds.startsWith(k)) return 2;
+    if (ds.includes(k)) return 3;
+    // "52 - div" (o código e o começo do nome, como o campo mostra); só número é só pelo código
+    if (!/^\d+$/.test(k) && chaveBusca(codDs(t.cod, t.ds)).includes(k)) return 3;
+    return null;
+  };
+  return tipos
+    .map((t) => ({ t, n: nota(t) }))
+    .filter((x) => x.n !== null)
+    .sort((a, b) => a.n - b.n)
+    .map((x) => x.t);
+}
 
 let seqExtra = 0;
 const novaChaveExtra = () => `x${++seqExtra}`;
@@ -417,10 +487,17 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
   const [pergunta, setPergunta] = useState(null); // { titulo, texto, botao, perigo, acao }
   const [resultado, setResultado] = useState(null); // { id, boletins, texto, avisos, editado, ordens: [{ os, op }], area, dt }
   const [rascunho, setRascunho] = useState(null);
-  const [diasMeus, setDiasMeus] = useState(7);
-  const [meus, setMeus] = useState({ lista: null, carregando: false, erro: null });
+  const [diasMeus, setDiasMeus] = usarPersistido("lancMobile.diasMeus", 7, ehUmDe(PERIODOS_MEUS));
+  // lista: os lançamentos carregados (páginas somadas); mais: há outra página
+  const [meus, setMeus] = useState({ lista: null, carregando: false, carregandoMais: false, erro: null, mais: false });
   const [abrindo, setAbrindo] = useState(null); // boletim sendo carregado
   const [detalhe, setDetalhe] = useState(null); // { apontamento, apontamentos, texto }: lançamento aberto em Meus lançamentos
+  const [janelaOS, setJanelaOS] = useState(null); // passo 2: { os, ordem } — a janela da O.S. aberta
+  // lançamentos de cada O.S. (de qualquer origem): os → { carregando, lista, total, erro }
+  const [historico, setHistorico] = useState({});
+  const [consulta, setConsulta] = useState(null); // { id, resumo, carregando, dados, erro }: lançamento aberto só para consulta
+  // tipo de aplicação digitado que não está no cadastro (o campo ficou em branco): o Gravar avisa uma vez antes de gravar sem ele
+  const [tipoRecusado, setTipoRecusado] = useState(null);
   const [copia, copiar] = usarCopia();
   const seqOS = useRef(0);
   const seqInfo = useRef(0);
@@ -438,6 +515,10 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
   const focarPasso = useRef(false);
   const caixaTexto = useRef(null);
   const cacheBol = useRef(new Map());
+  // buscas dos lançamentos de cada O.S.: os → nº da busca (a resposta de uma busca que outra passou não vale)
+  const buscaHist = useRef({});
+  const seqHist = useRef(0);
+  const seqConsulta = useRef(0);
 
   useEffect(() => {
     lancRef.current = lanc;
@@ -633,6 +714,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     limparInfos();
     setAbertas({});
     setEscolha(null);
+    setTipoRecusado(null);
     padroes.current = {};
   }
 
@@ -656,12 +738,93 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     if (d) setDt(d);
   }
 
+  // ------------------------------------------------------------------ lançamentos da O.S. (de qualquer origem)
+
+  /**
+   * Lançamentos da O.S. (os mais recentes, de qualquer origem). Sem `fresco`, só busca a O.S. que ainda não foi buscada
+   * (os blocos do passo 3 pedem ao aparecer); a janela da O.S. busca de novo a cada vez que abre.
+   */
+  const carregarHistorico = useCallback(async (os, fresco = false) => {
+    if (!os || (!fresco && buscaHist.current[os])) return;
+    const n = ++seqHist.current;
+    buscaHist.current[os] = n;
+    setHistorico((h) => ({ ...h, [os]: { lista: null, total: 0, ...h[os], carregando: true, erro: null } }));
+    const { ok, json } = await obter({ lancamentosOS: os });
+    // outra busca desta O.S. passou na frente (ou os lançamentos foram esquecidos): a resposta não vale mais
+    if (buscaHist.current[os] !== n) return;
+    setHistorico((h) => ({
+      ...h,
+      [os]: ok
+        ? { carregando: false, erro: null, lista: Array.isArray(json.lancamentos) ? json.lancamentos : [], total: Number(json.total) || 0 }
+        : { lista: null, total: 0, ...h[os], carregando: false, erro: json.error ?? "Não foi possível carregar os lançamentos da O.S." },
+    }));
+  }, []);
+
+  /** Esquece os lançamentos das O.S. (depois de gravar): os blocos e a janela buscam de novo. */
+  const esquecerHistorico = useCallback(() => {
+    buscaHist.current = {};
+    setHistorico({});
+  }, []);
+
+  /** Abre um lançamento da O.S. só para consultar (com o texto do WhatsApp, se for do Lançamento Mobile). */
+  async function abrirConsulta(item) {
+    const n = ++seqConsulta.current;
+    setConsulta({ id: item.id, resumo: item, carregando: true, dados: null, erro: null });
+    const { ok, json } = await obter({ apontamento: String(item.id) });
+    if (n !== seqConsulta.current) return;
+    const valido = ok && !!json.apontamento;
+    setConsulta((c) =>
+      c && c.id === item.id
+        ? { ...c, carregando: false, dados: valido ? json : null, erro: valido ? null : (json.error ?? "Não foi possível abrir o lançamento.") }
+        : c,
+    );
+  }
+
+  function fecharConsulta() {
+    seqConsulta.current++;
+    setConsulta(null);
+  }
+
+  /**
+   * "Editar" na consulta (lançamento do Lançamento Mobile com a mesma matrícula): abre como em Meus lançamentos e fecha
+   * as janelas quando ele abre (desistindo na pergunta do lançamento não gravado, a consulta fica); sem carregar, fecha
+   * para a mensagem aparecer.
+   */
+  async function editarDaConsulta(bol) {
+    const fechar = () => {
+      fecharConsulta();
+      setJanelaOS(null);
+    };
+    if (!(await editarBoletim(bol, fechar))) fechar();
+  }
+
   // ------------------------------------------------------------------ passo 1: quem está lançando
 
-  async function buscarMatricula(e) {
+  /**
+   * Busca as O.S. de quem lança: pela matrícula escolhida nas sugestões (`valor`) ou pelo digitado. Digitado um nome (ou
+   * trecho dele), vale o único responsável que casa; com mais de um, pede para escolher na lista.
+   */
+  async function buscarMatricula(e, valor) {
     e?.preventDefault();
-    const m = matDigitada.trim();
-    if (!m) return setErroMat("Informe a matrícula ou o código.");
+    let m = String(valor ?? matDigitada).trim();
+    if (!m) return setErroMat("Informe a matrícula, o código ou o nome.");
+    if (valor === undefined && pareceNome(m)) {
+      setErroMat(null);
+      const { ok, json } = await obter({ responsaveis: m });
+      if (!ok) return setErroMat(json.error ?? "Não foi possível buscar os responsáveis.");
+      const lista = Array.isArray(json.responsaveis) ? json.responsaveis : [];
+      const iguais = lista.filter((r) => chaveBusca(r.nome) === chaveBusca(m));
+      const um = lista.length === 1 ? lista[0] : iguais.length === 1 ? iguais[0] : null;
+      if (um) {
+        m = String(um.matricula).trim();
+        setMatDigitada(m);
+      } else if (lista.length > 1) {
+        return setErroMat(`Mais de um responsável com “${m}”: toque no nome certo na lista de sugestões.`);
+      } else if (/\s/.test(m)) {
+        return setErroMat(`Nenhum responsável com “${m}” no nome ou no código.`);
+      }
+      // sem sugestão e sem espaço: pode ser um código com letras — busca como matrícula
+    }
     iniciou.current = true;
     const outra = !!matAtual && !mesmaMatricula(matAtual, m);
     const fazer = async () => {
@@ -696,7 +859,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       setErroMat(null);
       zerarLancamento();
       setResultado(null);
-      setMeus({ lista: null, carregando: false, erro: null });
+      seqMeus.current++;
+      setMeus({ lista: null, carregando: false, carregandoMais: false, erro: null, mais: false });
       voltarDataAntesDeAbrir();
       setAba("lancar");
       irPara(1);
@@ -714,12 +878,99 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
 
   // ------------------------------------------------------------------ passo 2: O.S. e operação
 
-  // o passo 2 escolhe a O.S./operação que entra no lançamento ou a que troca a de um bloco; pelo menu dos passos, com uma
-  // O.S. só, troca ela (como sempre foi) e, com várias, acrescenta
-  const alvoTroca =
-    escolha?.modo === "trocar" ? (lanc.ordens.find((o) => o.chave === escolha.chave) ?? null) : !escolha && lanc.ordens.length === 1 ? lanc.ordens[0] : null;
+  // o passo 2 acrescenta ao lançamento as operações marcadas na janela da O.S. (pelo menu dos passos também: a outra
+  // operação da mesma O.S. entra sem tirar a que já está) ou, pelo "Trocar" de um bloco, escolhe a O.S./operação que
+  // entra no lugar dela
+  const alvoTroca = escolha?.modo === "trocar" ? (lanc.ordens.find((o) => o.chave === escolha.chave) ?? null) : null;
   const acrescentando = !alvoTroca;
   const noLancamento = useMemo(() => new Set(lanc.ordens.map((o) => `${o.os}|${o.opCod}`)), [lanc.ordens]);
+  // os apontamentos do lançamento aberto para editar (marcados "em edição" nos lançamentos da O.S.)
+  const emEdicao = useMemo(() => new Set(lanc.ids ?? []), [lanc.ids]);
+
+  /** Janela da O.S. (passo 2): as operações para marcar e os lançamentos dela, buscados de novo a cada vez que abre. */
+  function abrirJanelaOS(ordem) {
+    setMsg(null);
+    setJanelaOS({ os: ordem.os, ordem });
+    carregarHistorico(ordem.os, true);
+  }
+
+  /**
+   * Acrescenta ao lançamento as operações marcadas na janela da O.S., cada uma num bloco (com os talhões e o boletim
+   * dela), como o "Adicionar outra O.S." uma a uma: a que já está no lançamento não entra de novo; a do lançamento aberto
+   * que foi tirada nesta edição volta com o boletim e os talhões gravados nele; a 1ª do lançamento dá os padrões do
+   * cabeçalho; as operações da mesma O.S. levam o mesmo status.
+   */
+  function acrescentarOperacoes(ordemLista, lista) {
+    const l0 = lancRef.current;
+    const mesma = (o, op) => o.os === ordemLista.os && o.opCod === op.cod;
+    const novas = lista.filter((op, i) => !l0.ordens.some((o) => mesma(o, op)) && lista.findIndex((x) => x.cod === op.cod) === i);
+    if (novas.length === 0) {
+      if (!l0.ordens.length) return;
+      setEscolha(null);
+      return irPara(3);
+    }
+    if (l0.ordens.length + novas.length > MAX_ORDENS) return setMsg({ texto: `No máximo ${MAX_ORDENS} O.S. por lançamento.`, erro: true });
+    const primeira = l0.ordens.length === 0;
+    const voltas = novas.map((op) => (l0.removidas ?? []).find((x) => mesma(x, op)) ?? null);
+    const statusDaOS = l0.ordens.find((o) => o.os === ordemLista.os)?.statusOS ?? voltas.find(Boolean)?.statusOS ?? STATUS_INICIAL;
+    const emCache = (op) => infosRef.current[chaveInfo({ os: ordemLista.os, opCod: op.cod })]?.info ?? null;
+    const blocos = novas.map((op, i) => {
+      const chave = novaChaveOrdem();
+      const volta = voltas[i];
+      if (!volta) return { ...ORDEM_VAZIA, chave, os: ordemLista.os, opCod: op.cod, statusOS: statusDaOS };
+      // volta com os talhões gravados no boletim (os marcados antes de tirar foram descartados); sem eles, como estava
+      const base = { ...volta, chave, statusOS: statusDaOS };
+      const comGravados = volta.gravados ? { ...base, marcas: {}, extras: [], pendentes: volta.gravados } : base;
+      const cache = emCache(op);
+      return comGravados.pendentes && cache ? encaixarTalhoes(comGravados, comGravados.pendentes, cache.talhoes) : comGravados;
+    });
+    // padrões do cabeçalho: os da 1ª operação quando o lançamento estava vazio (dos talhões já buscados ou da lista,
+    // até os talhões chegarem), só onde o campo está em branco ou ainda com o padrão anterior
+    const cache0 = primeira ? emCache(novas[0]) : null;
+    const novos = !primeira
+      ? null
+      : cache0
+        ? padroesDaInfo(cache0)
+        : { atividade: novas[0].ds ?? "", solicitante: ordemLista.resp ?? "", etapaCod: novas[0].etapaCod ?? "", modelo: novas[0].modelo ?? "", tipoAplicacao: "" };
+    const anteriores = padroes.current;
+    const idsVolta = new Set(voltas.filter(Boolean).map((v) => v.id));
+    setLanc((l) => ({
+      ...l,
+      ordens: [...l.ordens, ...blocos],
+      removidas: (l.removidas ?? []).filter((x) => !idsVolta.has(x.id)),
+      servico: novos ? aplicarPadroes(l.servico, anteriores, novos) : l.servico,
+    }));
+    if (novos) padroes.current = novos;
+    // a 1ª acrescentada fica aberta e as outras recolhidas
+    setAbertas({ [blocos[0].chave]: true });
+    setEscolha(null);
+    setRascunho(null);
+    const vol = voltas.filter(Boolean);
+    setMsg(
+      vol.length
+        ? {
+            texto: vol
+              .map(
+                (v) =>
+                  `A O.S. ${v.os} (operação ${v.opCod}) voltou ao lançamento com o boletim nº ${v.boletim}${v.gravados ? " e os talhões gravados nele" : ""}: ele não será mais excluído.`,
+              )
+              .join("\n"),
+            erro: false,
+          }
+        : null,
+    );
+    irPara(3);
+  }
+
+  function lancarDaJanela(ordemLista, ops) {
+    setJanelaOS(null);
+    acrescentarOperacoes(ordemLista, ops);
+  }
+
+  function escolherDaJanela(ordemLista, op) {
+    setJanelaOS(null);
+    escolherOperacao(ordemLista, op);
+  }
 
   function escolherOperacao(ordemLista, op) {
     const alvo = alvoTroca;
@@ -977,6 +1228,15 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       irPara(4);
       return setMsg({ texto: "Escolha o modelo do texto: Mecanizada ou Manual.", erro: true });
     }
+    // o tipo digitado agora há pouco não estava no cadastro (o campo ficou em branco): avisa uma vez antes de gravar sem ele
+    if (tipoRecusado && !String(s.tipoAplicacao ?? "").trim()) {
+      setTipoRecusado(null);
+      irPara(4);
+      return setMsg({
+        texto: `O tipo de aplicação “${tipoRecusado}” não está no cadastro Tipo Aplicação e o campo ficou em branco. Escolha um tipo da lista (ou toque em Gravar de novo para gravar sem ele).`,
+        erro: true,
+      });
+    }
     // solicitante, etapa e tipo de aplicação: com várias O.S., o do cabeçalho mudado à mão vale para todas e, sem
     // mudança, cada O.S. leva o dela (o responsável da O.S., a etapa e o tipo da operação)
     const aMao = (k) => !!String(s[k] ?? "").trim() && s[k] !== padroes.current[k];
@@ -1047,8 +1307,9 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
       dt,
     });
     focarPasso.current = true;
-    // o que falta das O.S. muda com o lançamento
+    // o que falta das O.S. e os lançamentos delas mudam com o lançamento
     buscarOS(matAtual, dt);
+    esquecerHistorico();
   }
 
   function novoLancamento() {
@@ -1064,15 +1325,44 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
 
   // ------------------------------------------------------------------ meus lançamentos / edição
 
+  /** Consulta de Meus lançamentos no período escolhido (Todos: sem datas), a partir de `offset` lançamentos. */
+  const paramsMeus = useCallback(
+    (offset) => ({
+      meus: "1",
+      mat: matAtual,
+      ...(diasMeus > 0 ? { de: addDays(hoje, -(diasMeus - 1)), ate: hoje } : {}),
+      ...(offset > 0 ? { offset: String(offset) } : {}),
+    }),
+    [matAtual, hoje, diasMeus],
+  );
+
+  /** Primeira página de Meus lançamentos (trocar o período ou atualizar recomeça a lista). */
   const carregarMeus = useCallback(async () => {
     if (!matAtual || !hoje) return;
     const seq = ++seqMeus.current;
-    setMeus((m) => ({ ...m, carregando: true, erro: null }));
-    const { ok, json } = await obter({ meus: "1", mat: matAtual, de: addDays(hoje, -(diasMeus - 1)), ate: hoje });
+    setMeus((m) => ({ ...m, carregando: true, carregandoMais: false, erro: null }));
+    const { ok, json } = await obter(paramsMeus(0));
     if (seq !== seqMeus.current) return;
-    if (!ok) setMeus({ lista: null, carregando: false, erro: json.error ?? "Não foi possível carregar os lançamentos." });
-    else setMeus({ lista: Array.isArray(json.apontamentos) ? json.apontamentos : [], carregando: false, erro: null });
-  }, [matAtual, hoje, diasMeus]);
+    if (!ok) setMeus({ lista: null, carregando: false, carregandoMais: false, erro: json.error ?? "Não foi possível carregar os lançamentos.", mais: false });
+    else setMeus({ lista: Array.isArray(json.apontamentos) ? json.apontamentos : [], carregando: false, carregandoMais: false, erro: null, mais: !!json.mais });
+  }, [matAtual, hoje, paramsMeus]);
+
+  /** Próxima página: soma à lista (sem repetir o lançamento que já está nela, se a lista andou entre as páginas). */
+  async function carregarMaisMeus() {
+    const lista = meus.lista;
+    if (!lista || !meus.mais || meus.carregando || meus.carregandoMais) return;
+    // não conta uma busca nova: atualizar ou trocar o período no meio passa na frente desta
+    const seq = seqMeus.current;
+    setMeus((m) => ({ ...m, carregandoMais: true, erro: null }));
+    const { ok, json } = await obter(paramsMeus(lista.length));
+    if (seq !== seqMeus.current) return;
+    if (!ok) return setMeus((m) => ({ ...m, carregandoMais: false, erro: json.error ?? "Não foi possível carregar mais lançamentos." }));
+    const novos = Array.isArray(json.apontamentos) ? json.apontamentos : [];
+    setMeus((m) => {
+      const ja = new Set((m.lista ?? []).map((a) => a.id));
+      return { ...m, carregandoMais: false, lista: [...(m.lista ?? []), ...novos.filter((a) => !ja.has(a.id))], mais: !!json.mais };
+    });
+  }
 
   useEffect(() => {
     if (aba === "meus") carregarMeus();
@@ -1098,14 +1388,19 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
     return r;
   }
 
-  async function editarBoletim(bol) {
-    if (!pode) return;
+  /**
+   * Abre o lançamento do boletim para editar (o "Já apontado" sem contar os boletins dele). `aoAbrir`: chamado quando ele
+   * abre de fato (depois da pergunta, se houver lançamento não gravado). false: o boletim não carregou (a mensagem diz).
+   */
+  async function editarBoletim(bol, aoAbrir) {
+    if (!pode) return false;
     setMsg(null);
     const r = await carregarBoletim(bol, true);
-    if (!r) return;
+    if (!r) return false;
     const grupo = r.apontamentos;
     const a = grupo[0];
     const fazer = () => {
+      aoAbrir?.();
       limparRascunho();
       setResultado(null);
       setDetalhe(null);
@@ -1149,6 +1444,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
         acao: fazer,
       });
     } else fazer();
+    return true;
   }
 
   async function verTexto(item) {
@@ -1240,7 +1536,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                       disabled={!ok}
                       aria-current={atual ? "step" : undefined}
                       onClick={() => {
-                        // pelo menu, o passo 2 volta ao jeito de sempre (troca a O.S. única; com várias, acrescenta)
+                        // pelo menu, o passo 2 acrescenta (o "Trocar" de um bloco é que troca a O.S. dele)
                         if (p.n === 2) setEscolha(null);
                         irPara(p.n);
                       }}
@@ -1329,6 +1625,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
               estado={meus}
               abrindo={abrindo}
               onRecarregar={carregarMeus}
+              onMais={carregarMaisMeus}
               onCopiar={copiarDaLista}
               onVerTexto={verTexto}
               onEditar={(a) => editarBoletim(a.boletim)}
@@ -1369,25 +1666,16 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                 Quem está lançando
               </h2>
               <form onSubmit={buscarMatricula} className="caixa-form space-y-3" noValidate>
-                <div>
-                  <label htmlFor="lm-mat" className={ROTULO}>
-                    Matrícula ou código
-                  </label>
-                  <input
-                    id="lm-mat"
-                    value={matDigitada}
-                    onChange={(e) => setMatDigitada(e.target.value.replace(/\s/g, "").slice(0, 20))}
-                    inputMode="numeric"
-                    autoComplete="off"
-                    enterKeyHint="search"
-                    placeholder="Ex.: 601448"
-                    aria-describedby="lm-mat-dica"
-                    className={`${CAMPO} text-[18px] font-semibold tabular`}
-                  />
-                  <p id="lm-mat-dica" className="mt-1 text-[12px] text-muted">
-                    Fica lembrada neste aparelho. Aparecem só as O.S. em aberto que estão no seu nome.
-                  </p>
-                </div>
+                <CampoQuem
+                  id="lm-mat"
+                  valor={matDigitada}
+                  onValor={setMatDigitada}
+                  onEscolher={(r) => {
+                    const m = String(r.matricula ?? "").trim();
+                    setMatDigitada(m);
+                    buscarMatricula(null, m);
+                  }}
+                />
                 <button type="submit" className={`${BOTAO_PRIMARIO} w-full`} disabled={buscandoOS}>
                   {buscandoOS ? "Buscando…" : "Buscar minhas O.S."}
                 </button>
@@ -1462,8 +1750,8 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                   </p>
                   <p className="mt-0.5">
                     {alvoTroca
-                      ? "Escolha a O.S./operação que entra no lugar dela."
-                      : `Já no lançamento: ${lanc.ordens.map((o) => `O.S. ${o.os} · ${o.opCod}`).join("; ")}. Pode ser outra O.S. ou outra operação da mesma.`}
+                      ? "Toque na O.S. e escolha a operação que entra no lugar dela."
+                      : `Já no lançamento: ${lanc.ordens.map((o) => `O.S. ${o.os} · ${o.opCod}`).join("; ")}. Toque na O.S. e marque as operações: pode ser outra O.S. ou outra operação da mesma.`}
                   </p>
                   <button
                     type="button"
@@ -1510,16 +1798,11 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                   <p className="py-6 text-center text-[13.5px] text-muted">Nenhuma O.S. com “{filtroOS}”.</p>
                 )}
               </div>
-              {!buscandoOS && (
+              {!buscandoOS && ordensFiltradas.length > 0 && (
                 <div className="space-y-3">
+                  <LegendaCores />
                   {ordensFiltradas.map((o) => (
-                    <CartaoOS
-                      key={o.os}
-                      ordem={o}
-                      noLancamento={noLancamento}
-                      selo={varias || (acrescentando && lanc.ordens.length > 0)}
-                      onEscolher={escolherOperacao}
-                    />
+                    <CartaoOS key={o.os} ordem={o} noLancamento={noLancamento} selo={varias || (acrescentando && lanc.ordens.length > 0)} onAbrir={abrirJanelaOS} />
                   ))}
                 </div>
               )}
@@ -1555,6 +1838,10 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                   onMudar={mudarOrdem}
                   onTentar={tentarDeNovo}
                   onStatus={mudarStatus}
+                  hist={historico[o.os]}
+                  emEdicao={emEdicao}
+                  onHistorico={carregarHistorico}
+                  onAbrirLancamento={abrirConsulta}
                 />
               ))}
               {lanc.ordens.length > 0 && lanc.ordens.length < MAX_ORDENS && (
@@ -1600,6 +1887,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
                 statusPorOS={statusPorOS}
                 statusOpcoes={statusOpcoes}
                 onStatus={mudarStatus}
+                onTipoRecusado={setTipoRecusado}
               />
               {!pode && <Aviso msg={{ texto: "Seu perfil é somente leitura: dá para conferir os dados, mas não gravar.", erro: true }} />}
             </section>
@@ -1612,7 +1900,7 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
           <div className="mx-auto flex w-full max-w-xl items-center gap-3">
             <div className="min-w-0 flex-1">
               <div className="truncate text-[12px] leading-tight text-muted">
-                Área total · {varias ? `${lanc.ordens.length} O.S. · ` : ""}
+                Área total · {varias ? `${contarOSOperacoes(lanc.ordens)} · ` : ""}
                 {plural(nLinhas, "talhão", "talhões")}
               </div>
               <div className="font-display text-[25px] font-semibold leading-tight tabular text-ink">
@@ -1680,6 +1968,26 @@ export default function LancamentoMobileClient({ perfil, nomeUsuario }) {
             </div>
           </div>
         </div>
+      )}
+
+      {janelaOS && (
+        <JanelaOS
+          key={janelaOS.os}
+          ordem={minhas?.ordens?.find((o) => o.os === janelaOS.os) ?? janelaOS.ordem}
+          trocar={alvoTroca}
+          noLancamento={noLancamento}
+          nNoLancamento={lanc.ordens.length}
+          hist={historico[janelaOS.os]}
+          emEdicao={emEdicao}
+          onLancar={lancarDaJanela}
+          onEscolher={escolherDaJanela}
+          onAbrirLancamento={abrirConsulta}
+          onRecarregarHist={carregarHistorico}
+          onFechar={() => setJanelaOS(null)}
+        />
+      )}
+      {consulta && (
+        <JanelaConsulta consulta={consulta} matAtual={matAtual} pode={pode} abrindo={abrindo} onEditar={editarDaConsulta} onFechar={fecharConsulta} />
       )}
 
       {confirmacao && (
@@ -1771,18 +2079,97 @@ function SeloSituacao({ s }) {
   return <span className={`rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${cor}`}>{s}</span>;
 }
 
-/** O.S. em aberto com as operações dela; as que já estão no lançamento ficam destacadas (`selo`: com o selo "no lançamento"). */
-function CartaoOS({ ordem, noLancamento, selo, onEscolher }) {
+function SeloConcluida() {
+  return <span className="rounded-full border border-good-500/40 bg-good-50 px-2 py-px text-[11px] font-semibold text-good-600">Concluída</span>;
+}
+
+function SeloNoLancamento({ children = "no lançamento" }) {
+  return <span className="inline-block rounded-full bg-brand-50 px-1.5 py-px align-middle text-[11px] font-semibold text-brand-700">{children}</span>;
+}
+
+/** Legenda das cores dos cartões de O.S. e das linhas de operação. */
+function LegendaCores() {
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[12.5px] text-muted">Toque na O.S. para marcar as operações e ver os lançamentos dela.</p>
+      <ul aria-label="Cores das O.S." className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted">
+        {["nenhum", "andamento", "concluida"].map((e) => (
+          <li key={e} className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className={`h-3 w-3 rounded-[3px] border ${COR_ESTADO[e].borda} ${COR_ESTADO[e].fundo || "bg-card"}`} />
+            {COR_ESTADO[e].rotulo}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Uma operação da O.S. (no cartão e na janela): código e descrição, etapa, talhões, modelo, o que falta de quanto e o
+ * último apontamento. `selos`: o que vai ao lado do nome ("no lançamento", Concluída).
+ */
+function TextoOperacao({ op, selos, comAreaUltimo = false }) {
+  return (
+    <span className="min-w-0 flex-1">
+      <span className="block text-[14.5px] font-semibold leading-snug text-ink">
+        {op.cod} - {op.ds || "sem descrição"}
+        {selos && <span className="ml-1.5 inline-flex flex-wrap gap-1 align-middle">{selos}</span>}
+      </span>
+      <span className="block text-[12.5px] text-muted">
+        {[op.etapaDs, plural(op.nTalhoes ?? 0, "talhão", "talhões"), rotModelo(op.modelo)].filter(Boolean).join(" · ")}
+      </span>
+      <span className="mt-0.5 block text-[12.5px] text-ink">
+        Falta <b className="font-semibold tabular">{nf(op.saldo ?? 0)} ha</b>
+        {op.areaRec > 0 ? ` de ${nf(op.areaRec)}` : ""}
+        {op.ultimo && <span className="text-muted"> · último {textoUltimo(comAreaUltimo ? op.ultimo : { ...op.ultimo, area: undefined })}</span>}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * O.S. em aberto com as operações dela, na cor da situação (verde: toda apontada; amarelo: com apontamento e ainda
+ * falta). O cartão inteiro abre a janela da O.S. (o botão do número cobre o cartão); as operações que já estão no
+ * lançamento ficam indicadas (`selo`: com o selo "no lançamento").
+ */
+function CartaoOS({ ordem, noLancamento, selo, onAbrir }) {
   const pct = ordem.areaRec > 0 ? Math.min(100, Math.max(0, ((ordem.ja ?? 0) / ordem.areaRec) * 100)) : 0;
   const fazendas = ordem.fazendas ?? [];
+  const ops = ordem.operacoes ?? [];
+  const estado = estadoDaOS(ordem);
+  const cor = COR_ESTADO[estado];
+  const nNoLanc = ops.filter((op) => noLancamento.has(`${ordem.os}|${op.cod}`)).length;
+  const rotulo = [
+    `O.S. ${ordem.os}`,
+    ordem.situacao,
+    `falta ${nf(ordem.saldo ?? 0)} ha`,
+    plural(ops.length, "operação", "operações"),
+    cor.rotulo.toLowerCase(),
+    nNoLanc ? `${nNoLanc} no lançamento` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
   return (
-    <article className={`${CARTAO} overflow-hidden`} aria-label={`O.S. ${ordem.os}`}>
-      <div className="px-3.5 pb-2.5 pt-3">
+    <article
+      className={`relative overflow-hidden rounded-xl2 border bg-card shadow-card focus-within:ring-2 focus-within:ring-[rgb(var(--form-acento))] hover:border-[rgb(var(--form-acento))] ${cor.borda}`}
+    >
+      <div className={`px-3.5 pb-2.5 pt-3 ${cor.fundo}`}>
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h3 className="font-display text-[21px] font-semibold leading-tight text-ink">O.S. {ordem.os}</h3>
+              <h3 className="font-display text-[21px] font-semibold leading-tight text-ink">
+                <button
+                  type="button"
+                  onClick={() => onAbrir(ordem)}
+                  aria-haspopup="dialog"
+                  aria-label={`${rotulo}. Abrir a O.S.`}
+                  className="text-left after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
+                >
+                  O.S. {ordem.os}
+                </button>
+              </h3>
               <SeloSituacao s={ordem.situacao} />
+              {estado === "concluida" && <SeloConcluida />}
             </div>
             <p className="mt-0.5 text-[12.5px] text-muted">
               {[ordem.dtOs && `Desde ${fmtDateBR(ordem.dtOs)}`, ordem.prevFim && `prev. fim ${fmtDateBR(ordem.prevFim)}`].filter(Boolean).join(" · ")}
@@ -1806,43 +2193,535 @@ function CartaoOS({ ordem, noLancamento, selo, onEscolher }) {
           {ordem.areaRec > 0 ? ` de ${nf(ordem.areaRec)}` : ""} ha apontados
         </p>
       </div>
+      {/* as operações (na cor de cada uma): o toque em qualquer parte do cartão abre a janela da O.S. */}
       <ul className="border-t border-line">
-        {(ordem.operacoes ?? []).map((op) => {
+        {ops.map((op) => {
           const sel = noLancamento.has(`${ordem.os}|${op.cod}`);
+          const est = estadoDaOperacao(op);
           return (
-            <li key={op.cod} className="border-b border-line last:border-b-0">
-              <button
-                type="button"
-                onClick={() => onEscolher(ordem, op)}
-                aria-current={sel ? "true" : undefined}
-                className={`flex min-h-[64px] w-full items-center gap-3 px-3.5 py-2.5 text-left hover:bg-hover ${sel ? "bg-[rgb(var(--form-fundo))]" : ""}`}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14.5px] font-semibold leading-snug text-ink">
-                    {op.cod} - {op.ds || "sem descrição"}
-                    {sel && selo && (
-                      <span className="ml-1.5 inline-block rounded-full bg-brand-50 px-1.5 py-px align-middle text-[11px] font-semibold text-brand-700">
-                        no lançamento
-                      </span>
-                    )}
-                  </span>
-                  <span className="block text-[12.5px] text-muted">
-                    {[op.etapaDs, plural(op.nTalhoes ?? 0, "talhão", "talhões"), rotModelo(op.modelo)].filter(Boolean).join(" · ")}
-                  </span>
-                  <span className="mt-0.5 block text-[12.5px] text-ink">
-                    Falta <b className="font-semibold tabular">{nf(op.saldo ?? 0)} ha</b>
-                    {op.areaRec > 0 ? ` de ${nf(op.areaRec)}` : ""}
-                    {op.ultimo && <span className="text-muted"> · último {textoUltimo({ ...op.ultimo, area: undefined })}</span>}
-                  </span>
-                </span>
-                {sel && !selo && <span className="sr-only">(escolhida)</span>}
-                <IconSetaDireita size={18} className="flex-shrink-0 text-muted" />
-              </button>
+            <li key={op.cod} className={`flex min-h-[60px] items-center gap-3 border-b border-line px-3.5 py-2.5 ${COR_ESTADO[est].fundo}`}>
+              <TextoOperacao
+                op={op}
+                selos={
+                  (sel && selo) || est === "concluida" ? (
+                    <>
+                      {sel && selo && <SeloNoLancamento />}
+                      {est === "concluida" && <SeloConcluida />}
+                    </>
+                  ) : null
+                }
+              />
             </li>
           );
         })}
       </ul>
+      <div aria-hidden="true" className="flex min-h-[44px] items-center justify-between gap-2 px-3.5 py-2 text-[13px] font-medium text-brand-700">
+        <span>Abrir a O.S. · {plural(ops.length, "operação", "operações")} e lançamentos</span>
+        <IconSetaDireita size={18} className="flex-shrink-0" />
+      </div>
     </article>
+  );
+}
+
+/**
+ * Janela da O.S. (passo 2): o resumo, as operações dela em caixas de marcar (já marcadas as que têm o que fazer; as que
+ * estão no lançamento, marcadas e travadas) e os lançamentos já feitos nela. "Lançar as marcadas" acrescenta todas ao
+ * lançamento de uma vez. Trocando a O.S. de um bloco (`trocar`: o bloco), cada operação é um botão: a tocada entra no
+ * lugar dele.
+ */
+function JanelaOS({ ordem, trocar, noLancamento, nNoLancamento, hist, emEdicao, onLancar, onEscolher, onAbrirLancamento, onRecarregarHist, onFechar }) {
+  const ops = ordem.operacoes ?? [];
+  const noLanc = (op) => noLancamento.has(`${ordem.os}|${op.cod}`);
+  const [marcadas, setMarcadas] = useState(() => Object.fromEntries(ops.filter((op) => !noLanc(op) && (op.saldo ?? 0) > 0.001).map((op) => [op.cod, true])));
+  const livres = ops.filter((op) => !noLanc(op));
+  const escolhidas = livres.filter((op) => marcadas[op.cod]);
+  const cabem = Math.max(0, MAX_ORDENS - nNoLancamento);
+  const passou = escolhidas.length > cabem;
+  const todas = livres.length > 0 && livres.every((op) => marcadas[op.cod]);
+  const fazendas = ordem.fazendas ?? [];
+  const idBase = `lm-jos-${idSeguro(ordem.os)}`;
+  const botaoLancar =
+    escolhidas.length > 1 ? `Lançar as ${escolhidas.length} marcadas` : escolhidas.length === 1 ? "Lançar a marcada" : "Lançar as marcadas";
+  return (
+    <JanelaInfo
+      titulo={`O.S. ${ordem.os}`}
+      subtitulo={[ordem.situacao, ordem.dtOs && `desde ${fmtDateBR(ordem.dtOs)}`, ordem.prevFim && `prev. fim ${fmtDateBR(ordem.prevFim)}`, ordem.resp]
+        .filter(Boolean)
+        .join(" · ")}
+      largura="lg"
+      onFechar={onFechar}
+      rodape={
+        <>
+          <button type="button" className={`${BOTAO} !h-12`} onClick={onFechar}>
+            Fechar
+          </button>
+          {!trocar && (
+            <button
+              type="button"
+              className={`${BOTAO_PRIMARIO} min-w-0 flex-1 sm:flex-none`}
+              disabled={escolhidas.length === 0 || passou}
+              onClick={() => onLancar(ordem, escolhidas)}
+            >
+              {botaoLancar}
+              <IconSetaDireita size={18} />
+            </button>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <div className="grid grid-cols-3 gap-2">
+            <Numero rotulo="Área rec." valor={nf(ordem.areaRec ?? 0)} />
+            <Numero rotulo="Já apontado" valor={nf(ordem.ja ?? 0)} />
+            <Numero rotulo="Falta" valor={nf(ordem.saldo ?? 0)} cor={(ordem.saldo ?? 0) > 0.001 ? "text-ink" : "text-good-600"} />
+          </div>
+          {fazendas.length > 0 && (
+            <p className="mt-2 text-[13px] text-ink">{fazendas.map((f) => `${f.cod}${f.nm ? ` - ${f.nm}` : ""}`).join(" · ")}</p>
+          )}
+        </div>
+
+        {trocar ? (
+          <section aria-labelledby={`${idBase}-ops`} className="space-y-2">
+            <div>
+              <h3 id={`${idBase}-ops`} className="text-[14.5px] font-semibold text-ink">
+                Escolha a operação
+              </h3>
+              <p className="text-[12.5px] text-muted">
+                Entra no lugar da O.S. {trocar.os} (operação {trocar.opCod}) no lançamento.
+              </p>
+            </div>
+            <ul className="overflow-hidden rounded-lg border border-line bg-card">
+              {ops.map((op) => {
+                const est = estadoDaOperacao(op);
+                const atual = trocar.os === ordem.os && trocar.opCod === op.cod;
+                return (
+                  <li key={op.cod} className="border-b border-line last:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => onEscolher(ordem, op)}
+                      className={`flex min-h-[64px] w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-hover ${COR_ESTADO[est].fundo}`}
+                    >
+                      <TextoOperacao
+                        op={op}
+                        comAreaUltimo
+                        selos={
+                          <>
+                            {atual ? <SeloNoLancamento>a trocar</SeloNoLancamento> : noLanc(op) && <SeloNoLancamento />}
+                            {est === "concluida" && <SeloConcluida />}
+                          </>
+                        }
+                      />
+                      <IconSetaDireita size={18} className="flex-shrink-0 text-muted" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : (
+          <fieldset className="space-y-2">
+            <legend className="sr-only">Operações da O.S. {ordem.os}: marque as que vai lançar</legend>
+            <div className="flex items-center gap-2">
+              <p aria-hidden="true" className="min-w-0 flex-1 text-[14.5px] font-semibold text-ink">
+                Operações da O.S. <span className="font-normal text-muted">· marque as que vai lançar</span>
+              </p>
+              {livres.length > 1 && (
+                <button
+                  type="button"
+                  className={BOTAO_MENOR}
+                  onClick={() => setMarcadas(todas ? {} : Object.fromEntries(livres.map((op) => [op.cod, true])))}
+                >
+                  {todas ? "Desmarcar todas" : "Marcar todas"}
+                </button>
+              )}
+            </div>
+            <ul className="overflow-hidden rounded-lg border border-line bg-card">
+              {ops.map((op) => {
+                const est = estadoDaOperacao(op);
+                const ja = noLanc(op);
+                const id = `${idBase}-op-${idSeguro(op.cod)}`;
+                return (
+                  <li key={op.cod} className={`border-b border-line last:border-b-0 ${COR_ESTADO[est].fundo}`}>
+                    <label htmlFor={id} className={`flex min-h-[64px] items-start gap-3 px-3 py-2.5 ${ja ? "" : "cursor-pointer"}`}>
+                      <input
+                        id={id}
+                        type="checkbox"
+                        checked={ja || !!marcadas[op.cod]}
+                        disabled={ja}
+                        onChange={(e) => setMarcadas((m) => ({ ...m, [op.cod]: e.target.checked }))}
+                        className="mt-0.5 h-6 w-6 flex-shrink-0 cursor-pointer accent-[#23396B] disabled:cursor-default dark:accent-[#7FA8E8]"
+                      />
+                      <TextoOperacao
+                        op={op}
+                        comAreaUltimo
+                        selos={
+                          ja || est === "concluida" ? (
+                            <>
+                              {ja && <SeloNoLancamento>já no lançamento</SeloNoLancamento>}
+                              {est === "concluida" && <SeloConcluida />}
+                            </>
+                          ) : null
+                        }
+                      />
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            <div aria-live="polite">
+              {passou && (
+                <p className="text-[12.5px] font-medium text-alert-600">
+                  No máximo {MAX_ORDENS} O.S./operações por lançamento: {nNoLancamento ? `já há ${nNoLancamento}; ` : ""}
+                  desmarque {plural(escolhidas.length - cabem, "operação", "operações")}.
+                </p>
+              )}
+            </div>
+            {ops.length > 0 && livres.length === 0 ? (
+              <p className="text-[12px] text-muted">Todas as operações desta O.S. já estão no lançamento.</p>
+            ) : (
+              nNoLancamento > 0 &&
+              !passou && <p className="text-[12px] text-muted">As marcadas entram no lançamento que está aberto, cada uma com os talhões e o boletim dela.</p>
+            )}
+            {ops.length === 0 && <p className="text-[13px] text-muted">Esta O.S. não tem operação em aberto.</p>}
+          </fieldset>
+        )}
+
+        <LancamentosDaOS idBase={`${idBase}-l`} os={ordem.os} hist={hist} emEdicao={emEdicao} onAbrir={onAbrirLancamento} onRecarregar={onRecarregarHist} />
+      </div>
+    </JanelaInfo>
+  );
+}
+
+/** Selo da origem de um lançamento da O.S. */
+function SeloOrigem({ origem }) {
+  const cor = origem === "mobile" ? "bg-brand-50 text-brand-700" : origem === "bot" || origem === "whatsapp" ? "bg-good-50 text-good-600" : "bg-surface text-muted";
+  return <span className={`whitespace-nowrap rounded-full px-1.5 py-px text-[11px] font-semibold ${cor}`}>{ROTULO_ORIGEM[origem] ?? "Tela Apontamento"}</span>;
+}
+
+/**
+ * Lançamentos da O.S. (de qualquer origem: Lançamento Mobile, tela Apontamento, bot do WhatsApp), os mais recentes
+ * primeiro: data, boletim, operação, área, quem lançou e a origem. Tocar abre o lançamento só para consulta.
+ * `recolhivel` (passo 3): começa recolhido, com o resumo (quantos e o último) no botão. Busca ao aparecer, se ainda não
+ * foi buscado (`onRecarregar(os)`; `onRecarregar(os, true)` busca de novo).
+ */
+function LancamentosDaOS({ idBase, os, hist, emEdicao, onAbrir, onRecarregar, recolhivel = false }) {
+  const [aberto, setAberto] = useState(!recolhivel);
+  useEffect(() => {
+    if (!hist) onRecarregar(os);
+  }, [hist, os, onRecarregar]);
+  const lista = hist?.lista ?? null;
+  const total = hist?.total ?? 0;
+  const ult = lista?.[0];
+  const resumo =
+    hist?.carregando && !lista
+      ? "carregando…"
+      : hist?.erro && !lista
+        ? "não carregaram"
+        : lista
+          ? lista.length
+            ? `${total} · último ${diaMes(ult.dt)}${quemLancou(ult) ? ` por ${quemLancou(ult)}` : ""}`
+            : "nenhum ainda"
+          : "";
+  const idLista = `${idBase}-lista`;
+
+  const corpo = (
+    <>
+      <div aria-live="polite" aria-busy={!!hist?.carregando}>
+        {hist?.carregando && !lista && <p className="py-3 text-center text-[13px] text-muted">Carregando os lançamentos da O.S.…</p>}
+        {hist?.erro && (
+          <div className="space-y-2">
+            <Aviso msg={{ texto: hist.erro, erro: true }} />
+            <button type="button" className={`${BOTAO} w-full`} onClick={() => onRecarregar(os, true)}>
+              <IconAtualizar size={16} /> Tentar de novo
+            </button>
+          </div>
+        )}
+        {lista && lista.length === 0 && <p className="py-2 text-[13px] text-muted">Nenhum lançamento nesta O.S. ainda.</p>}
+      </div>
+      {lista && lista.length > 0 && (
+        <ul className="overflow-hidden rounded-lg border border-line bg-card">
+          {lista.map((a) => {
+            const quem = quemLancou(a);
+            return (
+              <li key={a.id} className="border-b border-line last:border-b-0">
+                <button
+                  type="button"
+                  onClick={() => onAbrir(a)}
+                  aria-haspopup="dialog"
+                  className="flex min-h-[56px] w-full items-center gap-2 px-3 py-2 text-left hover:bg-hover"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="text-[13.5px] font-semibold text-ink">
+                        {fmtDateBR(a.dt)} · {a.boletim ? `Boletim nº ${a.boletim}` : `Apontamento #${a.id}`}
+                      </span>
+                      <SeloOrigem origem={a.origem} />
+                      {emEdicao?.has(a.id) && <SeloNoLancamento>em edição</SeloNoLancamento>}
+                      {a.aConferir && <span className="rounded-full bg-amber-50 px-1.5 py-px text-[11px] font-semibold text-amber-600">a conferir</span>}
+                    </span>
+                    <span className="block truncate text-[13px] text-ink">
+                      {codDs(a.opCod, a.opDs)} · <span className="tabular">{nf(a.area ?? 0)} ha</span>
+                      {a.statusOS ? <span className="text-muted"> · {a.statusOS}</span> : null}
+                    </span>
+                    <span className="block truncate text-[12px] text-muted">
+                      {quem ? `Lançado por ${quem}` : "Sem apontador"}
+                      {a.usr && a.usr !== a.apontador ? ` · usuário ${a.usr}` : ""}
+                    </span>
+                  </span>
+                  <IconSetaDireita size={16} className="flex-shrink-0 text-muted" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {lista && total > lista.length && (
+        <p className="text-[12px] text-muted">
+          Mostrando os {lista.length} mais recentes de {total}.
+        </p>
+      )}
+    </>
+  );
+
+  if (recolhivel) {
+    return (
+      <section className={`${CARTAO} overflow-hidden`} aria-label={`Lançamentos da O.S. ${os}`}>
+        <div className="flex items-stretch">
+          <button
+            type="button"
+            onClick={() => setAberto((x) => !x)}
+            aria-expanded={aberto}
+            aria-controls={aberto ? idLista : undefined}
+            className="flex min-h-[48px] min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left hover:bg-hover"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-semibold text-ink">Lançamentos desta O.S.</span>
+              <span className="block truncate text-[12px] text-muted">{resumo}</span>
+            </span>
+            <IconSetaBaixo size={18} className={`flex-shrink-0 text-muted transition-transform ${aberto ? "rotate-180" : ""}`} />
+          </button>
+          {aberto && (
+            <button
+              type="button"
+              onClick={() => onRecarregar(os, true)}
+              disabled={!!hist?.carregando}
+              aria-label="Atualizar os lançamentos da O.S."
+              className="flex w-12 flex-shrink-0 items-center justify-center border-l border-line text-muted hover:bg-hover disabled:opacity-50"
+            >
+              <IconAtualizar size={16} />
+            </button>
+          )}
+        </div>
+        {aberto && (
+          <div id={idLista} className="space-y-2 border-t border-line p-2.5">
+            {corpo}
+          </div>
+        )}
+      </section>
+    );
+  }
+  return (
+    <section aria-labelledby={`${idBase}-t`} className="space-y-2">
+      <div className="flex items-center gap-2">
+        <h3 id={`${idBase}-t`} className="min-w-0 flex-1 text-[14.5px] font-semibold text-ink">
+          Lançamentos desta O.S.{total ? <span className="font-normal text-muted"> · {total}</span> : null}
+        </h3>
+        <button type="button" className={BOTAO_MENOR} onClick={() => onRecarregar(os, true)} disabled={!!hist?.carregando} aria-label="Atualizar os lançamentos da O.S.">
+          <IconAtualizar size={16} />
+        </button>
+      </div>
+      {corpo}
+    </section>
+  );
+}
+
+/** Um dado do lançamento na consulta (vazio: "—"). */
+function Dado({ rotulo, children, largo = false }) {
+  const vazio = children === null || children === undefined || children === "" || children === false;
+  return (
+    <div className={largo ? "sm:col-span-2" : ""}>
+      <dt className="text-[11.5px] text-muted">{rotulo}</dt>
+      <dd className="break-words text-[13.5px] text-ink">{vazio ? "—" : children}</dd>
+    </div>
+  );
+}
+
+/**
+ * Lançamento aberto só para consulta (dos lançamentos da O.S.): o cabeçalho, os talhões e as áreas, os insumos, o
+ * status, a observação, quem lançou e quando e, no do Lançamento Mobile, o lançamento com várias O.S. e o texto do
+ * WhatsApp (com Copiar). Sem editar — só o do Lançamento Mobile com a mesma matrícula de quem está lançando tem
+ * "Editar", que abre como em Meus lançamentos.
+ */
+function JanelaConsulta({ consulta, matAtual, pode, abrindo, onEditar, onFechar }) {
+  const [copia, copiar] = usarCopia();
+  const caixa = useRef(null);
+  const d = consulta.dados;
+  const a = d?.apontamento ?? null;
+  const r = consulta.resumo ?? {};
+  const grupo = Array.isArray(d?.apontamentos) ? d.apontamentos : [];
+  const doMobile = a?.orig === "mobile";
+  const mesmaPessoa = doMobile && !!matAtual && mesmaMatricula(a.apontadorMat, matAtual);
+  const podeEditarEste = !!a && doMobile && mesmaPessoa && pode && !!a.boletim;
+  const bol = a?.boletim ?? r.boletim;
+  const titulo = bol ? `Boletim nº ${bol}` : `Apontamento #${a?.id ?? r.id ?? ""}`;
+  const un = a?.unCalda === "kg" ? "kg" : "L";
+  const porque = !a
+    ? ""
+    : !doMobile
+      ? `Lançado ${a.origem === "tela" ? "na tela Apontamento" : "pelo WhatsApp"}: aqui é só para consulta.`
+      : !mesmaPessoa
+        ? "Lançado com outra matrícula: só para consulta."
+        : !pode
+          ? "Seu perfil é somente leitura: só para consulta."
+          : "";
+  return (
+    <JanelaInfo
+      titulo={titulo}
+      subtitulo={[fmtDateBR(a?.dt ?? r.dt), (a?.os ?? r.os) ? `O.S. ${a?.os ?? r.os}` : "", ROTULO_ORIGEM[a?.origem ?? r.origem] ?? ""].filter(Boolean).join(" · ")}
+      largura="lg"
+      onFechar={onFechar}
+      rodape={
+        <>
+          {podeEditarEste && (
+            <button type="button" className={`${BOTAO} !h-12`} onClick={() => onEditar(a.boletim)} disabled={abrindo !== null}>
+              <IconEditar size={16} /> {abrindo === a.boletim ? "Abrindo…" : "Editar"}
+            </button>
+          )}
+          <button type="button" className={`${BOTAO_PRIMARIO} min-w-0 flex-1 sm:flex-none`} onClick={onFechar}>
+            Fechar
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div aria-live="polite" aria-busy={!!consulta.carregando}>
+          {consulta.carregando && <p className="py-6 text-center text-[14px] text-muted">Carregando o lançamento…</p>}
+          {consulta.erro && <Aviso msg={{ texto: consulta.erro, erro: true }} />}
+        </div>
+        {a && (
+          <>
+            {porque && <p className="rounded-lg border border-line bg-surface px-3 py-2 text-[12.5px] text-muted">{porque}</p>}
+            <dl className="grid grid-cols-1 gap-x-4 gap-y-2.5 sm:grid-cols-2">
+              <Dado rotulo="Data da operação">{fmtDateBR(a.dt)}</Dado>
+              <Dado rotulo="O.S.">{a.os || "sem O.S."}</Dado>
+              <Dado rotulo="Operação" largo>
+                {codDs(a.opCod, a.opDs)}
+              </Dado>
+              <Dado rotulo="Etapa">{codDs(a.etapaCod, a.etapaDs)}</Dado>
+              <Dado rotulo="Tipo de aplicação">{a.tipoAplicacao}</Dado>
+              {a.atividade && <Dado rotulo="Atividade">{a.atividade}</Dado>}
+              <Dado rotulo="Solicitante">{a.solicitante}</Dado>
+              <Dado rotulo="Apontador / informante">
+                {[a.apontador, a.apontadorMat && `mat. ${a.apontadorMat}`].filter(Boolean).join(" · ")}
+              </Dado>
+              <Dado rotulo="Prestador / equipe">{a.equipe}</Dado>
+              <Dado rotulo="Equipamento (frota)">{a.eqp}</Dado>
+              <Dado rotulo="Nº de equipamentos">{a.numEquipamentos > 0 ? String(a.numEquipamentos) : ""}</Dado>
+              <Dado rotulo="Nº de pessoas">{a.numPessoas > 0 ? String(a.numPessoas) : ""}</Dado>
+              <Dado rotulo="Calda/Dose recomendada">{Number.isFinite(a.vazaoRec) ? `${fmtNum(a.vazaoRec)} ${un}/ha` : ""}</Dado>
+              <Dado rotulo="Vazão utilizada">{Number.isFinite(a.vazaoUti) ? `${fmtNum(a.vazaoUti)} ${un}/ha${a.vazaoAuto ? " (calculada)" : ""}` : ""}</Dado>
+              <Dado rotulo="Calda/Insumo gasto">{Number.isFinite(a.volCalda) ? `${fmtNum(a.volCalda)} ${un}` : ""}</Dado>
+              <Dado rotulo="Status da O.S.">{a.statusOS}</Dado>
+              <Dado rotulo="Origem">{ROTULO_ORIGEM[a.origem] ?? ""}</Dado>
+              <Dado rotulo="Lançado por">{[a.usr, a.criEm && `em ${a.criEm}`].filter(Boolean).join(" ")}</Dado>
+              {a.atuUsr && <Dado rotulo="Alterado por">{[a.atuUsr, a.atuEm && `em ${a.atuEm}`].filter(Boolean).join(" ")}</Dado>}
+              {a.confEm && <Dado rotulo="Conferido por">{[a.confUsr, `em ${a.confEm}`].filter(Boolean).join(" ")}</Dado>}
+            </dl>
+
+            <section aria-label="Talhões e áreas" className="space-y-1.5">
+              <h3 className="text-[14px] font-semibold text-ink">
+                Talhões · <span className="tabular">{nf(a.areaTotal ?? 0)} ha</span>
+              </h3>
+              {(a.talhoes ?? []).length === 0 ? (
+                <p className="text-[13px] text-muted">Sem talhões.</p>
+              ) : (
+                <ul className="overflow-hidden rounded-lg border border-line bg-card">
+                  {agruparPorFazenda(a.talhoes ?? []).map((g) => (
+                    <li key={g.propCod} className="border-b border-line px-3 py-2 last:border-b-0">
+                      <div className="text-[13px] font-semibold text-ink">
+                        {g.propCod}
+                        {g.propNm ? ` - ${g.propNm}` : ""}
+                      </div>
+                      <ul className="mt-0.5 grid grid-cols-2 gap-x-3 text-[13px] sm:grid-cols-3">
+                        {g.talhoes.map((t) => (
+                          <li key={`${t.propCod}|${t.tlh}`} className="flex justify-between gap-2 tabular">
+                            <span className="text-muted">{rotTalhao(t.tlh)}</span>
+                            <span className="text-ink">{nf(t.area ?? 0)} ha</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {(a.insumos ?? []).length > 0 && (
+              <section aria-label="Insumos" className="space-y-1.5">
+                <h3 className="text-[14px] font-semibold text-ink">Insumos</h3>
+                <ul className="space-y-0.5 text-[13px] text-ink">
+                  {a.insumos.map((i, k) => (
+                    <li key={`${i.cod}-${k}`}>
+                      {codDs(i.cod, i.ds)}
+                      <span className="text-muted">
+                        {Number.isFinite(i.dose) ? ` · dose ${fmtNum(i.dose)}` : ""}
+                        {Number.isFinite(i.qtd) ? ` · ${fmtNum(i.qtd)} ${i.um ?? ""}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {a.obs && (
+              <section aria-label="Observação" className="space-y-1">
+                <h3 className="text-[14px] font-semibold text-ink">Observação</h3>
+                <p className="whitespace-pre-wrap break-words text-[13px] text-ink">{a.obs}</p>
+              </section>
+            )}
+
+            {grupo.length > 1 && (
+              <section aria-label="Lançamento com várias O.S." className="space-y-1">
+                <h3 className="text-[14px] font-semibold text-ink">
+                  Lançamento com {grupo.length} O.S. · {rotBoletins(grupo.map((x) => x.boletim))}
+                </h3>
+                <ul className="space-y-0.5 text-[13px]">
+                  {grupo.map((x) => (
+                    <li key={x.id} className={x.id === a.id ? "font-semibold text-ink" : "text-ink"}>
+                      O.S. {x.os} · {codDs(x.opCod, x.opDs)} · <span className="tabular">{nf(x.areaTotal ?? 0)} ha</span>
+                      {x.boletim ? <span className="text-muted"> · boletim nº {x.boletim}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {doMobile && d.texto && (
+              <section aria-label="Texto do WhatsApp" className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="min-w-0 flex-1 text-[14px] font-semibold text-ink">Texto do WhatsApp</h3>
+                  <button type="button" className={BOTAO_MENOR} onClick={() => copiar(d.texto, caixa.current)}>
+                    <IconCopiar size={16} /> {copia === "ok" ? "Copiado!" : "Copiar"}
+                  </button>
+                </div>
+                <p aria-live="polite" className={`text-[12px] font-medium ${copia === "falhou" ? "text-amber-600" : "text-good-600"}`}>
+                  {copia ? MSG_COPIA[copia] : ""}
+                </p>
+                <CaixaTexto texto={d.texto} caixaRef={caixa} />
+              </section>
+            )}
+
+            {a.origMsg && (
+              <details className="rounded-lg border border-line">
+                <summary className="flex min-h-[44px] cursor-pointer items-center px-3 text-[13px] font-medium text-ink">Mensagem original do WhatsApp</summary>
+                <p className="whitespace-pre-wrap break-words border-t border-line px-3 py-2 font-mono text-[12px] text-ink">{a.origMsg}</p>
+              </details>
+            )}
+          </>
+        )}
+      </div>
+    </JanelaInfo>
   );
 }
 
@@ -1898,6 +2777,12 @@ function ResumoEscolha({ os, opCod, opDs, situacao, dt, info, talhoes, onTrocar,
   );
 }
 
+/** "2 O.S." ou, com mais operações que O.S., "1 O.S. · 3 operações" (cada bloco é uma O.S. + operação). */
+function contarOSOperacoes(ordens) {
+  const nOS = new Set(ordens.map((o) => String(o.os ?? ""))).size;
+  return nOS === ordens.length ? `${nOS} O.S.` : `${nOS} O.S. · ${ordens.length} operações`;
+}
+
 /** Passo 4 do lançamento com várias O.S.: as O.S./operações com a área de cada uma e o caminho de volta aos talhões. */
 function ResumoLancamento({ ordens, resumo, dsDe, dt, onTalhoes }) {
   return (
@@ -1905,7 +2790,7 @@ function ResumoLancamento({ ordens, resumo, dsDe, dt, onTalhoes }) {
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <span className="font-display text-[19px] font-semibold leading-tight text-ink">{ordens.length} O.S. no lançamento</span>
+            <span className="font-display text-[19px] font-semibold leading-tight text-ink">{contarOSOperacoes(ordens)} no lançamento</span>
             <span className="text-[12.5px] text-muted">{fmtDateBR(dt)}</span>
           </div>
           <div className="text-[12.5px] text-muted">O mesmo cabeçalho para todas; cada uma ganha o seu boletim.</div>
@@ -1949,9 +2834,31 @@ function CaixaSoFalta({ checked, onChange }) {
 /**
  * Uma O.S./operação do lançamento: o resumo (com Trocar), os talhões dela por fazenda e os de fora da O.S. Com várias
  * O.S. no lançamento, fica num bloco que abre e fecha (com a área e o status no cabeçalho), tem o status da O.S. e o
- * botão de tirar a O.S. do lançamento; com uma só (`unica`), fica como sempre foi.
+ * botão de tirar a O.S. do lançamento; com uma só (`unica`), fica como sempre foi. Logo abaixo do resumo, os
+ * lançamentos já feitos na O.S. (`hist`, de qualquer origem; recolhidos, abrem só para consulta).
  */
-function BlocoOrdem({ ordem, r, dt, unica, aberto, soFalta, onSoFalta, opDs, situacao, statusOpcoes, onAlternar, onRemover, onTrocar, onMudar, onTentar, onStatus }) {
+function BlocoOrdem({
+  ordem,
+  r,
+  dt,
+  unica,
+  aberto,
+  soFalta,
+  onSoFalta,
+  opDs,
+  situacao,
+  statusOpcoes,
+  onAlternar,
+  onRemover,
+  onTrocar,
+  onMudar,
+  onTentar,
+  onStatus,
+  hist,
+  emEdicao,
+  onHistorico,
+  onAbrirLancamento,
+}) {
   const ch = ordem.chave;
   const marcar = useCallback(
     (t, sim) =>
@@ -2006,6 +2913,15 @@ function BlocoOrdem({ ordem, r, dt, unica, aberto, soFalta, onSoFalta, opDs, sit
         info={info}
         talhoes={talhoesOS}
         onTrocar={() => onTrocar(ch)}
+      />
+      <LancamentosDaOS
+        idBase={`${idBloco}-hist`}
+        os={ordem.os}
+        hist={hist}
+        emEdicao={emEdicao}
+        onAbrir={onAbrirLancamento}
+        onRecarregar={onHistorico}
+        recolhivel
       />
       {(r.carregando || ordem.pendentes) && !r.erro && (
         <p className="py-6 text-center text-[14px] text-muted" aria-live="polite">
@@ -2575,7 +3491,7 @@ function Opcoes({ nome, legenda, valor, opcoes, onChange, colunas = 2, dica }) {
  * Cabeçalho do lançamento (o mesmo para todas as O.S.) e o status de cada O.S. `ops`: as operações do lançamento (a
  * primeira dá as dicas); `statusPorOS`: { os, chave, valor, falta, nTalhoes, nOps } de cada O.S.
  */
-function DadosServico({ s, upd, dt, hoje, onDt, ops, opcoes, varias, statusPorOS, statusOpcoes, onStatus }) {
+function DadosServico({ s, upd, dt, hoje, onDt, ops, opcoes, varias, statusPorOS, statusOpcoes, onStatus, onTipoRecusado }) {
   const op = ops[0] ?? null;
   // etapas do cadastro + as das operações (e a gravada) quando não estão nele
   const etapas = useMemo(() => {
@@ -2584,7 +3500,11 @@ function DadosServico({ s, upd, dt, hoje, onDt, ops, opcoes, varias, statusPorOS
     if (s.etapaCod && !l.some((x) => x.cod === s.etapaCod)) l.unshift({ cod: s.etapaCod, ds: "" });
     return l;
   }, [opcoes, ops, s.etapaCod]);
-  const tipos = useMemo(() => unicos([...ops.map((o) => o.tipoDs), ...(opcoes?.tipos ?? [])]), [opcoes, ops]);
+  // tipos de aplicação: só os do cadastro Tipo Aplicação ativos ({ cod, ds }; null enquanto as listas não chegam)
+  const tipos = useMemo(
+    () => (Array.isArray(opcoes?.tipos) ? opcoes.tipos.map((t) => (typeof t === "string" ? { cod: "", ds: t } : t)).filter((t) => t && t.ds) : null),
+    [opcoes],
+  );
   const mec = s.modelo === "mecanizada";
   const un = s.unCalda === "kg" ? "kg" : "L";
   const recomendado = (sim) => (sim ? " (recomendado)" : "");
@@ -2623,21 +3543,7 @@ function DadosServico({ s, upd, dt, hoje, onDt, ops, opcoes, varias, statusPorOS
             ))}
           </select>
         </Campo>
-        <Campo id="lm-tipo" rotulo="Tipo de aplicação">
-          <input
-            id="lm-tipo"
-            list="lm-tipos"
-            value={s.tipoAplicacao}
-            onChange={(e) => upd({ tipoAplicacao: e.target.value.slice(0, 60) })}
-            autoComplete="off"
-            className={CAMPO}
-          />
-          <datalist id="lm-tipos">
-            {tipos.map((x) => (
-              <option key={x} value={x} />
-            ))}
-          </datalist>
-        </Campo>
+        <CampoTipoAplicacao id="lm-tipo" valor={s.tipoAplicacao} tipos={tipos} onChange={(v) => upd({ tipoAplicacao: v })} onRecusado={onTipoRecusado} />
         {varias && <p className="-mt-2 text-[12px] text-muted sm:col-span-2">Etapa e tipo de aplicação: sem mudar, cada O.S. leva os da operação dela.</p>}
       </div>
       <Campo id="lm-equipe" rotulo={`Prestador / Equipe${recomendado(s.modelo === "manual")}`}>
@@ -2856,7 +3762,11 @@ function VistaTexto({ tituloRef, titulo, linha, sucesso = false, avisos = [], bo
   );
 }
 
-function MeusLancamentos({ tituloRef, mat, nome, pode, dias, onDias, estado, abrindo, onRecarregar, onCopiar, onVerTexto, onEditar, onInformarMatricula }) {
+/**
+ * Histórico de quem lança: os lançamentos feitos por esta tela com a matrícula, nos últimos 7, 15 ou 30 dias ou todos,
+ * uma página por vez ("Carregar mais").
+ */
+function MeusLancamentos({ tituloRef, mat, nome, pode, dias, onDias, estado, abrindo, onRecarregar, onMais, onCopiar, onVerTexto, onEditar, onInformarMatricula }) {
   if (!mat) {
     return (
       <section aria-labelledby="lm-meus" className="space-y-3">
@@ -2889,19 +3799,21 @@ function MeusLancamentos({ tituloRef, mat, nome, pode, dias, onDias, estado, abr
       </div>
       <p className="text-[13px] text-muted">
         Lançados por esta tela com a matrícula {mat}
-        {nome ? ` (${nome})` : ""}.
+        {nome ? ` (${nome})` : ""}
+        {dias > 0 ? `, nos últimos ${dias} dias` : ", desde o primeiro"}.
       </p>
-      <div role="radiogroup" aria-label="Período" className="grid grid-cols-3 gap-1 rounded-lg bg-surface p-1">
+      <div role="radiogroup" aria-label="Período" className="grid grid-cols-4 gap-1 rounded-lg bg-surface p-1">
         {PERIODOS_MEUS.map((d) => (
           <button
             key={d}
             type="button"
             role="radio"
             aria-checked={dias === d}
+            aria-label={d > 0 ? `Últimos ${d} dias` : "Todos os lançamentos"}
             onClick={() => onDias(d)}
             className={`h-10 rounded-md text-[13.5px] font-semibold ${dias === d ? "bg-card text-ink shadow-card" : "text-muted hover:text-ink"}`}
           >
-            Últimos {d} dias
+            {d > 0 ? `${d} dias` : "Todos"}
           </button>
         ))}
       </div>
@@ -2910,8 +3822,10 @@ function MeusLancamentos({ tituloRef, mat, nome, pode, dias, onDias, estado, abr
         {estado.erro && <Aviso msg={{ texto: estado.erro, erro: true }} />}
         {lista && lista.length === 0 && (
           <div className={`${CARTAO} px-4 py-8 text-center`}>
-            <p className="text-[15px] font-semibold text-ink">Nenhum lançamento no período</p>
-            <p className="mx-auto mt-1 max-w-sm text-[13px] text-muted">Os boletins gravados pelo Lançamento Mobile com esta matrícula aparecem aqui.</p>
+            <p className="text-[15px] font-semibold text-ink">{dias > 0 ? "Nenhum lançamento no período" : "Nenhum lançamento"}</p>
+            <p className="mx-auto mt-1 max-w-sm text-[13px] text-muted">
+              Os boletins gravados pelo Lançamento Mobile com esta matrícula aparecem aqui.{dias > 0 ? " Para ver os mais antigos, escolha Todos." : ""}
+            </p>
           </div>
         )}
       </div>
@@ -2959,6 +3873,327 @@ function MeusLancamentos({ tituloRef, mat, nome, pode, dias, onDias, estado, abr
           })}
         </ul>
       )}
+      {lista && lista.length > 0 && (
+        <div className="space-y-1 text-center">
+          <p className="text-[12px] text-muted">
+            {plural(lista.length, "lançamento", "lançamentos")}
+            {estado.mais ? " — há mais" : ""}
+          </p>
+          {estado.mais && (
+            <button type="button" className={`${BOTAO} w-full`} onClick={onMais} disabled={estado.carregando || estado.carregandoMais}>
+              {estado.carregandoMais ? "Carregando…" : "Carregar mais"}
+            </button>
+          )}
+        </div>
+      )}
     </section>
+  );
+}
+
+/**
+ * Lista de sugestões de um campo com busca (role listbox, do padrão combobox): cada opção com 48px para o dedo; o toque
+ * não tira o foco do campo (escolhe sem fechar o teclado antes). `children(item)`: o conteúdo de cada opção.
+ */
+function ListaOpcoes({ id, rotulo, itens, ativo, chave, onEscolher, children }) {
+  useEffect(() => {
+    if (ativo >= 0) document.getElementById(`${id}-${ativo}`)?.scrollIntoView({ block: "nearest" });
+  }, [id, ativo]);
+  return (
+    <ul
+      id={id}
+      role="listbox"
+      aria-label={rotulo}
+      onMouseDown={(e) => e.preventDefault()}
+      className="mt-1 max-h-72 overflow-y-auto overscroll-contain rounded-lg border border-line bg-card shadow-pop"
+    >
+      {itens.map((it, i) => (
+        <li
+          key={chave(it)}
+          id={`${id}-${i}`}
+          role="option"
+          aria-selected={i === ativo}
+          onClick={() => onEscolher(it)}
+          className={`flex min-h-[48px] cursor-pointer flex-col justify-center border-b border-line px-3 py-1.5 last:border-b-0 ${i === ativo ? "bg-hover" : "hover:bg-hover"}`}
+        >
+          {children(it)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Setas, Enter e Esc de um campo com sugestões (`n`: quantas há; `escolher(i)`; `fechar()`). */
+function teclasDaLista(e, { aberta, n, ativo, setAtivo, setAberta, escolher, fechar }) {
+  if (e.key === "ArrowDown" && n > 0) {
+    e.preventDefault();
+    setAberta(true);
+    setAtivo(aberta ? (ativo + 1) % n : 0);
+  } else if (e.key === "ArrowUp" && n > 0) {
+    e.preventDefault();
+    setAberta(true);
+    setAtivo(aberta && ativo > 0 ? ativo - 1 : n - 1);
+  } else if (e.key === "Enter" && aberta && ativo >= 0 && ativo < n) {
+    e.preventDefault();
+    escolher(ativo);
+  } else if (e.key === "Escape" && aberta) {
+    e.preventDefault();
+    fechar();
+  }
+}
+
+/**
+ * Quem está lançando: um campo só para a matrícula (código) ou o nome, com as sugestões dos responsáveis que solicitam
+ * O.S. enquanto digita (cadastro Responsáveis ativo + os das O.S.; sem acento nem caixa). Escolher a sugestão já busca as
+ * O.S. dela (`onEscolher`); digitar a matrícula e Buscar continua valendo (o formulário de quem usa).
+ */
+function CampoQuem({ id, valor, onValor, onEscolher }) {
+  const [termo, setTermo] = useState(null); // o digitado a buscar (null: nada a buscar)
+  const [lista, setLista] = useState([]);
+  const [aberta, setAberta] = useState(false);
+  const [ativo, setAtivo] = useState(-1);
+  const [buscando, setBuscando] = useState(false);
+  const seq = useRef(0);
+  const idLista = `${id}-sugestoes`;
+
+  // sugestões um instante depois de parar de digitar; a resposta de uma busca que outra passou não vale
+  useEffect(() => {
+    const t = String(termo ?? "").trim();
+    const n = ++seq.current;
+    if (t.length < 2) {
+      setLista([]);
+      setBuscando(false);
+      return undefined;
+    }
+    setBuscando(true);
+    const h = setTimeout(async () => {
+      const { ok, json } = await obter({ responsaveis: t });
+      if (n !== seq.current) return;
+      setBuscando(false);
+      setLista(ok && Array.isArray(json.responsaveis) ? json.responsaveis : []);
+      setAtivo(-1);
+    }, 250);
+    return () => clearTimeout(h);
+  }, [termo]);
+
+  function escolher(r) {
+    seq.current++;
+    setTermo(null);
+    setLista([]);
+    setAberta(false);
+    setAtivo(-1);
+    setBuscando(false);
+    onEscolher(r);
+  }
+
+  const mostrar = aberta && lista.length > 0;
+  const semNada = aberta && !buscando && String(termo ?? "").trim().length >= 2 && lista.length === 0;
+  return (
+    <div>
+      <label htmlFor={id} className={ROTULO}>
+        Matrícula, código ou nome
+      </label>
+      <input
+        id={id}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={mostrar}
+        aria-controls={mostrar ? idLista : undefined}
+        aria-activedescendant={mostrar && ativo >= 0 ? `${idLista}-${ativo}` : undefined}
+        aria-describedby={`${id}-dica`}
+        value={valor}
+        onChange={(e) => {
+          const v = e.target.value.slice(0, 60);
+          onValor(v);
+          setTermo(v);
+          setAberta(true);
+          setAtivo(-1);
+        }}
+        onKeyDown={(e) =>
+          teclasDaLista(e, {
+            aberta: mostrar,
+            n: lista.length,
+            ativo,
+            setAtivo,
+            setAberta,
+            escolher: (i) => escolher(lista[i]),
+            fechar: () => setAberta(false),
+          })
+        }
+        onFocus={() => lista.length > 0 && setAberta(true)}
+        onBlur={() => setAberta(false)}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="none"
+        spellCheck={false}
+        enterKeyHint="search"
+        placeholder="Ex.: 601448 ou Maria"
+        className={`${CAMPO} text-[18px] font-semibold`}
+      />
+      {mostrar && (
+        <ListaOpcoes id={idLista} rotulo="Responsáveis encontrados" itens={lista} ativo={ativo} chave={(r) => r.matricula} onEscolher={escolher}>
+          {(r) => (
+            <>
+              <span className="block truncate text-[14.5px] font-semibold text-ink">{r.nome || "Sem nome no cadastro"}</span>
+              <span className="block truncate text-[12.5px] text-muted tabular">
+                Mat. {r.matricula}
+                {r.area ? ` · ${r.area}` : ""}
+              </span>
+            </>
+          )}
+        </ListaOpcoes>
+      )}
+      <p id={`${id}-dica`} aria-live="polite" className="mt-1 text-[12px] text-muted">
+        {aberta && buscando
+          ? "Buscando os responsáveis…"
+          : semNada
+            ? "Nenhum responsável com esse código ou nome. Confira ou digite a matrícula e toque em Buscar."
+            : "Digite a matrícula ou parte do nome e escolha na lista. Fica lembrada neste aparelho; aparecem só as O.S. em aberto no nome escolhido."}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Tipo de aplicação só do cadastro Tipo Aplicação (os ativos): digita o código ou parte do texto e escolhe na lista
+ * (grava a descrição, como a tela Apontamento). Texto que não casa com nenhum tipo, ao sair do campo, avisa e deixa o
+ * campo em branco. O tipo gravado num lançamento antigo que não está no cadastro continua (só sai se for trocado).
+ */
+function CampoTipoAplicacao({ id, valor, tipos, onChange, onRecusado }) {
+  const [texto, setTexto] = useState(null); // o digitado (null: mostra o escolhido)
+  const [aberta, setAberta] = useState(false);
+  const [ativo, setAtivo] = useState(-1);
+  const [aviso, setAviso] = useState(null);
+  const carregado = Array.isArray(tipos);
+  const lista = useMemo(() => (Array.isArray(tipos) ? tipos : []), [tipos]);
+  const atual = valor ? tipoDoCadastro(lista, valor) : null;
+  const exibido = atual ? codDs(atual.cod, atual.ds) : (valor ?? "");
+  const fora = !!valor && carregado && !atual;
+  const filtrados = useMemo(() => filtrarTipos(lista, texto ?? ""), [lista, texto]);
+  const idLista = `${id}-lista`;
+  const mostrar = aberta && filtrados.length > 0;
+  const semCadastro = carregado && lista.length === 0;
+
+  // o tipo preenchido de outro jeito (padrão da O.S., lançamento aberto para editar) tira o aviso do digitado antes
+  useEffect(() => {
+    if (!valor) return;
+    setAviso(null);
+    onRecusado?.(null);
+  }, [valor, onRecusado]);
+
+  function escolher(t) {
+    onChange(t.ds);
+    setTexto(null);
+    setAberta(false);
+    setAtivo(-1);
+    setAviso(null);
+    onRecusado?.(null);
+  }
+
+  /**
+   * Ao sair do campo: o digitado vira o tipo do cadastro que casa com ele (ou o único da lista filtrada); sem nenhum,
+   * avisa e deixa em branco (`onRecusado`: o Gravar logo em seguida avisa também, em vez de gravar sem o tipo).
+   */
+  function sair() {
+    setAberta(false);
+    setAtivo(-1);
+    if (texto === null) return;
+    const t = texto.trim();
+    setTexto(null);
+    if (!t) {
+      if (valor) onChange("");
+      onRecusado?.(null);
+      return;
+    }
+    // o que estava no campo, sem mudar (inclusive o tipo antigo fora do cadastro)
+    if (chaveBusca(t) === chaveBusca(exibido) || chaveBusca(t) === chaveBusca(valor)) return;
+    const achado = tipoDoCadastro(lista, t) ?? (filtrados.length === 1 ? filtrados[0] : null);
+    if (achado) return escolher(achado);
+    onChange("");
+    onRecusado?.(t);
+    setAviso(
+      filtrados.length > 1
+        ? `Mais de um tipo com “${t}”: o campo ficou em branco. Escolha o tipo na lista.`
+        : `“${t}” não está no cadastro Tipo Aplicação: o campo ficou em branco. Digite o código ou o nome e escolha na lista.`,
+    );
+  }
+
+  const dica = aviso
+    ? null
+    : !carregado
+      ? "Carregando o cadastro Tipo Aplicação…"
+      : semCadastro
+        ? "O cadastro Tipo Aplicação não tem tipos ativos."
+        : fora
+          ? `“${valor}” não está no cadastro (lançamento antigo): fica como está se não for trocado.`
+          : aberta && texto && !filtrados.length
+            ? "Nenhum tipo com esse código ou nome."
+            : "Digite o código ou parte do nome e escolha na lista.";
+  return (
+    <div>
+      <label htmlFor={id} className={ROTULO}>
+        Tipo de aplicação
+      </label>
+      <input
+        id={id}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={mostrar}
+        aria-controls={mostrar ? idLista : undefined}
+        aria-activedescendant={mostrar && ativo >= 0 ? `${idLista}-${ativo}` : undefined}
+        aria-describedby={`${id}-dica`}
+        aria-invalid={aviso ? true : undefined}
+        value={texto ?? exibido}
+        disabled={!carregado || (semCadastro && !valor)}
+        placeholder={carregado ? "Código ou nome do tipo" : "Carregando…"}
+        onChange={(e) => {
+          setTexto(e.target.value.slice(0, 80));
+          setAberta(true);
+          setAtivo(-1);
+          setAviso(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !(mostrar && ativo >= 0) && filtrados.length === 1 && texto) {
+            e.preventDefault();
+            return escolher(filtrados[0]);
+          }
+          teclasDaLista(e, {
+            aberta: mostrar,
+            n: filtrados.length,
+            ativo,
+            setAtivo,
+            setAberta,
+            escolher: (i) => escolher(filtrados[i]),
+            // Esc desiste do digitado: volta ao que estava
+            fechar: () => {
+              setAberta(false);
+              setTexto(null);
+            },
+          });
+        }}
+        onFocus={(e) => {
+          e.target.select();
+          setAberta(true);
+        }}
+        onBlur={sair}
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="done"
+        className={`${CAMPO} ${aviso ? "!border-alert-500" : ""}`}
+      />
+      {mostrar && (
+        <ListaOpcoes id={idLista} rotulo="Tipos de aplicação do cadastro" itens={filtrados} ativo={ativo} chave={(t) => `${t.cod}|${t.ds}`} onEscolher={escolher}>
+          {(t) => (
+            <span className={`block text-[14px] leading-snug ${atual && atual.ds === t.ds && atual.cod === t.cod ? "font-semibold text-ink" : "text-ink"}`}>
+              {t.cod ? <span className="tabular text-muted">{t.cod} · </span> : null}
+              {t.ds}
+            </span>
+          )}
+        </ListaOpcoes>
+      )}
+      <p id={`${id}-dica`} aria-live="polite" className={`mt-1 text-[12px] ${aviso ? "font-medium text-alert-600" : fora ? "text-amber-600" : "text-muted"}`}>
+        {aviso ?? dica}
+      </p>
+    </div>
   );
 }

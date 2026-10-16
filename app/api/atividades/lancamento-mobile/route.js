@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
 import {
+  buscarResponsaveis,
+  consultarLancamento,
   detalheDaOperacao,
   fazendaDoLancamento,
   gravarLancamentoMobile,
   lancamentoPorBoletim,
+  lancamentosDaOS,
   meusLancamentos,
   opcoesLancamentoMobile,
   ordensDoResponsavel,
@@ -18,17 +21,23 @@ export const dynamic = "force-dynamic";
  * Lançamento Mobile (Atividades): o apontamento diário lançado no campo pelo celular.
  *
  * GET (com sessão):
- *   ?opcoes=1                              listas da tela (operações com a classificação, etapas, tipos, solicitantes,
- *                                          equipes, equipamentos e status da O.S.)
+ *   ?opcoes=1                              listas da tela (operações com a classificação, etapas, tipos de aplicação do
+ *                                          cadastro, solicitantes, equipes, equipamentos e status da O.S.)
+ *   ?responsaveis=<trecho>                 sugestões de quem lança: código (matrícula) ou nome dos responsáveis (cadastro
+ *                                          Responsáveis ativo + os das O.S.), sem acento nem caixa; até 20
  *   ?mat=<matrícula ou código>&dt=         quem lança e as O.S. em aberto dele (404 se a matrícula não está em lugar nenhum)
  *   ?os=<n>&op=<cód>&dt=[&excluir=<ids>]   a operação da O.S. para lançar: talhões, saldo e último apontamento (sem
  *                                          contar os apontamentos `excluir` — os ids do lançamento aberto, separados
  *                                          por vírgula)
  *   ?fazenda=<cód>&dt=                     fazenda do Cadastro de Fazenda com os talhões da base da safra da data
  *   ?meus=1&mat=<matrícula>&de=&ate=       lançamentos do Lançamento Mobile com a matrícula (o de várias O.S. é um item,
- *                                          com os boletins e as O.S. dele)
+ *     [&offset=<n>]                        com os boletins e as O.S. dele; sem de/ate, todos), uma página por vez a partir
+ *                                          do `offset` (quantos já vieram); `mais` diz se há outra página
  *   ?bol=<n>                               o lançamento do boletim feito pelo Lançamento Mobile (com várias O.S., todos os
  *                                          apontamentos dele, de qualquer um dos boletins) e o texto para o WhatsApp
+ *   ?lancamentosOS=<n>                     os lançamentos da O.S., de qualquer origem (os 50 mais recentes e o total)
+ *   ?apontamento=<id>                      um lançamento para consultar: o apontamento com a origem e, no do Lançamento
+ *                                          Mobile, os apontamentos do lançamento e o texto para o WhatsApp
  * POST (pode editar): inclui ou altera um lançamento de uma ou várias O.S. (`ordens`: os, opCod, statusOS, talhões e,
  * na edição, o id de cada uma; `id` = um apontamento do lançamento aberto e `boletins`, os dele ao abrir); com avisos e
  * sem `confirmar`, 409 com os avisos. Aceita também o formato de uma O.S. só (os, opCod, statusOS e talhões soltos).
@@ -45,6 +54,22 @@ export async function GET(req) {
   const p = req.nextUrl.searchParams;
   try {
     if (p.get("opcoes") !== null) return NextResponse.json(await opcoesLancamentoMobile());
+    if (p.get("responsaveis") !== null) {
+      const termo = (p.get("responsaveis") ?? "").trim().slice(0, 60);
+      return NextResponse.json({ responsaveis: termo.length < 2 ? [] : await buscarResponsaveis(termo) });
+    }
+    if (p.get("lancamentosOS") !== null) {
+      const os = (p.get("lancamentosOS") ?? "").trim().slice(0, 20);
+      if (!os) return erro("Informe a O.S.", 400);
+      return NextResponse.json(await lancamentosDaOS(os));
+    }
+    if (p.get("apontamento") !== null) {
+      const id = Number(p.get("apontamento"));
+      if (!Number.isInteger(id) || id <= 0) return erro("Apontamento inválido.", 400);
+      const r = await consultarLancamento(id);
+      if (r.erro) return erro(r.erro, r.status);
+      return NextResponse.json(r);
+    }
     // sem data: hoje
     const dtParam = (p.get("dt") ?? "").trim();
     if (dtParam && !dataValida(dtParam)) return erro("Informe uma data válida.", 400);
@@ -56,7 +81,10 @@ export async function GET(req) {
       const de = (p.get("de") ?? "").trim();
       const ate = (p.get("ate") ?? "").trim();
       if ((de && !dataValida(de)) || (ate && !dataValida(ate)) || (de && ate && de > ate)) return erro("Informe um período válido.", 400);
-      return NextResponse.json({ apontamentos: await meusLancamentos(mat, de, ate) });
+      const offset = Number((p.get("offset") ?? "").trim() || 0);
+      if (!Number.isInteger(offset) || offset < 0 || offset > 100000) return erro("Página inválida.", 400);
+      const { itens, mais } = await meusLancamentos(mat, de, ate, { offset });
+      return NextResponse.json({ apontamentos: itens, mais });
     }
     if (p.get("bol") !== null) {
       const n = Number(p.get("bol"));

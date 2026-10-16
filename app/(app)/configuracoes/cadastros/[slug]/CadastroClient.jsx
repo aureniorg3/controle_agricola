@@ -1,20 +1,49 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Campo, ModalShell } from "@/components/ui";
 import { fmtDataHora } from "@/lib/format";
 import { IconEditar, IconImportar, IconMais } from "@/components/icons";
 import { Abas, CabecalhoPagina, Comando, CorpoPagina, Pagina, Painel, Selo } from "@/components/pagina";
+import { BotaoExportar } from "@/app/(app)/acompanhamentos/os-agricola/comum";
 import { CADASTROS_SPEC, specPorNomeArquivo, specPorSlug } from "@/lib/cadastros-spec";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
-import { ehTexto, usarPersistido } from "@/lib/usar-persistido";
+import { ehTexto, ehUmDe, usarPersistido } from "@/lib/usar-persistido";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
 
 const INPUT = "w-full rounded-md border border-line bg-card px-3 py-2 text-[13px] text-ink focus:border-brand-600 focus:outline-none";
 const FILTRO = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none";
 
 const ALINHAR = { esquerda: "text-left", direita: "text-right", centro: "text-center" };
+
+/**
+ * Filtro de situação da lista (lembrado neste navegador, por cadastro). O padrão é Todos: o item inativado continua à
+ * vista, com o selo, para poder ser reativado.
+ */
+const SITUACOES = [
+  { id: "todos", rotulo: "Ativos e inativos" },
+  { id: "ativos", rotulo: "Só ativos" },
+  { id: "inativos", rotulo: "Só inativos" },
+];
+const ehSituacao = ehUmDe(SITUACOES.map((s) => s.id));
+const rotuloSituacao = (ativo) => (ativo ? "Ativo" : "Inativo");
+/** Confirmação curta antes de inativar (botão da linha, edição na linha e janela). */
+const confirmarInativar = (nome) =>
+  window.confirm(`Inativar "${nome}"?\n\nEle sai das listas de escolha dos lançamentos novos; o que já foi lançado com ele continua igual.`);
+
+/** Selo da situação na lista: Ativo (verde) ou Inativo (cinza). */
+function SeloSituacao({ ativo }) {
+  return (
+    <span
+      className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+        ativo ? "border-good-500/30 bg-good-50 text-good-600" : "border-line bg-surface text-muted"
+      }`}
+    >
+      {rotuloSituacao(ativo)}
+    </span>
+  );
+}
 
 export default function CadastroClient({ slug, perfil, categoria = "Configurações · Cadastros" }) {
   const spec = specPorSlug(slug);
@@ -25,10 +54,12 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
   const [busca, setBusca] = usarPersistido(`cadastro.${slug}.busca`, "", ehTexto);
   const [termo, setTermo] = useState("");
   const [pagina, setPagina] = useState(1);
-  const algumFiltroAtivo = busca !== "";
+  const [situacao, setSituacao] = usarPersistido(`cadastro.${slug}.situacao`, "todos", ehSituacao);
+  const algumFiltroAtivo = busca !== "" || situacao !== "todos";
   function limparFiltros() {
     setBusca("");
     setTermo("");
+    setSituacao("todos");
     setPagina(1);
   }
   const [itens, setItens] = useState([]);
@@ -48,15 +79,24 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
   const [linha, setLinha] = useState(null);
   const [salvandoLinha, setSalvandoLinha] = useState(false);
   const [erroLinha, setErroLinha] = useState(null);
+  // item com a situação sendo trocada (botão Ativar/Inativar da linha)
+  const [trocandoSituacao, setTrocandoSituacao] = useState(null);
   const editavel = (c) => !c.derivada && !spec.chaves.includes(c.chave);
 
   function editarLinha(i) {
     setErroLinha(null);
-    setLinha({ cod: i.cod, valores: Object.fromEntries(colunas.filter(editavel).map((c) => [c.chave, String(i.dados[c.chave] ?? "")])) });
+    setLinha({
+      cod: i.cod,
+      nm: i.nm,
+      ativoAntes: i.ativo,
+      ativo: i.ativo,
+      valores: Object.fromEntries(colunas.filter(editavel).map((c) => [c.chave, String(i.dados[c.chave] ?? "")])),
+    });
   }
 
   async function salvarLinha() {
     if (!linha) return;
+    if (linha.ativoAntes && !linha.ativo && !confirmarInativar(linha.nm || linha.cod)) return;
     setSalvandoLinha(true);
     setErroLinha(null);
     try {
@@ -68,7 +108,7 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
       const res = await fetch(`/api/cadastros/${slug}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cod: linha.cod, dados }),
+        body: JSON.stringify({ cod: linha.cod, dados, ativo: linha.ativo }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Não foi possível salvar.");
@@ -81,26 +121,31 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
     }
   }
 
+  // filtros da lista na URL da consulta (a mesma para a página e para a exportação)
+  const filtrosUrl = `q=${encodeURIComponent(termo)}&situacao=${situacao}${abaAtual ? `&aba=${abaAtual.id}` : ""}`;
+  // só a resposta da última consulta vale (o filtro lembrado chega depois da primeira carga)
+  const seqCarga = useRef(0);
   const carregar = useCallback(async () => {
+    const seq = ++seqCarga.current;
     setCarregando(true);
     setErroLista(null);
     try {
-      const res = await fetch(`/api/cadastros/${slug}?q=${encodeURIComponent(termo)}&pg=${pagina}${abaAtual ? `&aba=${abaAtual.id}` : ""}`, {
+      const res = await fetch(`/api/cadastros/${slug}?${filtrosUrl}&pg=${pagina}`, {
         cache: "no-store",
       });
       const json = await res.json();
+      if (seq !== seqCarga.current) return;
       if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar o cadastro.");
       setItens(json.itens);
       setTotaisAbas(json.abas ?? {});
       setTotal(json.total);
       setTamanho(json.tamanho);
     } catch (e) {
-      setErroLista(e instanceof Error ? e.message : "Não foi possível carregar o cadastro.");
+      if (seq === seqCarga.current) setErroLista(e instanceof Error ? e.message : "Não foi possível carregar o cadastro.");
     } finally {
-      setCarregando(false);
+      if (seq === seqCarga.current) setCarregando(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, termo, pagina, abaAtual?.id]);
+  }, [slug, filtrosUrl, pagina]);
 
   useEffect(() => {
     carregar();
@@ -128,6 +173,45 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
     else window.alert((await res.json().catch(() => ({}))).error ?? "Não foi possível excluir.");
   }
 
+  /** Ativa ou inativa o item (botão da linha); inativar pede confirmação. */
+  async function trocarSituacao(i) {
+    const ativo = !i.ativo;
+    if (!ativo && !confirmarInativar(i.nm || i.cod)) return;
+    setTrocandoSituacao(i.cod);
+    try {
+      const res = await fetch(`/api/cadastros/${slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cod: i.cod, ativo }),
+      });
+      if (res.ok) carregar();
+      else window.alert((await res.json().catch(() => ({}))).error ?? "Não foi possível alterar a situação.");
+    } catch {
+      window.alert("Não foi possível alterar a situação. Verifique a conexão e tente novamente.");
+    } finally {
+      setTrocandoSituacao(null);
+    }
+  }
+
+  // exportação: as colunas da lista (da aba aberta), a situação e quem lançou/alterou, com todas as linhas do filtro
+  const colunasExportar = [
+    ...colunas.map((c) => ({ rotulo: c.rotulo, valor: (i) => i.dados[c.chave] ?? "" })),
+    { rotulo: "Situação", valor: (i) => rotuloSituacao(i.ativo) },
+    { rotulo: "Lançado por", valor: (i) => i.lancadoPor || "" },
+    { rotulo: "Última alteração", valor: (i) => (i.alteradoEm ? `${i.alteradoPor || "—"} · ${fmtDataHora(i.alteradoEm)}` : "") },
+  ];
+  async function linhasExportar() {
+    const res = await fetch(`/api/cadastros/${slug}?${filtrosUrl}&exportar=1`, { cache: "no-store" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error ?? "Não foi possível exportar o cadastro.");
+    if (json.total > json.itens.length) {
+      window.alert(
+        `O filtro tem ${json.total.toLocaleString("pt-BR")} registros; vão para a planilha os primeiros ${json.itens.length.toLocaleString("pt-BR")}.`,
+      );
+    }
+    return json.itens;
+  }
+
   return (
     <Pagina>
       <CabecalhoPagina
@@ -151,6 +235,7 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
                 {spec.ajuste.rotulo}
               </Comando>
             )}
+            <BotaoExportar nome={abaAtual ? `${spec.titulo} - ${abaAtual.rotulo}` : spec.titulo} colunas={colunasExportar} buscar={linhasExportar} />
           </>
         }
         abas={
@@ -187,9 +272,27 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
           acoes={
             <>
               <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar…" className={`${FILTRO} min-w-[220px]`} />
+              <select
+                value={situacao}
+                onChange={(e) => {
+                  setSituacao(e.target.value);
+                  setPagina(1);
+                  setLinha(null);
+                }}
+                aria-label="Situação"
+                title="Situação dos itens: inativo fica no cadastro e nos registros já lançados, mas sai das listas de escolha"
+                className={FILTRO}
+              >
+                {SITUACOES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.rotulo}
+                  </option>
+                ))}
+              </select>
               <BotaoLimparFiltros ativo={algumFiltroAtivo} onLimpar={limparFiltros} />
               <span className="ml-1.5 text-[12px] text-muted">
                 {total.toLocaleString("pt-BR")} registro{total === 1 ? "" : "s"}
+                {situacao === "ativos" ? ` ativo${total === 1 ? "" : "s"}` : situacao === "inativos" ? ` inativo${total === 1 ? "" : "s"}` : ""}
               </span>
             </>
           }
@@ -210,9 +313,10 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
                       {c.rotulo}
                     </th>
                   ))}
+                  <th className="whitespace-nowrap px-3 py-2 text-center font-semibold">Situação</th>
                   <th className="whitespace-nowrap px-3 py-2 font-semibold">Lançado por</th>
                   <th className="whitespace-nowrap px-3 py-2 font-semibold">Última alteração</th>
-                  <th className="w-28 px-2 py-2 text-right font-semibold">Ações</th>
+                  <th className="w-40 px-2 py-2 text-right font-semibold">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -221,7 +325,8 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
                   return (
                     <tr key={i.cod} className={`border-b border-line last:border-0 ${emEdicao ? "bg-[#2E5FA8]/[0.06]" : ""}`}>
                       {colunas.map((c) => (
-                        <td key={c.chave} className={`px-3 py-1.5 text-ink ${ALINHAR[c.alinhar ?? "esquerda"]}`}>
+                        // item inativo com o texto apagado
+                        <td key={c.chave} className={`px-3 py-1.5 ${i.ativo || emEdicao ? "text-ink" : "text-muted"} ${ALINHAR[c.alinhar ?? "esquerda"]}`}>
                           {emEdicao && editavel(c) && c.opcoes ? (
                             <select
                               value={linha.valores[c.chave] ?? ""}
@@ -255,6 +360,25 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
                           )}
                         </td>
                       ))}
+                      <td className="whitespace-nowrap px-3 py-1.5 text-center">
+                        {emEdicao ? (
+                          <select
+                            value={linha.ativo ? "ativo" : "inativo"}
+                            onChange={(e) => setLinha((l) => (l ? { ...l, ativo: e.target.value === "ativo" } : l))}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") salvarLinha();
+                              if (e.key === "Escape") setLinha(null);
+                            }}
+                            aria-label="Situação"
+                            className="rounded border border-brand-600/50 bg-card px-1 py-0.5 text-[12.5px] text-ink focus:border-brand-600 focus:outline-none"
+                          >
+                            <option value="ativo">Ativo</option>
+                            <option value="inativo">Inativo</option>
+                          </select>
+                        ) : (
+                          <SeloSituacao ativo={i.ativo} />
+                        )}
+                      </td>
                       <td className="whitespace-nowrap px-3 py-1.5 text-muted">{i.lancadoPor || "—"}</td>
                       <td className="whitespace-nowrap px-3 py-1.5 text-muted">
                         {i.alteradoEm ? `${i.alteradoPor || "—"} · ${fmtDataHora(i.alteradoEm)}` : ""}
@@ -290,6 +414,19 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
                             </button>
                             <button
                               type="button"
+                              onClick={() => trocarSituacao(i)}
+                              disabled={trocandoSituacao === i.cod}
+                              title={
+                                i.ativo
+                                  ? "Inativar: sai das listas de escolha dos lançamentos novos (o que já foi lançado continua igual)"
+                                  : "Ativar: volta para as listas de escolha"
+                              }
+                              className="mr-1 rounded px-1.5 py-0.5 text-[12px] font-semibold text-muted hover:bg-surface hover:text-ink disabled:opacity-50"
+                            >
+                              {i.ativo ? "Inativar" : "Ativar"}
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => excluir(i)}
                               aria-label="Excluir"
                               className="rounded px-1.5 text-[15px] leading-none text-muted hover:bg-alert-50 hover:text-alert-600"
@@ -304,12 +441,16 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
                 })}
                 {!carregando && itens.length === 0 && (
                   <tr>
-                    <td colSpan={colunas.length + 3} className="px-4 py-10 text-center text-muted">
+                    <td colSpan={colunas.length + 4} className="px-4 py-10 text-center text-muted">
                       {termo
                         ? "Nenhum registro encontrado para a busca."
-                        : podeGravar
-                          ? 'Nenhum registro ainda. Use "Importar planilhas" para carregar a planilha deste cadastro.'
-                          : "Nenhum registro ainda."}
+                        : situacao === "ativos"
+                          ? "Nenhum registro ativo."
+                          : situacao === "inativos"
+                            ? "Nenhum registro inativo."
+                            : podeGravar
+                              ? 'Nenhum registro ainda. Use "Importar planilhas" para carregar a planilha deste cadastro.'
+                              : "Nenhum registro ainda."}
                     </td>
                   </tr>
                 )}
@@ -379,12 +520,14 @@ export default function CadastroClient({ slug, perfil, categoria = "Configuraç�
 function EditarModal({ spec, aba, novo, item, onFechar, onSalvo }) {
   const colunasForm = spec.colunas.filter((c) => !c.derivada && (!c.aba || c.aba === aba));
   const [valores, setValores] = useState(() => Object.fromEntries(spec.colunas.map((c) => [c.chave, String(item?.dados[c.chave] ?? "")])));
-  // sugestões do cadastro de origem para colunas com `ref` (ex.: Região em Responsável Região)
+  // situação do item (o novo entra ativo, se não escolher outra)
+  const [ativo, setAtivo] = useState(item?.ativo ?? true);
+  // sugestões do cadastro de origem para colunas com `ref` (ex.: Região em Responsável Região); só os itens ativos
   const [sugestoes, setSugestoes] = useState(null);
 
   async function buscarSugestoes(chave, ref, termo) {
     try {
-      const res = await fetch(`/api/cadastros/${ref}?q=${encodeURIComponent(termo.trim())}&pg=1`, { cache: "no-store" });
+      const res = await fetch(`/api/cadastros/${ref}?q=${encodeURIComponent(termo.trim())}&pg=1&situacao=ativos`, { cache: "no-store" });
       const j = await res.json();
       if (res.ok) setSugestoes({ chave, itens: j.itens.slice(0, 8) });
     } catch {
@@ -396,6 +539,7 @@ function EditarModal({ spec, aba, novo, item, onFechar, onSalvo }) {
 
   async function salvar(e) {
     e.preventDefault();
+    if (!novo && item?.ativo && !ativo && !confirmarInativar(item.nm || item.cod)) return;
     setErro(null);
     setSalvando(true);
     try {
@@ -404,10 +548,11 @@ function EditarModal({ spec, aba, novo, item, onFechar, onSalvo }) {
         const v = valores[c.chave].trim();
         dados[c.chave] = v !== "" && /^-?\d+([.,]\d+)?$/.test(v) && c.alinhar === "direita" && !c.numero ? Number(v.replace(",", ".")) : v;
       }
+      // no Novo, a situação só vai quando é Inativo: código que já existe (inativado) não é reativado sem querer, como na importação
       const res = await fetch(`/api/cadastros/${spec.slug}`, {
         method: novo ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(novo ? { dados } : { cod: item.cod, dados }),
+        body: JSON.stringify(novo ? { dados, ...(ativo ? {} : { ativo: false }) } : { cod: item.cod, dados, ativo }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Não foi possível salvar.");
@@ -483,6 +628,15 @@ function EditarModal({ spec, aba, novo, item, onFechar, onSalvo }) {
               )}
             </div>
           ))}
+          <div>
+            <Campo label="Situação">
+              <select value={ativo ? "ativo" : "inativo"} onChange={(e) => setAtivo(e.target.value === "ativo")} className={INPUT}>
+                <option value="ativo">Ativo</option>
+                <option value="inativo">Inativo</option>
+              </select>
+            </Campo>
+            <p className="mt-0.5 text-[11px] text-muted">Inativo fica no cadastro e nos registros já lançados, mas sai das listas de escolha.</p>
+          </div>
         </div>
         {erro && <div className="rounded-lg border border-alert-500/30 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-600">{erro}</div>}
         <div className="flex justify-end gap-2 pt-1">
@@ -547,8 +701,8 @@ function ImportarModal({ cadastroAtual, onFechar }) {
     <ModalShell titulo="Importar planilhas de cadastro" onFechar={onFechar}>
       <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
         Selecione uma ou mais planilhas (até 12). Cada arquivo é ligado ao cadastro pelo <b className="text-ink">nome do arquivo</b> (ex.: &quot;Tipo de
-        Solo.xlsx&quot; vai para Tipos de Solo) e conferido pelas colunas antes de gravar. Itens novos entram, os de mesmo código são atualizados e o restante
-        do cadastro é mantido.
+        Solo.xlsx&quot; vai para Tipos de Solo) e conferido pelas colunas antes de gravar. Itens novos entram (ativos), os de mesmo código são atualizados e o
+        restante do cadastro é mantido. A situação não muda: item inativado continua inativo mesmo que venha na planilha.
       </p>
       <input
         type="file"

@@ -152,6 +152,8 @@ create table if not exists cad_itm (
   atu_em timestamptz not null default now(),
   primary key (cad, cod)
 );
+-- item inativo: fica no cadastro e nos registros antigos, mas sai das listas de escolha
+alter table cad_itm add column if not exists atv boolean not null default true;
 
 -- Ordens marcadas manualmente para aparecer na tela — seleção GLOBAL,
 -- visível a todo mundo que acessa o sistema (não é por usuário).

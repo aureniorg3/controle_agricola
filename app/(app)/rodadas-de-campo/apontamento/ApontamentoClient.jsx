@@ -291,6 +291,10 @@ export default function ApontamentoClient({ perfil }) {
     setOcorrencias((l) => (l.some((x) => x.cod === o.cod) ? l.filter((x) => x.cod !== o.cod) : [...l, o]));
   }
 
+  // ocorrências para marcar: as ativas e as inativas já marcadas (boletim aberto para alterar); a lista inteira (listaOco)
+  // continua dando o nome das ocorrências dos boletins importados
+  const ocorrenciasNaTela = (listaOco ?? []).filter((o) => o.atv !== false || ocorrencias.some((x) => x.cod === o.cod));
+
   const rodadaSel = useMemo(() => rodadas.find((r) => String(r.rod) === rod.trim()), [rodadas, rod]);
   const semanaInfo = rodadaSel ? rodadaSel.semanas.find((s) => String(s.sem) === sem.trim()) : undefined;
 
@@ -310,7 +314,8 @@ export default function ApontamentoClient({ perfil }) {
     const cad = CAD_DO_CAMPO[campo];
     if (!cad) return [];
     try {
-      const res = await fetch(`/api/cadastros/${cad}?q=${encodeURIComponent(q.trim())}&pg=1`, { cache: "no-store" });
+      // só os itens ativos (o código de item inativo digitado no campo ainda é aceito)
+      const res = await fetch(`/api/cadastros/${cad}?q=${encodeURIComponent(q.trim())}&pg=1&situacao=ativos`, { cache: "no-store" });
       const j = await res.json();
       return res.ok ? j.itens.map((i) => ({ cod: i.cod, nm: i.nm })) : [];
     } catch {
@@ -1145,9 +1150,11 @@ export default function ApontamentoClient({ perfil }) {
                   <p className="text-[12.5px] text-muted">Carregando ocorrências…</p>
                 ) : listaOco.length === 0 ? (
                   <p className="text-[12.5px] text-muted">Nenhuma ocorrência cadastrada (Rodadas de Campo → Cadastro de Ocorrências). Use Outros.</p>
+                ) : ocorrenciasNaTela.length === 0 ? (
+                  <p className="text-[12.5px] text-muted">Nenhuma ocorrência ativa (Rodadas de Campo → Cadastro de Ocorrências). Use Outros.</p>
                 ) : (
                   <div className="grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-4">
-                    {listaOco.map((o) => {
+                    {ocorrenciasNaTela.map((o) => {
                       const on = ocorrencias.some((x) => x.cod === o.cod);
                       return (
                         <label
@@ -1159,6 +1166,7 @@ export default function ApontamentoClient({ perfil }) {
                           <input type="checkbox" tabIndex={-1} checked={on} disabled={!podeGravar} onChange={() => alternarOcorrencia(o)} />
                           <span className="w-7 flex-shrink-0 tabular text-muted">{o.cod}</span>
                           <span className="min-w-0 truncate">{o.nm}</span>
+                          {o.atv === false && <span className="flex-shrink-0 text-[11px] font-normal text-muted">(inativa)</span>}
                         </label>
                       );
                     })}

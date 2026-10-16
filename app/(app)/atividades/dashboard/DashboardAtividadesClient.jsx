@@ -904,11 +904,15 @@ function GruposModal({ onFechar, onAlterado }) {
                           onChange={(e) => salvar(o.cod, e.target.value)}
                           className={`${FILTRO} w-full py-1 ${o.grupo === "" ? "text-muted" : ""}`}
                         >
-                          {lista.grupos.map((g) => (
-                            <option key={g.cod} value={g.cod}>
-                              {g.nome}
-                            </option>
-                          ))}
+                          {/* grupo inativo no cadastro só aparece na operação que já está nele */}
+                          {lista.grupos
+                            .filter((g) => g.ativo !== false || g.cod === o.grupo)
+                            .map((g) => (
+                              <option key={g.cod} value={g.cod}>
+                                {g.nome}
+                                {g.ativo === false ? " (inativo)" : ""}
+                              </option>
+                            ))}
                           <option value="">{GRUPO_OUTRAS}</option>
                         </select>
                       )}
