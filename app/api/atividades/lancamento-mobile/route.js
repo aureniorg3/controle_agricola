@@ -113,7 +113,10 @@ export async function GET(req) {
     if (p.get("mat") !== null) {
       if (!matriculaValida(mat)) return erro("Informe a matrícula ou o código de quem vai lançar.", 400);
       const r = await ordensDoResponsavel(mat, dt);
-      if (!r) return erro(`Matrícula não encontrada: ${mat} não está nos Responsáveis da O.S., nos Funcionários nem nas O.S.`, 404);
+      if (!r)
+        return erro(`Matrícula não encontrada: ${mat} não está no Cadastro de Responsáveis (Ordem de Serviço Agr. › Cadastro Responsáveis).`, 404);
+      if (r.inativo)
+        return erro(`A matrícula ${r.responsavel.matricula} (${r.responsavel.nome}) está inativa no Cadastro de Responsáveis (Ordem de Serviço Agr.).`, 404);
       return NextResponse.json(r);
     }
     return erro("Consulta inválida.", 400);
