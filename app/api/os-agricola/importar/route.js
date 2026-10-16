@@ -10,7 +10,8 @@ export const maxDuration = 120;
 
 /**
  * Importa o Relatório de Ordens de Serviço. Com `aplicar` diferente de "1" só confere o arquivo contra a base e devolve a
- * prévia (O.S. novas, com alteração e iguais); com "1" grava: novas entram, alteradas são substituídas, o resto fica.
+ * prévia (O.S. novas, com alteração, iguais e as que saem da base); com "1" grava: novas entram, alteradas são
+ * substituídas e, com o relatório completo (período e posição "Todas"), as O.S. do período que não vieram saem da base.
  */
 export async function POST(req) {
   const usuario = await usuarioDaRequisicao(req);
@@ -29,7 +30,20 @@ export async function POST(req) {
     const lido = await lerOSAgr(await arquivo.arrayBuffer());
     if (lido.erro) return NextResponse.json({ error: lido.erro }, { status: 400 });
     const aplicar = form.get("aplicar") === "1";
-    const previa = await importarOSAgr(lido.linhas, { repetidas: lido.repetidas, periodo: lido.periodo, arquivo: arquivo.name }, usuario.nome, aplicar);
+    const previa = await importarOSAgr(
+      lido.linhas,
+      {
+        repetidas: lido.repetidas,
+        periodo: lido.periodo,
+        periodoIni: lido.periodoIni,
+        periodoFim: lido.periodoFim,
+        posicaoFiltro: lido.posicaoFiltro,
+        completo: lido.completo,
+        arquivo: arquivo.name,
+      },
+      usuario.nome,
+      aplicar,
+    );
     return NextResponse.json({ aplicado: aplicar, ...previa });
   } catch (e) {
     return NextResponse.json({ error: `Não foi possível ler o arquivo: ${e instanceof Error ? e.message : String(e)}` }, { status: 400 });

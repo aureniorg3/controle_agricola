@@ -31,7 +31,10 @@ const semZeros = (s) =>
   String(s ?? "")
     .trim()
     .replace(/^0+(?=\d)/, "");
-const corStatus = (s) => (/encerr/i.test(s) ? "bg-surface text-muted" : /liber/i.test(s) ? "bg-brand-50 text-brand-700" : "bg-good-50 text-good-600");
+/** O.S. do boletim que não está mais na base (saiu numa importação do Relatório de Ordens de Serviço). */
+const OS_FORA_DA_BASE = (os) =>
+  `A O.S. ${os} não está mais na base de O.S. (saiu numa importação do Relatório de Ordens de Serviço): ligue o apontamento a outra O.S. pela Verificar O.S. ou edite-o.`;
+const corStatus = (s) =>(/encerr/i.test(s) ? "bg-surface text-muted" : /liber/i.test(s) ? "bg-brand-50 text-brand-700" : "bg-good-50 text-good-600");
 
 let seqLinha = 0;
 const novaChave = () => `l${++seqLinha}`;
@@ -1043,6 +1046,8 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   const totalLista = round2(lista.reduce((a, x) => a + x.areaTotal, 0));
   const qtdConferir = lista.filter((a) => a.aConferir).length;
   const qtdSemOS = lista.filter((a) => !a.os).length;
+  // lançados com uma O.S. que não está mais na base (saiu numa importação): a linha fica destacada
+  const qtdForaBase = lista.filter((a) => a.osForaDaBase).length;
   // atalho escolhido nos cartões / botões acima da lista
   const visiveis =
     rapido === "conferir"
@@ -1051,7 +1056,9 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         ? lista.filter((a) => a.orig === "whatsapp")
         : rapido === "semOS"
           ? lista.filter((a) => !a.os)
-          : lista;
+          : rapido === "foraBase"
+            ? lista.filter((a) => a.osForaDaBase)
+            : lista;
   const totalVisiveis = round2(visiveis.reduce((a, x) => a + x.areaTotal, 0));
   const marcadosQtd = linhas.filter((l) => l.marcado && (comOS || (l.propCod && l.tlh))).length;
   const somaPeso = round2(linhas.filter((l) => l.marcado).reduce((a, l) => a + (l.areaRec ?? l.areaTlh ?? 0), 0));
@@ -1137,7 +1144,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
         {msg && !formAberto && <Aviso msg={msg} onFechar={() => setMsg(null)} />}
 
         {/* Resumo do período da lista: os cartões filtram a lista */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           {[
             { k: "todos", rotulo: "Apontamentos no período", valor: lista.length, apoio: `${fmtDateBR(de)} a ${fmtDateBR(ate)}`, cor: "azul" },
             { k: "area", rotulo: "Área apontada", valor: nf(totalLista), unidade: "ha", apoio: "soma dos talhões", cor: "verde" },
@@ -1154,6 +1161,13 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
               valor: qtdSemOS,
               apoio: qtdSemOS ? "clique para ver · Verificar O.S. procura a O.S." : "todos com O.S.",
               cor: qtdSemOS ? "amarelo" : "cinza",
+            },
+            {
+              k: "foraBase",
+              rotulo: "O.S. fora da base",
+              valor: qtdForaBase,
+              apoio: qtdForaBase ? "a O.S. saiu da base · linha em vermelho" : "todas as O.S. na base",
+              cor: qtdForaBase ? "vermelho" : "cinza",
             },
           ].map((c) => (
             <button
@@ -1766,6 +1780,7 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                 ["conferir", `A conferir (${qtdConferir})`],
                 ["whatsapp", `Do WhatsApp (${lista.filter((a) => a.orig === "whatsapp").length})`],
                 ["semOS", `Sem O.S. (${qtdSemOS})`],
+                ...(qtdForaBase || rapido === "foraBase" ? [["foraBase", `O.S. fora da base (${qtdForaBase})`]] : []),
               ].map(([k, t]) => (
                 <button
                   key={k}
@@ -1827,9 +1842,13 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                   return (
                     <Fragment key={a.id}>
                       <tr
-                        className={`cursor-pointer border-t border-line/60 hover:bg-surface/70 ${a.aConferir ? "bg-amber-50/40" : ""}`}
+                        className={`cursor-pointer border-t border-line/60 ${
+                          a.osForaDaBase
+                            ? "bg-alert-50 shadow-[inset_4px_0_0_#BE3132] hover:bg-alert-50/70"
+                            : `hover:bg-surface/70 ${a.aConferir ? "bg-amber-50/40" : ""}`
+                        }`}
                         onClick={() => setDetalhe(a)}
-                        title="Ver o apontamento"
+                        title={a.osForaDaBase ? `${OS_FORA_DA_BASE(a.os)} Clique para ver o apontamento.` : "Ver o apontamento"}
                       >
                         <td className="px-3 py-1.5 tabular font-medium text-ink">
                           <span className="flex items-center gap-1.5">
@@ -1839,7 +1858,16 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
                         </td>
                         <td className="px-3 py-1.5 tabular">{fmtDateBR(a.dt)}</td>
                         <td className="px-3 py-1.5 tabular font-medium text-ink">
-                          {a.os || <span className="font-normal text-amber-700">Sem O.S.</span>}
+                          {a.os ? (
+                            <span className="flex items-center gap-1.5 whitespace-nowrap">
+                              <span className={a.osForaDaBase ? "text-alert-700" : ""}>{a.os}</span>
+                              {a.osForaDaBase && (
+                                <span className="rounded-full bg-alert-600 px-1.5 py-px text-[10.5px] font-semibold text-white">fora da base</span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="font-normal text-amber-700">Sem O.S.</span>
+                          )}
                         </td>
                         <td className="px-3 py-1.5 tabular">{codigos.join(", ")}</td>
                         <td className="max-w-[220px] truncate px-3 py-1.5" title={nomes.join(" / ")}>
@@ -2460,6 +2488,7 @@ function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir
               <h2 className="text-[16px] font-semibold text-ink">Boletim nº {a.boletim ?? "—"}</h2>
               {a.orig === "whatsapp" && <SeloOrigem a={a} />}
               {!a.os && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800">Sem O.S.</span>}
+              {a.osForaDaBase && <span className="rounded-full bg-alert-600 px-1.5 py-0.5 text-[10.5px] font-semibold text-white">O.S. fora da base</span>}
             </div>
             <div className="mt-0.5 text-[12.5px] text-muted">
               {fmtDateBR(a.dt)} · {a.os ? `O.S. ${a.os}` : "sem O.S."} · {a.opCod} {a.opDs}
@@ -2471,6 +2500,12 @@ function DetalheModal({ a, podeGravar, onFechar, onEditar, onExcluir, onConferir
         </header>
 
         <div className="space-y-4 px-5 py-4">
+          {a.osForaDaBase && (
+            <div className="flex items-start gap-2 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">
+              <IconAlerta size={16} />
+              <span>{OS_FORA_DA_BASE(a.os)}</span>
+            </div>
+          )}
           {a.aConferir && (
             <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
               <IconAlerta size={16} />

@@ -293,7 +293,14 @@ function ImportarOSModal({ onFechar }) {
     }
   }
 
-  const nada = previa && previa.novas + previa.alteradas === 0;
+  const removidas = previa?.removidas ?? 0;
+  const nada = previa && previa.novas + previa.alteradas + removidas === 0;
+  const botaoGravar = previa
+    ? [previa.novas + previa.alteradas ? `Gravar ${previa.novas + previa.alteradas} O.S.` : "", removidas ? `tirar ${removidas} da base` : ""]
+        .filter(Boolean)
+        .join(" e ")
+        .replace(/^t/, "T")
+    : "";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-3">
       <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl2 bg-card p-5 shadow-pop">
@@ -305,7 +312,9 @@ function ImportarOSModal({ onFechar }) {
         </div>
         <p className="mb-4 text-[12.5px] leading-relaxed text-muted">
           Use o Relatório de Ordens de Serviço das Etapas (.xlsx). Cada O.S. do arquivo é comparada com a base: as novas entram, as que mudaram (posição,
-          encerramento, talhões, áreas…) são substituídas e as iguais ficam como estão. O.S. que não vierem no arquivo continuam na base.
+          encerramento, talhões, áreas…) são substituídas e as iguais ficam como estão. Como na Pesagem de Cana, as O.S. da base com a Data da OS dentro do
+          período do relatório que não vierem no arquivo saem da base (relatório emitido com a Posição da OS “Todas”); fora do período, continuam. Os
+          boletins lançados nelas ficam em vermelho na tela Apontamento, para ligar a outra O.S.
         </p>
 
         {!previa && (
@@ -324,12 +333,69 @@ function ImportarOSModal({ onFechar }) {
               {arquivo?.name} · {previa.arquivo.ordens.toLocaleString("pt-BR")} O.S. em {previa.arquivo.linhas.toLocaleString("pt-BR")} linhas
               {previa.arquivo.periodo ? ` · período ${previa.arquivo.periodo}` : ""}
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               <Contagem rotulo="Novas" valor={previa.novas} destaque={previa.novas > 0} />
               <Contagem rotulo={feito ? "Substituídas" : "Com alteração"} valor={previa.alteradas} destaque={previa.alteradas > 0} />
               <Contagem rotulo="Sem alteração" valor={previa.iguais} />
-              <Contagem rotulo="Só na base" valor={previa.foraDoArquivo} />
+              <Contagem rotulo={feito ? "Tiradas da base" : "Saem da base"} valor={removidas} alerta={removidas > 0} />
+              <Contagem rotulo="Só na base (fora do período)" valor={previa.foraDoArquivo} />
             </div>
+            {previa.arquivo.completo === false && (
+              <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
+                {previa.arquivo.posicao && previa.arquivo.posicao.toLowerCase() !== "todas"
+                  ? `Relatório emitido com filtro (Posição da OS: ${previa.arquivo.posicao}): as O.S. que não vieram no arquivo continuam na base.`
+                  : "O cabeçalho do relatório não informa o período (Data da OS) e a Posição da OS “Todas”: as O.S. que não vieram no arquivo continuam na base."}
+              </p>
+            )}
+            {removidas > 0 && (
+              <div className="mt-4">
+                <div className="mb-1.5 text-[12.5px] font-medium text-ink">
+                  {feito ? "O.S. tiradas da base" : "O.S. que saem da base"} · Data da OS no período {previa.arquivo.periodo}, não vieram no arquivo
+                </div>
+                {previa.boletinsRemovidas > 0 && (
+                  <p className="mb-2 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">
+                    {previa.boletinsRemovidas.toLocaleString("pt-BR")} {previa.boletinsRemovidas === 1 ? "boletim lançado" : "boletins lançados"}{" "}
+                    {removidas === 1 ? "nessa O.S." : "nessas O.S."}{" "}
+                    {previa.boletinsRemovidas === 1 ? (feito ? "ficou como está" : "fica como está") : feito ? "ficaram como estão" : "ficam como estão"}, com a linha em
+                    vermelho na tela Apontamento (O.S. fora da base): {previa.boletinsRemovidas === 1 ? "ligue-o" : "ligue cada um"} a outra O.S. pela Verificar O.S.
+                    ou edite.
+                  </p>
+                )}
+                <div className="max-h-56 overflow-y-auto rounded-lg border border-line">
+                  <table className="w-full text-[12px]">
+                    <thead>
+                      <tr className="bg-surface text-left text-muted">
+                        <th className="px-3 py-1.5 font-medium">O.S.</th>
+                        <th className="px-3 py-1.5 font-medium">Data da OS</th>
+                        <th className="px-3 py-1.5 font-medium">Fazendas</th>
+                        <th className="px-3 py-1.5 font-medium">Posição</th>
+                        <th className="px-3 py-1.5 text-right font-medium">Operações</th>
+                        <th className="px-3 py-1.5 text-right font-medium">Boletins</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previa.listaRemovidas.map((x) => (
+                        <tr key={x.os} className={`border-t border-line/60 ${x.boletins ? "bg-alert-50/60" : ""}`}>
+                          <td className="px-3 py-1.5 tabular font-medium text-ink">{x.os}</td>
+                          <td className="px-3 py-1.5 tabular">{x.dt ? x.dt.split("-").reverse().join("/") : "–"}</td>
+                          <td className="max-w-[180px] truncate px-3 py-1.5" title={x.fazendas}>
+                            {x.fazendas || "–"}
+                          </td>
+                          <td className="px-3 py-1.5 text-muted">{x.posicao || "–"}</td>
+                          <td className="px-3 py-1.5 text-right tabular">{x.operacoes}</td>
+                          <td className={`px-3 py-1.5 text-right tabular ${x.boletins ? "font-semibold text-alert-700" : "text-muted"}`}>{x.boletins || "–"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {removidas > previa.listaRemovidas.length && (
+                  <p className="mt-1 text-[11.5px] text-muted">
+                    Mostrando {previa.listaRemovidas.length} de {removidas}.
+                  </p>
+                )}
+              </div>
+            )}
             {previa.alteradas > 0 && (
               <div className="mt-4">
                 <div className="mb-1.5 text-[12.5px] font-medium text-ink">O que mudou nas O.S. com alteração</div>
@@ -391,7 +457,7 @@ function ImportarOSModal({ onFechar }) {
               onClick={() => enviar(true)}
               className="rounded-lg bg-navy-900 px-4 py-1.5 text-[12.5px] font-medium text-white hover:bg-navy-800 disabled:opacity-40"
             >
-              {enviando ? "Gravando…" : `Gravar ${previa.novas + previa.alteradas} O.S.`}
+              {enviando ? "Gravando…" : botaoGravar}
             </button>
           )}
         </div>
@@ -400,11 +466,13 @@ function ImportarOSModal({ onFechar }) {
   );
 }
 
-function Contagem({ rotulo, valor, destaque }) {
+function Contagem({ rotulo, valor, destaque, alerta = false }) {
   return (
-    <div className={`rounded-lg border px-3 py-2 ${destaque ? "border-[#2E5FA8]/30 bg-[#2E5FA8]/[0.06]" : "border-line bg-surface"}`}>
+    <div
+      className={`rounded-lg border px-3 py-2 ${alerta ? "border-alert-500/40 bg-alert-50" : destaque ? "border-[#2E5FA8]/30 bg-[#2E5FA8]/[0.06]" : "border-line bg-surface"}`}
+    >
       <div className="text-[11.5px] text-muted">{rotulo}</div>
-      <div className="tabular text-[19px] font-semibold text-ink">{valor.toLocaleString("pt-BR")}</div>
+      <div className={`tabular text-[19px] font-semibold ${alerta ? "text-alert-700" : "text-ink"}`}>{valor.toLocaleString("pt-BR")}</div>
     </div>
   );
 }
