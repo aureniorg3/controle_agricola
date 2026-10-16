@@ -20,7 +20,15 @@ import { Aviso, JanelaConfirmar, JanelaInfo } from "@/components/janela";
 import { CabecalhoPagina, CorpoPagina, Pagina, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
 import { round2 } from "@/lib/atividades";
 import { fmtDateBR, todayISO } from "@/lib/format";
-import { chaveBusca, fmtNum, lerNumero as lerNumeroComMilhar, listaDeBoletins, modeloDaClassificacao, tipoDoCadastro } from "@/lib/lancamento-mobile";
+import {
+  chaveBusca,
+  ehLinhaDaMarca,
+  fmtNum,
+  lerNumero as lerNumeroComMilhar,
+  listaDeBoletins,
+  modeloDaClassificacao,
+  tipoDoCadastro,
+} from "@/lib/lancamento-mobile";
 import { normFaz, normTlh } from "@/lib/ocupacao";
 import { addDays } from "@/lib/period";
 import { podeEditar } from "@/lib/permissoes";
@@ -4565,7 +4573,10 @@ function DadosServico({
   );
 }
 
+/** O texto do WhatsApp como vai ser copiado; o rodapé (a marca do sistema, na última linha) em letra menor e cinza-clara. */
 function CaixaTexto({ texto, caixaRef }) {
+  const linhas = String(texto ?? "").split("\n");
+  const ultima = linhas.length > 1 && ehLinhaDaMarca(linhas[linhas.length - 1]) ? linhas.pop() : null;
   return (
     <div
       ref={caixaRef}
@@ -4576,7 +4587,14 @@ function CaixaTexto({ texto, caixaRef }) {
       aria-label="Texto para o grupo do WhatsApp"
       className="select-text whitespace-pre-wrap break-words rounded-lg border border-line bg-surface px-3 py-2.5 font-mono text-[12px] leading-relaxed text-ink"
     >
-      {texto || "(o servidor não devolveu o texto; abra o boletim em Meus lançamentos)"}
+      {texto ? (
+        <>
+          {`${linhas.join("\n")}${ultima !== null ? "\n" : ""}`}
+          {ultima !== null && <span className="text-[10.5px] text-[#9AA3AE] dark:text-[#6E7885]">{ultima}</span>}
+        </>
+      ) : (
+        "(o servidor não devolveu o texto; abra o boletim em Meus lançamentos)"
+      )}
     </div>
   );
 }
