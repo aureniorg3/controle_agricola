@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { baixarEmprestimo, excluirEmprestimo, listarEmprestimos, proximaSolicitacao, salvarEmprestimo } from "@/lib/db-emprestimos";
+import { baixarEmprestimo, excluirEmprestimo, listarAssinaturas, listarEmprestimos, proximaSolicitacao, salvarEmprestimo } from "@/lib/db-emprestimos";
 
 import { podeEditar } from "@/lib/permissoes";
 
@@ -45,7 +45,9 @@ export async function GET(req) {
   if (req.nextUrl.searchParams.get("proximo") !== null) {
     return NextResponse.json({ solicitacao: await proximaSolicitacao(req.nextUrl.searchParams.get("dt") ?? "") });
   }
-  return NextResponse.json({ emprestimos: await listarEmprestimos() });
+  // `assinaturas`: quem assina o termo (cadastro Assinaturas, na ordem do nível hierárquico)
+  const [emprestimos, assinaturas] = await Promise.all([listarEmprestimos(), listarAssinaturas()]);
+  return NextResponse.json({ emprestimos, assinaturas });
 }
 
 /** Inclui (sem id) ou altera (com id) um empréstimo; `acao: "baixa"` dá baixa/reabre. */

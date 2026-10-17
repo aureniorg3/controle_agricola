@@ -38,7 +38,8 @@ export async function GET(req, ctx) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
   const { slug } = await ctx.params;
-  if (!specPorSlug(slug)) return NextResponse.json({ error: "Cadastro desconhecido." }, { status: 404 });
+  const spec = specPorSlug(slug);
+  if (!spec) return NextResponse.json({ error: "Cadastro desconhecido." }, { status: 404 });
 
   const sp = req.nextUrl.searchParams;
   const q = sp.get("q") ?? "";
@@ -48,11 +49,11 @@ export async function GET(req, ctx) {
   const situacao = SITUACOES.has(sp.get("situacao")) ? sp.get("situacao") : "todos";
   // exportação: todas as linhas do filtro (até o limite), sem paginar e sem a contagem das abas
   if (sp.get("exportar") !== null) {
-    const { total, itens } = await listarCadastro(slug, q, 1, LIMITE_EXPORTACAO, filtroDaAba(slug, aba), situacao);
+    const { total, itens } = await listarCadastro(slug, q, 1, LIMITE_EXPORTACAO, filtroDaAba(slug, aba), situacao, spec.ordenarPor);
     await atualizarReferenciasDaLista(specPorSlug(slug), itens);
     return NextResponse.json({ total, itens, limite: LIMITE_EXPORTACAO });
   }
-  const { total, itens } = await listarCadastro(slug, q, pagina, TAMANHO_PAGINA, filtroDaAba(slug, aba), situacao);
+  const { total, itens } = await listarCadastro(slug, q, pagina, TAMANHO_PAGINA, filtroDaAba(slug, aba), situacao, spec.ordenarPor);
   // quantos itens cada aba tem (com a mesma busca e situação), para mostrar no título das abas
   const abas = FILTROS_ABA[slug]
     ? Object.fromEntries(

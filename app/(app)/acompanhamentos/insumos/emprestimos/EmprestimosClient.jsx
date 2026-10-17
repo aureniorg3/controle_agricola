@@ -116,6 +116,8 @@ const mesDoForm = (f) => (f.dtSol || f.dt || todayISO()).slice(0, 7).replace("-"
 export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
   const podeGravar = podeEditar(perfil);
   const [lista, setLista] = useState([]);
+  // quem assina o termo: o cadastro Assinaturas (ativos, na ordem do nível hierárquico)
+  const [assinaturas, setAssinaturas] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
   const [filtroStatus, setFiltroStatus] = usarPersistido("insumos.emp.status", "Aberto", ehTexto);
@@ -148,6 +150,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar os empréstimos.");
       setLista(json.emprestimos);
+      setAssinaturas(Array.isArray(json.assinaturas) ? json.assinaturas : []);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não foi possível carregar os empréstimos.");
     } finally {
@@ -802,7 +805,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                 + Fazenda
               </button>
 
-              <div className="caixa-form-sub">Volume, assinaturas e observação</div>
+              <div className="caixa-form-sub">Volume e observação</div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
                   <label className={ROTULO}>Volume de</label>
@@ -815,10 +818,19 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                   <label className={ROTULO}>Volume (ex.: 18.800 lt · 58 ton)</label>
                   <input value={form.vol} onChange={(e) => upd({ vol: e.target.value })} className={INPUT} />
                 </div>
-                <div className="md:col-span-3">
-                  <label className={ROTULO}>Assinaturas do comunicado (um nome por linha)</label>
-                  <textarea value={form.assin.join("\n")} onChange={(e) => upd({ assin: e.target.value.split("\n") })} rows={3} className={INPUT} />
-                </div>
+                <p className="text-[12px] text-muted md:col-span-3">
+                  Assinam o comunicado, nesta ordem:{" "}
+                  {assinaturas.length ? (
+                    <b className="font-medium text-ink">{assinaturas.map((a) => (a.funcao ? `${a.nome} (${a.funcao})` : a.nome)).join(" · ")}</b>
+                  ) : (
+                    "nenhum responsável ativo no cadastro"
+                  )}{" "}
+                  e o destinatário. Para mudar, use{" "}
+                  <a href="/acompanhamentos/insumos/emprestimos/assinaturas" target="_blank" rel="noopener noreferrer" className="font-medium text-brand-700 hover:underline">
+                    Insumos › Empréstimos › Assinaturas
+                  </a>
+                  .
+                </p>
                 <div className="md:col-span-3">
                   <label className={ROTULO}>Observação</label>
                   <input value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} />
@@ -984,7 +996,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                           {e.boletim && <div className="sm:col-span-2">Boletim anterior (antes da Solicitação automática): {e.boletim}</div>}
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          <button type="button" className={BOTAO} onClick={() => gerarComunicadoEmprestimoPdf(e)}>
+                          <button type="button" className={BOTAO} onClick={() => gerarComunicadoEmprestimoPdf(e, assinaturas)}>
                             Gerar comunicado (PDF)
                           </button>
                           {podeGravar && (
