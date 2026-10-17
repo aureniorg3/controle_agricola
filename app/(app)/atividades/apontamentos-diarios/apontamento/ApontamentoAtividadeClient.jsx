@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import BotaoLimparFiltros from "@/components/BotaoLimparFiltros";
+import InsumosRecomendados from "@/components/InsumosRecomendados";
 import SelecaoMultipla from "@/components/SelecaoMultipla";
 import { IconAlerta, IconBusca, IconMais } from "@/components/icons";
 import JanelaFormulario, { Aviso, JanelaConfirmar, useAtalhoTela, useCliqueFora, useJanela } from "@/components/janela";
@@ -58,9 +59,9 @@ function opcoesDosFiltros(lista) {
   return { ops: porCodigo(ops), faz: porCodigo(faz), sol: porNome(sol), apo: porNome(apo) };
 }
 
-/** O.S. do boletim que não está mais na base (saiu numa importação do Relatório de Ordens de Serviço). */
+/** O.S. do boletim que não está mais na base (saiu numa importação do relatório de O.S.). */
 const OS_FORA_DA_BASE = (os) =>
-  `A O.S. ${os} não está mais na base de O.S. (saiu numa importação do Relatório de Ordens de Serviço): ligue o apontamento a outra O.S. pela Verificar O.S. ou edite-o.`;
+  `A O.S. ${os} não está mais na base de O.S. (saiu numa importação do relatório de O.S.): ligue o apontamento a outra O.S. pela Verificar O.S. ou edite-o.`;
 const corStatus = (s) =>(/encerr/i.test(s) ? "bg-surface text-muted" : /liber/i.test(s) ? "bg-brand-50 text-brand-700" : "bg-good-50 text-good-600");
 
 let seqLinha = 0;
@@ -1468,6 +1469,13 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario, inicia
                 </datalist>
               </div>
             </div>
+
+            {/* dose recomendada da O.S. para a operação (requisição de produtos do relatório da O.S.) */}
+            {comOS && op && (
+              <div className="mt-3">
+                <InsumosRecomendados os={osInfo.os} opCod={op.cod} opDs={op.ds} insumos={op.insumos ?? []} vazao={osInfo.vazao} area={totalDia} />
+              </div>
+            )}
 
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-[repeat(7,minmax(0,1fr))_minmax(0,2fr)]">
               <div>

@@ -68,7 +68,7 @@ function infoAlertas(diasSem) {
       card: "Prazo vencido",
       selo: "Prazo vencido",
       cor: "amarelo",
-      texto: "A previsão final da O.S. já passou e ainda há área a apontar.",
+      texto: "O prazo da O.S. (data da O.S. + 7 dias) já passou e ainda há área a apontar.",
     },
   };
 }
@@ -248,7 +248,7 @@ export default function AnaliseApontamentosClient() {
     { rotulo: "O.S.", valor: (o) => Number(o.os) || o.os },
     { rotulo: "Data da O.S.", valor: (o) => (o.dtOs ? fmtDateBR(o.dtOs) : "") },
     { rotulo: "Dias em aberto", valor: (o) => o.dias },
-    { rotulo: "Previsão final", valor: (o) => (o.prevFim ? fmtDateBR(o.prevFim) : "") },
+    { rotulo: "Prazo", valor: (o) => (o.prevFim ? fmtDateBR(o.prevFim) : "") },
     { rotulo: "Posição", valor: (o) => (o.posicao === "L" ? "Liberada" : "Aberta") },
     { rotulo: "Operação", valor: (o) => o.ops.map((x) => `${x.cod} - ${x.ds}`).join(" | ") },
     { rotulo: "Fazenda", valor: (o) => o.fazendas.map((f) => (f.nm ? `${f.cod} - ${f.nm}` : f.cod)).join(" | ") },
@@ -320,7 +320,7 @@ export default function AnaliseApontamentosClient() {
               ? "100% apontado, em andamento"
               : a === "semApont"
                 ? `${dados?.diasSemApontamento ?? 7} dias ou mais sem lançamento`
-                : "previsão final passou, com saldo",
+                : "prazo passou, com saldo",
     })),
   ];
 
@@ -480,7 +480,9 @@ export default function AnaliseApontamentosClient() {
                   <th className="px-3 py-2 text-right font-medium">O.S.</th>
                   <th className="px-3 py-2 font-medium">Data</th>
                   <th className="px-3 py-2 text-right font-medium">Em aberto</th>
-                  <th className="px-3 py-2 font-medium">Previsão final</th>
+                  <th className="px-3 py-2 font-medium" title="Data da O.S. + 7 dias">
+                    Prazo
+                  </th>
                   <th className="px-3 py-2 font-medium">Posição</th>
                   <th className="min-w-[200px] px-3 py-2 font-medium">Operação</th>
                   <th className="min-w-[160px] px-3 py-2 font-medium">Fazenda</th>
@@ -578,7 +580,7 @@ export default function AnaliseApontamentosClient() {
                     <td colSpan={17}>
                       {ordens.length === 0 ? (
                         <EstadoVazio titulo="Nenhuma O.S. em aberto na base">
-                          A análise usa a base de Ordem de Serviço Agr. Importe o Relatório de Ordens de Serviço em Acompanhamentos › Ordem de Serviço Agr.
+                          A análise usa a base de Ordem de Serviço Agr. Importe o relatório OS - Ordem de Serviço (PDF) em Acompanhamentos › Ordem de Serviço Agr.
                         </EstadoVazio>
                       ) : (
                         <EstadoVazio titulo="Nenhuma O.S. no filtro">Mude os filtros ou use Limpar filtros.</EstadoVazio>
@@ -653,7 +655,7 @@ function JanelaAlerta({ id, ordens, info, hoje, ativo, onFiltrar, onIr, onFechar
     },
     { rotulo: "Data", valor: (o) => (o.dtOs ? fmtDateBR(o.dtOs) : "") },
     { rotulo: "Em aberto", num: "int", valor: (o) => o.dias, exibir: (o) => dias(o.dias) },
-    ...(id === "vencida" ? [{ rotulo: "Previsão final", valor: (o) => (o.prevFim ? fmtDateBR(o.prevFim) : ""), classe: () => "font-medium text-[#BE3132]" }] : []),
+    ...(id === "vencida" ? [{ rotulo: "Prazo", valor: (o) => (o.prevFim ? fmtDateBR(o.prevFim) : ""), classe: () => "font-medium text-[#BE3132]" }] : []),
     { rotulo: "Responsável", valor: (o) => o.respNm || "–" },
     { rotulo: "Área resp.", valor: (o) => o.area || "–", classe: () => "text-muted" },
     { rotulo: "Operação", valor: (o) => o.ops.map((x) => `${x.cod} - ${x.ds}`).join(" | ") },
@@ -704,7 +706,7 @@ function DetalheOS({ o, hoje, info }) {
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px] text-muted">
         {o.etapa && <span>Etapa: {o.etapa}</span>}
         {o.safra && <span>Safra: {o.safra}</span>}
-        <span>Previsão final: {data(o.prevFim)}</span>
+        <span>Prazo: {data(o.prevFim)}</span>
         <span>
           Último status informado:{" "}
           {o.status ? `${o.status.status} em ${data(o.status.dt)}${o.status.boletim ? ` (bol. ${o.status.boletim})` : ""}${o.status.quem ? `, por ${o.status.quem}` : ""}` : "nenhum"}

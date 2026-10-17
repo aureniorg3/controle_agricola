@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { listarOrdensOS, opcoesOS, painelOS, talhoesDaOS } from "@/lib/db-os-agr";
+import { detalheDaOS, listarOrdensOS, opcoesOS, painelOS } from "@/lib/db-os-agr";
 import { round2 } from "@/lib/os-agr";
 
 export const runtime = "nodejs";
@@ -14,7 +14,8 @@ const CODIGO = /^[\p{L}\p{N} ._\/-]{1,30}$/u;
 const LIMITE_LISTA = 300;
 
 /**
- * `?opcoes=1` listas dos filtros; `?painel=1` o Dashboard; `?talhoes=1&emp=&os=` os talhões de uma O.S.;
+ * `?opcoes=1` listas dos filtros; `?painel=1` o Dashboard; `?detalhe=1&emp=&os=` uma O.S. aberta na lista (talhões com a
+ * área apontada, insumos, observação e encerramento);
  * sem esses, a lista de O.S. paginada (`pg`) ou inteira (`todos=1`, para exportar). Operação e fazenda aceitam
  * vários códigos: `op=14330,14340&faz=9411,9001` (ou o parâmetro repetido).
  */
@@ -23,7 +24,7 @@ export async function GET(req) {
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
   const p = req.nextUrl.searchParams;
   if (p.get("opcoes") === "1") return NextResponse.json(await opcoesOS());
-  if (p.get("talhoes") === "1") return NextResponse.json({ talhoes: await talhoesDaOS(p.get("emp") ?? "", p.get("os") ?? "") });
+  if (p.get("detalhe") === "1") return NextResponse.json(await detalheDaOS(p.get("emp") ?? "", p.get("os") ?? ""));
 
   const s = (k) => (p.get(k) ?? "").trim() || undefined;
   const codigos = (k) => {
@@ -49,6 +50,8 @@ export async function GET(req) {
     abertas: lista.filter((o) => o.posicao !== "E").length,
     atrasadas: lista.filter((o) => o.atrasada).length,
     areaRec: round2(lista.reduce((a, o) => a + o.areaRec, 0)),
+    apontado: round2(lista.reduce((a, o) => a + o.apontado, 0)),
+    valorInsumos: round2(lista.reduce((a, o) => a + (o.valorInsumos ?? 0), 0)),
     talhoes: lista.reduce((a, o) => a + o.nTlh, 0),
   };
   if (p.get("todos") === "1") return NextResponse.json({ ordens: lista, totais });

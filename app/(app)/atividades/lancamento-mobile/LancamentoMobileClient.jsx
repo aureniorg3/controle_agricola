@@ -16,10 +16,12 @@ import {
   IconSetaDireita,
   IconTalhao,
 } from "@/components/icons";
+import InsumosRecomendados from "@/components/InsumosRecomendados";
 import { Aviso, JanelaConfirmar, JanelaInfo } from "@/components/janela";
 import { CabecalhoPagina, CorpoPagina, Pagina, rolarCorpoParaOTopo, Selo } from "@/components/pagina";
 import { round2 } from "@/lib/atividades";
 import { fmtDateBR, todayISO } from "@/lib/format";
+import { textoDose } from "@/lib/os-agr";
 import {
   chaveBusca,
   ehLinhaDaMarca,
@@ -2571,6 +2573,15 @@ function TextoOperacao({ op, selos, comAreaUltimo = false }) {
         {op.areaRec > 0 ? ` de ${nf(op.areaRec)}` : ""}
         {op.ultimo && <span className="text-muted"> · último {textoUltimo(comAreaUltimo ? op.ultimo : { ...op.ultimo, area: undefined })}</span>}
       </span>
+      {op.insumos?.some((i) => !i.servico) && (
+        <span className="mt-0.5 block text-[12px] leading-snug text-muted">
+          Dose:{" "}
+          {op.insumos
+            .filter((i) => !i.servico)
+            .map((i) => `${i.ds} ${textoDose(i)}`)
+            .join(" · ")}
+        </span>
+      )}
     </span>
   );
 }
@@ -2620,7 +2631,7 @@ function CartaoOS({ ordem, noLancamento, selo, onAbrir }) {
               {estado === "concluida" && <SeloConcluida />}
             </div>
             <p className="mt-0.5 text-[12.5px] text-muted">
-              {[ordem.dtOs && `Desde ${fmtDateBR(ordem.dtOs)}`, ordem.prevFim && `prev. fim ${fmtDateBR(ordem.prevFim)}`].filter(Boolean).join(" · ")}
+              {[ordem.dtOs && `Desde ${fmtDateBR(ordem.dtOs)}`, ordem.prevFim && `prazo ${fmtDateBR(ordem.prevFim)}`].filter(Boolean).join(" · ")}
             </p>
           </div>
           <div className="flex-shrink-0 text-right">
@@ -2693,7 +2704,7 @@ function JanelaOS({ ordem, trocar, noLancamento, nNoLancamento, edicao = null, h
   return (
     <JanelaInfo
       titulo={`O.S. ${ordem.os}`}
-      subtitulo={[ordem.situacao, ordem.dtOs && `desde ${fmtDateBR(ordem.dtOs)}`, ordem.prevFim && `prev. fim ${fmtDateBR(ordem.prevFim)}`, ordem.resp]
+      subtitulo={[ordem.situacao, ordem.dtOs && `desde ${fmtDateBR(ordem.dtOs)}`, ordem.prevFim && `prazo ${fmtDateBR(ordem.prevFim)}`, ordem.resp]
         .filter(Boolean)
         .join(" · ")}
       largura="lg"
@@ -3546,6 +3557,17 @@ function BlocoOrdem({
         talhoes={talhoesOS}
         onTrocar={travado ? null : () => onTrocar(ch)}
       />
+      {info?.operacao && (
+        <InsumosRecomendados
+          compacto
+          os={ordem.os}
+          opCod={ordem.opCod}
+          opDs={opDs}
+          insumos={info.operacao.insumos ?? []}
+          vazao={info.vazao}
+          area={r.total ?? 0}
+        />
+      )}
       <LancamentosDaOS
         idBase={`${idBloco}-hist`}
         os={ordem.os}

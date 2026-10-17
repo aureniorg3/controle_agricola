@@ -36,7 +36,7 @@ export default function PainelOSClient({ perfil }) {
   const [janela, setJanela] = useState(null);
   const carga = usarOrdensDoFiltro(f, versao, !!janela);
   // filtros próprios da lista de Ordens de Serviço (guardados neste navegador, com as mesmas chaves de lá): os links das
-  // janelas abrem a lista só com a faixa de dias ou só com a previsão vencida, sem a busca que tivesse ficado de antes
+  // janelas abrem a lista só com a faixa de dias ou só com o prazo vencido, sem a busca que tivesse ficado de antes
   const [, setFaixaOrdens] = usarPersistido("os-agr.ordens.faixa", "", ehTexto);
   const [, setVencidasOrdens] = usarPersistido("os-agr.ordens.atrasadas", false, ehBooleano);
   const [, setBuscaOrdens] = usarPersistido("os-agr.ordens.busca", "", ehTexto);
@@ -92,9 +92,9 @@ export default function PainelOSClient({ perfil }) {
       k: "vencidas",
       cor: "vermelho",
       icone: <IconAlerta size={16} />,
-      rotulo: "Previsão vencida",
+      rotulo: "Prazo vencido",
       valor: int(d.atrasadas),
-      apoio: "Em aberto com a previsão final antes de hoje",
+      apoio: "Em aberto com o prazo (data da O.S. + 7 dias) antes de hoje",
     },
     {
       k: "prazo",
@@ -143,7 +143,7 @@ export default function PainelOSClient({ perfil }) {
         </BarraFiltros>
 
         {erro && <p className="mb-4 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erro}</p>}
-        {semBase && <Vazio texto='A base de O.S. ainda está vazia. Use "Importar O.S." com o Relatório de Ordens de Serviço das Etapas.' />}
+        {semBase && <Vazio texto='A base de O.S. ainda está vazia. Use "Importar O.S." com o relatório OS - Ordem de Serviço (PDF) do ERP.' />}
 
         {d && !semBase && (
           <div className={`space-y-8 transition-opacity ${carregando ? "opacity-60" : ""}`}>
@@ -246,7 +246,7 @@ export default function PainelOSClient({ perfil }) {
 
             <p className="text-[11.5px] text-muted">
               Clique numa caixa para ver as O.S. que formam o número. Em aberto = posição Aberta ou Liberada. Área = área recomendada total dos talhões da
-              O.S. Previsão vencida = O.S. em aberto com a previsão final anterior a hoje. Período e safra filtram pela data e pela safra da O.S. Operação e
+              O.S. Prazo vencido = O.S. em aberto com o prazo (data da O.S. + 7 dias) anterior a hoje. Período e safra filtram pela data e pela safra da O.S. Operação e
               fazenda trazem só as O.S. com as operações e as fazendas escolhidas, e a área conta só os talhões delas.
             </p>
           </div>
@@ -576,8 +576,8 @@ function BotaoFiltro({ onClick, title = "Filtrar a tela por este item", children
 const ACAO_RODAPE = "rounded-md px-2 py-1 text-[12.5px] font-medium text-[#2E5FA8] hover:bg-[#2E5FA8]/[0.06]";
 
 /**
- * Link para a lista de Ordens de Serviço: mesmos filtros comuns e, lá, só a faixa de dias ou só a previsão vencida.
- * Faixa, previsão vencida e busca limpa vão para os filtros guardados da lista no clique (também com Ctrl) e no clique do
+ * Link para a lista de Ordens de Serviço: mesmos filtros comuns e, lá, só a faixa de dias ou só o prazo vencido.
+ * Faixa, prazo vencido e busca limpa vão para os filtros guardados da lista no clique (também com Ctrl) e no clique do
  * meio. A faixa vai ainda no endereço (?faixa=, como nas faixas do painel), para valer também pelo "Abrir em nova aba" do
  * botão direito; lá o endereço põe a posição em "em aberto", o que só equivale às O.S. da janela com a tela em Todas ou Em
  * aberto (em Aberta ou Liberada ampliaria para as duas, e a faixa fica só no clique).
@@ -615,17 +615,17 @@ const exportarTabela = ({ nome, colunas, linhas }) =>
     <BotaoExportar nome={`Dashboard OS - ${nome}`} colunas={colunas.map(({ rotulo, valor }) => ({ rotulo, valor }))} buscar={async () => linhas} />
   );
 
-/** As mesmas colunas da exportação da tela Ordens de Serviço (`extra` entra depois da previsão final). */
+/** As mesmas colunas da exportação da tela Ordens de Serviço (`extra` entra depois do prazo). */
 const colunasPlanilhaOS = (extra = []) => [
   { rotulo: "O.S.", valor: (o) => Number(o.os) || o.os },
   { rotulo: "Data da O.S.", valor: (o) => data(o.dtOs) },
-  { rotulo: "Previsão final", valor: (o) => data(o.prevFim) },
+  { rotulo: "Prazo (data da O.S. + 7 dias)", valor: (o) => data(o.prevFim) },
   ...extra,
   { rotulo: "Encerramento", valor: (o) => data(o.dtEnc) },
   { rotulo: "Posição", valor: (o) => nomePosicao(o.posicao) },
   { rotulo: "Dias", valor: (o) => o.dias },
   { rotulo: "Faixa de dias", valor: (o) => o.faixa },
-  { rotulo: "Previsão vencida", valor: (o) => (o.atrasada ? "Sim" : "") },
+  { rotulo: "Prazo vencido", valor: (o) => (o.atrasada ? "Sim" : "") },
   { rotulo: "Operação", valor: (o) => o.operacoes.map((x) => `${x.cod} - ${x.ds}`).join(" | ") },
   { rotulo: "Etapa", valor: (o) => `${o.etapaCod} - ${o.etapaDs}` },
   { rotulo: "Solicitante", valor: (o) => o.respNm },
@@ -653,7 +653,7 @@ function PrimeiroMais({ itens }) {
   );
 }
 
-/** Colunas da lista de O.S. na janela; `semEncerramento` nas listas só de O.S. em aberto; `extra` depois da previsão. */
+/** Colunas da lista de O.S. na janela; `semEncerramento` nas listas só de O.S. em aberto; `extra` depois do prazo. */
 function colunasListaOS(ordens, { semEncerramento = false, extra = [] } = {}) {
   return [
     { rotulo: "O.S.", num: "cod", valor: (o) => o.os, classe: () => "font-medium text-ink" },
@@ -661,7 +661,7 @@ function colunasListaOS(ordens, { semEncerramento = false, extra = [] } = {}) {
     { rotulo: "Posição", valor: (o) => nomePosicao(o.posicao), exibir: (o) => <SeloPosicao p={o.posicao} /> },
     { rotulo: "Dias", num: "int", valor: (o) => o.dias, dica: (o) => o.faixa || undefined },
     {
-      rotulo: "Previsão final",
+      rotulo: "Prazo",
       valor: (o) => data(o.prevFim),
       classe: (o) => `whitespace-nowrap ${o.atrasada ? "font-medium text-[#BE3132]" : "text-ink"}`,
     },
@@ -976,7 +976,7 @@ function JanelaAreaEncerrada({ carga, base }) {
   );
 }
 
-/** Caixa Previsão vencida: as O.S. em aberto com a previsão final antes de hoje, por solicitante e das mais atrasadas. */
+/** Caixa Prazo vencido: as O.S. em aberto com o prazo (data da O.S. + 7 dias) antes de hoje, por solicitante e das mais atrasadas. */
 function JanelaVencidas({ carga, base }) {
   const ordens = carga.ordens ?? SEM_ORDENS;
   const { d, hoje } = base;
@@ -1002,7 +1002,7 @@ function JanelaVencidas({ carga, base }) {
     num: "int",
     valor: (o) => o.atraso,
     classe: () => "font-medium text-[#BE3132]",
-    dica: () => "Dias desde a previsão final até hoje",
+    dica: () => "Dias desde o prazo até hoje",
   };
   const colunas = [
     {
@@ -1017,23 +1017,23 @@ function JanelaVencidas({ carga, base }) {
   ];
   return (
     <JanelaCard
-      titulo="Previsão vencida"
+      titulo="Prazo vencido"
       base={base}
       carga={carga}
-      exportar={{ nome: "Previsão vencida", colunas: colunasPlanilhaOS([{ rotulo: "Dias de atraso", valor: (o) => o.atraso }]), linhas: vencidas }}
+      exportar={{ nome: "Prazo vencido", colunas: colunasPlanilhaOS([{ rotulo: "Dias de atraso", valor: (o) => o.atraso }]), linhas: vencidas }}
       rodape={
         <LinkOrdens base={base} vencidas>
-          Ver em Ordens de Serviço (só previsão vencida)
+          Ver em Ordens de Serviço (só prazo vencido)
         </LinkOrdens>
       }
     >
       <Nota>
-        O.S. em aberto (aberta ou liberada) com a previsão final anterior a hoje ({fmtDateBR(hoje)}). Atraso = dias desde a previsão final. Clique num
+        O.S. em aberto (aberta ou liberada) com o prazo (data da O.S. + 7 dias) anterior a hoje ({fmtDateBR(hoje)}). Atraso = dias desde o prazo. Clique num
         solicitante para filtrar a tela por ele.
       </Nota>
-      <TabelaJanela colunas={colunas} linhas={porResp} chave={(x) => x.chave || "sem"} vazio="Nenhuma O.S. com a previsão vencida no filtro." />
+      <TabelaJanela colunas={colunas} linhas={porResp} chave={(x) => x.chave || "sem"} vazio="Nenhuma O.S. com o prazo vencido no filtro." />
       <ListaOS
-        titulo="O.S. com a previsão vencida, das mais atrasadas"
+        titulo="O.S. com o prazo vencido, das mais atrasadas"
         ordens={vencidas}
         colunas={colunasListaOS(vencidas, { semEncerramento: true, extra: [colAtraso] })}
       />

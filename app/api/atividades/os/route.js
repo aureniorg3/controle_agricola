@@ -20,7 +20,7 @@ export async function GET(req) {
   const r = await consultarOS(os, Number.isInteger(excluir) && excluir > 0 ? excluir : undefined, dt);
   if (!r)
     return NextResponse.json(
-      { error: `O.S. ${os} não encontrada. Importe o Relatório de Ordens de Serviço atualizado em Ordem de Serviço Agr. › Ordens de Serviço.` },
+      { error: `O.S. ${os} não encontrada. Importe o relatório OS - Ordem de Serviço (PDF) atualizado em Ordem de Serviço Agr. › Ordens de Serviço.` },
       { status: 404 },
     );
   return NextResponse.json(r);
