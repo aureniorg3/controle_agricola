@@ -147,7 +147,7 @@ const formVazio = () => ({
 });
 
 /** Linha calculada para a tabela (com ou sem O.S.). */
-export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
+export default function ApontamentoAtividadeClient({ perfil, nomeUsuario, inicial = null }) {
   const podeGravar = podeEditar(perfil);
   const [form, setForm] = useState(formVazio);
   const [osInfo, setOsInfo] = useState(null);
@@ -179,9 +179,10 @@ export default function ApontamentoAtividadeClient({ perfil, nomeUsuario }) {
   const [opDigitado, setOpDigitado] = useState(null);
 
   // lista
-  const [de, setDe] = useState(addDays(todayISO(), -6));
-  const [ate, setAte] = useState(todayISO());
-  const [filtroOS, setFiltroOS] = useState("");
+  // `inicial` (de um link, ex.: a Análise): a O.S. e o período já no filtro
+  const [de, setDe] = useState(() => inicial?.de ?? addDays(todayISO(), -6));
+  const [ate, setAte] = useState(() => inicial?.ate ?? todayISO());
+  const [filtroOS, setFiltroOS] = useState(inicial?.os ?? "");
   const [filtroBoletim, setFiltroBoletim] = useState("");
   // filtros sobre os apontamentos do período (um ou mais de cada): operação, fazenda, solicitante e apontador
   const [filtroOp, setFiltroOp] = useState([]);
