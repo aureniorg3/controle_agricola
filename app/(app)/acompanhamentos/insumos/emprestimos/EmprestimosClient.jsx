@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BotaoCartao, BotaoLink, JanelaCard, Nota, Secao, TabelaJanela, exportarTabela, int } from "@/app/(app)/acompanhamentos/insumos/janela-detalhe";
-import { IconImprimir, IconMais } from "@/components/icons";
+import { IconAnexo, IconExcluir, IconImprimir, IconMais } from "@/components/icons";
 import JanelaFormulario, { Aviso, JanelaConfirmar, JanelaInfo, useAtalhoTela, useJanela } from "@/components/janela";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina } from "@/components/pagina";
 import { fmtDateBR, todayISO } from "@/lib/format";
@@ -895,7 +895,20 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                     className="cursor-pointer border-b border-line hover:bg-surface/60"
                     onClick={() => setAberto(aberto === e.id ? null : e.id)}
                   >
-                    <td className="px-3 py-2 tabular font-medium text-ink">{e.solicitacao ?? <span className="text-muted">#{e.id}</span>}</td>
+                    <td className="px-3 py-2 tabular font-medium text-ink">
+                      <span className="inline-flex items-center gap-1.5">
+                        {e.solicitacao ?? <span className="text-muted">#{e.id}</span>}
+                        {e.anexos > 0 && (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[11px] font-normal text-brand-700"
+                            title={`${e.anexos} arquivo(s) anexado(s) — o comunicado assinado e outros`}
+                          >
+                            <IconAnexo size={13} />
+                            {e.anexos > 1 ? e.anexos : ""}
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 tabular">{e.dtSol ? fmtDateBR(e.dtSol) : <span className="text-muted/60">—</span>}</td>
                     <td className="px-3 py-2 tabular">{e.dt ? fmtDateBR(e.dt) : <span className="text-muted/60">—</span>}</td>
                     <td className="px-3 py-2 font-semibold text-ink">
@@ -999,6 +1012,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                             </>
                           )}
                         </div>
+                        <AnexosDaSolicitacao e={e} podeGravar={podeGravar} onConfirmar={setConfirmar} onMudou={carregar} />
                       </td>
                     </tr>
                   )}
@@ -1146,6 +1160,141 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
         />
       )}
     </Pagina>
+  );
+}
+
+/* ---------- Anexos da Solicitação: o comunicado assinado (escaneado ou fotografado) e outros arquivos ---------- */
+
+const TIPOS_ANEXO = "application/pdf,image/jpeg,image/png,image/webp";
+const MAX_ANEXO_MB = 10;
+const tamanho = (b) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+/**
+ * Anexos de uma Solicitação, no detalhe dela (depois do "Gerar comunicado"): o comunicado assinado e outros arquivos
+ * (PDF ou imagem, até 10 MB). Abrir mostra o arquivo numa aba nova; quem pode gravar anexa e exclui (com confirmação).
+ * `onMudou`: a lista da tela recarrega (o clipe ao lado do nº).
+ */
+function AnexosDaSolicitacao({ e, podeGravar, onConfirmar, onMudou }) {
+  const [anexos, setAnexos] = useState(null);
+  const [erro, setErro] = useState(null);
+  const [enviando, setEnviando] = useState(false);
+  const campo = useRef(null);
+
+  const carregar = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/emprestimos/anexos?emp=${e.id}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Não foi possível carregar os anexos.");
+      setAnexos(json.anexos);
+    } catch (er) {
+      setErro(er instanceof Error ? er.message : "Não foi possível carregar os anexos.");
+    }
+  }, [e.id]);
+
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  async function anexar(arquivos) {
+    const lista = Array.from(arquivos ?? []);
+    if (!lista.length) return;
+    setErro(null);
+    setEnviando(true);
+    try {
+      for (const a of lista) {
+        if (a.size > MAX_ANEXO_MB * 1024 * 1024) throw new Error(`${a.name}: passa de ${MAX_ANEXO_MB} MB. Diminua a resolução da imagem ou do PDF.`);
+        const form = new FormData();
+        form.append("emp", String(e.id));
+        form.append("arquivo", a);
+        const res = await fetch("/api/emprestimos/anexos", { method: "POST", body: form });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(`${a.name}: ${json.error ?? "não foi possível anexar."}`);
+      }
+    } catch (er) {
+      setErro(er instanceof Error ? er.message : "Não foi possível anexar.");
+    } finally {
+      setEnviando(false);
+      if (campo.current) campo.current.value = "";
+      await carregar();
+      onMudou?.();
+    }
+  }
+
+  function excluir(a) {
+    onConfirmar({
+      titulo: `Excluir o anexo ${a.nome}?`,
+      texto: `Ele sai da Solicitação nº ${nSolicitacao(e)}. A exclusão fica registrada no Log de Alterações.`,
+      botao: "Excluir",
+      perigo: true,
+      acao: async () => {
+        setErro(null);
+        const res = await fetch("/api/emprestimos/anexos", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a.id }) });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) setErro(json.error ?? "Não foi possível excluir o anexo.");
+        await carregar();
+        onMudou?.();
+      },
+    });
+  }
+
+  return (
+    <section className="mt-4 border-t border-line pt-3" aria-label={`Anexos da Solicitação nº ${nSolicitacao(e)}`}>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <h3 className="flex items-center gap-1.5 text-[12.5px] font-semibold text-ink">
+          <IconAnexo size={15} /> Anexos
+        </h3>
+        <span className="text-[11.5px] text-muted">O comunicado assinado (escaneado ou fotografado) e outros arquivos · PDF ou imagem, até {MAX_ANEXO_MB} MB</span>
+        {podeGravar && (
+          <label className={`${BOTAO} ml-auto inline-flex cursor-pointer items-center gap-1.5 ${enviando ? "pointer-events-none opacity-50" : ""}`}>
+            <IconAnexo size={14} />
+            {enviando ? "Enviando…" : "Anexar arquivo"}
+            <input ref={campo} type="file" accept={TIPOS_ANEXO} multiple className="sr-only" disabled={enviando} onChange={(ev) => anexar(ev.target.files)} />
+          </label>
+        )}
+      </div>
+      {erro && <p className="mb-2 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-1.5 text-[12px] text-alert-700">{erro}</p>}
+      {anexos === null ? (
+        <p className="text-[12px] text-muted">Carregando os anexos…</p>
+      ) : anexos.length === 0 ? (
+        <p className="text-[12px] text-muted">
+          Nenhum arquivo anexado.{podeGravar ? " Depois das assinaturas, anexe aqui o comunicado assinado." : ""}
+        </p>
+      ) : (
+        <ul className="divide-y divide-line/60 rounded-lg border border-line bg-card">
+          {anexos.map((a) => (
+            <li key={a.id} className="flex items-center gap-3 px-3 py-1.5 text-[12px]">
+              <a
+                href={`/api/emprestimos/anexos?id=${a.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-w-0 flex-1 truncate font-medium text-brand-700 hover:underline"
+                title={`Abrir ${a.nome}`}
+              >
+                {a.nome}
+              </a>
+              <span className="flex-shrink-0 tabular text-muted">{tamanho(a.tamanho)}</span>
+              <span className="hidden flex-shrink-0 text-muted sm:inline">
+                {a.usr} · {fmtDateBR(a.criEm.slice(0, 10))}
+              </span>
+              <a href={`/api/emprestimos/anexos?id=${a.id}&baixar=1`} className="flex-shrink-0 text-[11.5px] font-medium text-navy-800 hover:underline">
+                Baixar
+              </a>
+              {podeGravar && (
+                <button
+                  type="button"
+                  onClick={() => excluir(a)}
+                  className="flex-shrink-0 rounded p-1 text-muted hover:bg-alert-50 hover:text-alert-700"
+                  aria-label={`Excluir o anexo ${a.nome}`}
+                  title="Excluir o anexo"
+                >
+                  <IconExcluir size={14} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
