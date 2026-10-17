@@ -11,6 +11,7 @@ import {
   meusLancamentos,
   opcoesLancamentoMobile,
   ordensDoResponsavel,
+  veiculosPorCodigo,
 } from "@/lib/db-lancamento-mobile";
 import { matriculaValida } from "@/lib/lancamento-mobile";
 import { podeEditar } from "@/lib/permissoes";
@@ -31,6 +32,8 @@ export const dynamic = "force-dynamic";
  *                                          contar os apontamentos `excluir` — os ids do lançamento aberto, separados
  *                                          por vírgula)
  *   ?fazenda=<cód>&dt=                     fazenda do Cadastro de Fazenda com os talhões da base da safra da data
+ *   ?veiculos=<cód>,<cód>                  modelo e prestador (Responsável no cadastro) de cada equipamento, do cadastro
+ *                                          Veículos (Cadastros › Equipamentos); até 30
  *   ?meus=1&mat=<matrícula>&de=&ate=       lançamentos do Lançamento Mobile com a matrícula (o de várias O.S. é um item,
  *     [&offset=<n>]                        com os boletins e as O.S. dele; sem de/ate, todos), uma página por vez a partir
  *                                          do `offset` (quantos já vieram); `mais` diz se há outra página
@@ -60,6 +63,11 @@ export async function GET(req) {
     if (p.get("responsaveis") !== null) {
       const termo = (p.get("responsaveis") ?? "").trim().slice(0, 60);
       return NextResponse.json({ responsaveis: termo.length < 2 ? [] : await buscarResponsaveis(termo) });
+    }
+    // `?veiculos=10001,10002` o modelo e o prestador de cada equipamento, do cadastro Veículos
+    if (p.get("veiculos") !== null) {
+      const cods = (p.get("veiculos") ?? "").split(",").map((c) => c.trim().slice(0, 20)).filter(Boolean).slice(0, 30);
+      return NextResponse.json({ veiculos: await veiculosPorCodigo(cods) });
     }
     if (p.get("lancamentosOS") !== null) {
       const os = (p.get("lancamentosOS") ?? "").trim().slice(0, 20);

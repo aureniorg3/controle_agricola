@@ -4256,6 +4256,139 @@ function IncluirForaDaOS({ idBase, dt, talhoesOS, marcas, extras, onIncluir, onM
   );
 }
 
+/** Equipamentos gravados juntos ("10001, 10002") → a lista, sem vazios. */
+const separarEquipamentos = (v) =>
+  String(v ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+/** A lista de equipamentos → o que é gravado: sem vazios nem repetidos, separados por vírgula. */
+const juntarEquipamentos = (l) => [...new Set(l.map((x) => x.trim().toUpperCase()).filter(Boolean))].join(", ");
+
+/**
+ * Equipamentos (frota) do lançamento: um por linha, com "Adicionar equipamento" para mais um e o × para tirar. Embaixo
+ * de cada um, em letra pequena e clara, o modelo e o prestador do serviço — do cadastro Veículos (Cadastros ›
+ * Equipamentos), onde o prestador é o Responsável. Grava tudo junto no campo do apontamento ("10001, 10002");
+ * `onChange(valor, quantos)`.
+ */
+function CampoEquipamentos({ id, valor, sugestoes, onChange }) {
+  const [linhas, setLinhas] = useState(() => {
+    const l = separarEquipamentos(valor);
+    return l.length ? l : [""];
+  });
+  // código → dados do cadastro Veículos (null: não está nele)
+  const [cadastro, setCadastro] = useState({});
+  const focarUltimo = useRef(false);
+  const caixa = useRef(null);
+
+  // o valor trocado de fora (lançamento aberto para editar, rascunho, novo lançamento): as linhas acompanham
+  useEffect(() => {
+    if (juntarEquipamentos(linhas) === String(valor ?? "").trim()) return;
+    const l = separarEquipamentos(valor);
+    setLinhas(l.length ? l : [""]);
+  }, [valor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function mudar(l) {
+    setLinhas(l);
+    onChange(juntarEquipamentos(l), separarEquipamentos(juntarEquipamentos(l)).length);
+  }
+
+  // busca no cadastro os códigos ainda não consultados (um pouco depois de parar de digitar)
+  const codigos = juntarEquipamentos(linhas);
+  useEffect(() => {
+    const faltam = separarEquipamentos(codigos).filter((c) => !(c in cadastro));
+    if (!faltam.length) return;
+    let vale = true;
+    const t = setTimeout(async () => {
+      const { ok, json } = await obter({ veiculos: faltam.join(",") });
+      if (!vale || !ok) return;
+      setCadastro((m) => ({ ...m, ...Object.fromEntries(faltam.map((c) => [c, json.veiculos?.[c] ?? null])) }));
+    }, 450);
+    return () => {
+      vale = false;
+      clearTimeout(t);
+    };
+  }, [codigos]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // a linha acrescentada pelo "Adicionar equipamento" já recebe o cursor
+  useEffect(() => {
+    if (!focarUltimo.current) return;
+    focarUltimo.current = false;
+    const campos = caixa.current?.querySelectorAll("input");
+    campos?.[campos.length - 1]?.focus();
+  }, [linhas.length]);
+
+  const listaSugestoes = unicos(sugestoes);
+  return (
+    <div ref={caixa} className="space-y-2">
+      {linhas.map((c, i) => {
+        const k = c.trim().toUpperCase();
+        const v = k ? cadastro[k] : undefined;
+        const prestador = v ? [v.prestadorCod, v.prestadorNm].filter(Boolean).join(" – ") : "";
+        const idLinha = i === 0 ? id : `${id}-${i}`;
+        return (
+          <div key={i}>
+            <div className="flex items-center gap-2">
+              <input
+                id={idLinha}
+                list={`${id}-sugestoes`}
+                value={c}
+                onChange={(e) => mudar(linhas.map((x, j) => (j === i ? e.target.value.toUpperCase().replace(/,/g, "").slice(0, 20) : x)))}
+                autoComplete="off"
+                autoCapitalize="characters"
+                placeholder="Código da frota"
+                aria-label={i === 0 ? undefined : `Equipamento ${i + 1}`}
+                aria-describedby={k ? `${idLinha}-info` : undefined}
+                className={`${CAMPO} tabular`}
+              />
+              {linhas.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => mudar(linhas.filter((_, j) => j !== i))}
+                  className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg border border-line bg-card text-muted hover:bg-surface hover:text-alert-600"
+                  aria-label={`Tirar o equipamento ${k || i + 1}`}
+                >
+                  <IconFechar size={18} />
+                </button>
+              )}
+            </div>
+            {k && (
+              <p id={`${idLinha}-info`} className="mt-1 px-1 text-[11.5px] leading-snug text-[#8A94A0] dark:text-[#7A8492]">
+                {v === undefined ? (
+                  "Buscando no cadastro de Veículos…"
+                ) : v === null ? (
+                  "Não está no cadastro de Veículos."
+                ) : (
+                  <>
+                    {v.modelo ? `Modelo: ${v.modelo}` : v.nm}
+                    {prestador ? ` · Prestador: ${prestador}` : ""}
+                    {v.ativo ? "" : " · inativo no cadastro"}
+                  </>
+                )}
+              </p>
+            )}
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        className={`${BOTAO_MENOR} w-full border-dashed`}
+        onClick={() => {
+          focarUltimo.current = true;
+          setLinhas((l) => [...l, ""]);
+        }}
+      >
+        <IconMais size={16} /> Adicionar equipamento
+      </button>
+      <datalist id={`${id}-sugestoes`}>
+        {listaSugestoes.map((x) => (
+          <option key={x} value={x} />
+        ))}
+      </datalist>
+    </div>
+  );
+}
+
 function Campo({ id, rotulo, dica, children, className = "" }) {
   return (
     <div className={className}>
@@ -4436,21 +4569,17 @@ function DadosServico({
         </datalist>
       </Campo>
       <Campo id="lm-eqp" rotulo={`Equipamento (Frota)${recomendado(mec)}`}>
-        <input
+        <CampoEquipamentos
           id="lm-eqp"
-          list="lm-equipamentos"
-          value={s.eqp}
-          onChange={(e) => upd({ eqp: e.target.value.toUpperCase().slice(0, 40) })}
-          autoComplete="off"
-          autoCapitalize="characters"
-          placeholder="Código da frota"
-          className={`${CAMPO} tabular`}
+          valor={s.eqp}
+          sugestoes={opcoes?.equipamentos}
+          onChange={(eqp, n) => {
+            // o Nº de equipamentos acompanha a lista enquanto não for mudado à mão
+            const antes = separarEquipamentos(s.eqp).length;
+            const acompanha = String(s.numEquipamentos ?? "").trim() === "" || Number(s.numEquipamentos) === antes;
+            upd({ eqp, ...(acompanha ? { numEquipamentos: n ? String(n) : "" } : {}) });
+          }}
         />
-        <datalist id="lm-equipamentos">
-          {unicos(opcoes?.equipamentos).map((x) => (
-            <option key={x} value={x} />
-          ))}
-        </datalist>
       </Campo>
       <div className="grid grid-cols-2 gap-3">
         <Campo id="lm-neqp" rotulo="Nº de equipamentos">
