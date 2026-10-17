@@ -15,6 +15,7 @@ import { specPorSlug, validarDadosCadastro } from "@/lib/cadastros-spec";
 import { atualizarReferenciasDaLista, resolverReferencias, separarNomesRepetidos } from "@/lib/cadastros-ref";
 import { filtroDaAba, FILTROS_ABA } from "@/lib/cadastros-abas";
 import { operacoesDoGrupo, sincronizarGruposOperacoes } from "@/lib/db-dashboard-atividades";
+import { solicitacoesDaAssinatura } from "@/lib/db-emprestimos";
 import { podeEditar, podeIncluirCadastro } from "@/lib/permissoes";
 
 const TAMANHO_PAGINA = 50;
@@ -190,6 +191,18 @@ export async function DELETE(req, ctx) {
       return NextResponse.json(
         {
           error: `O grupo está em uso em ${usos.length} operação(ões) de Grupos de Operações (${usos.slice(0, 8).join(", ")}${usos.length > 8 ? "…" : ""}). Troque o grupo dessas operações antes de excluí-lo.`,
+        },
+        { status: 400 },
+      );
+    }
+  }
+  // responsável que já assina uma Solicitação de empréstimo emitida não sai (só pode ser inativado)
+  if (slug === "assinaturas-emprestimo") {
+    const { total, numeros } = await solicitacoesDaAssinatura(cod);
+    if (total > 0) {
+      return NextResponse.json(
+        {
+          error: `Este responsável assina ${total} solicitação(ões) de empréstimo já emitida(s) (${numeros.join(", ")}${total > numeros.length ? "…" : ""}): não pode ser excluído. Para tirá-lo das próximas solicitações, inative-o.`,
         },
         { status: 400 },
       );

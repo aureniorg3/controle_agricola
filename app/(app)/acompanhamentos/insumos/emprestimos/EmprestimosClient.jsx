@@ -42,6 +42,9 @@ const TIPOS_RELATORIO = [
   },
 ];
 
+/** Quem assina, na ordem: "Nome (Função) · Nome …". */
+const textoAssinaturas = (l) => (l ?? []).map((a) => (a.funcao ? `${a.nome} (${a.funcao})` : a.nome)).join(" · ");
+
 /** Nº da Solicitação do empréstimo (gerado pelo sistema: ANO + MÊS + sequência no mês); sem ele, o id. */
 const nSolicitacao = (e) => (e.solicitacao ? String(e.solicitacao) : `#${e.id}`);
 
@@ -88,8 +91,9 @@ function formVazio() {
 function formDe(e) {
   return {
     id: e.id,
-    // só para mostrar: o nº é do sistema
+    // só para mostrar: o nº e as assinaturas fixadas são do sistema
     solicitacao: e.solicitacao,
+    assinaturas: e.assinaturas,
     fornCod: e.fornCod,
     fornNm: e.fornNm,
     doc: e.doc,
@@ -196,6 +200,26 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
 
   /** janela (detalhe) do card aberta: a situação (Aberto, Devolvido, Pago) */
   const [janela, setJanela] = useState(null);
+  // emissão do comunicado: a Solicitação que está gerando (o botão espera)
+  const [emitindo, setEmitindo] = useState(null);
+  /**
+   * Gerar comunicado: o servidor devolve quem assina (as assinaturas fixadas na Solicitação; nas lançadas antes, as
+   * ativas no cadastro agora, que ficam fixadas) e o PDF sai com elas, numa página.
+   */
+  async function gerarComunicado(e) {
+    setEmitindo(e.id);
+    setErro(null);
+    try {
+      const json = await chamar("POST", { acao: "emitir", id: e.id });
+      await gerarComunicadoEmprestimoPdf(e, Array.isArray(json.assinaturas) ? json.assinaturas : []);
+      if (!e.assinaturas || !e.emitidoEm) await carregar();
+    } catch (er) {
+      setErro(er instanceof Error ? er.message : "Não foi possível gerar o comunicado.");
+    } finally {
+      setEmitindo(null);
+    }
+  }
+
   /** Clique na solicitação dentro da janela: a lista passa a mostrar o empréstimo, já aberto e à vista. */
   function verNaLista(e) {
     if (filtroStatus && filtroStatus !== e.status) setFiltroStatus(e.status);
@@ -818,19 +842,22 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                   <label className={ROTULO}>Volume (ex.: 18.800 lt · 58 ton)</label>
                   <input value={form.vol} onChange={(e) => upd({ vol: e.target.value })} className={INPUT} />
                 </div>
-                <p className="text-[12px] text-muted md:col-span-3">
-                  Assinam o comunicado, nesta ordem:{" "}
-                  {assinaturas.length ? (
-                    <b className="font-medium text-ink">{assinaturas.map((a) => (a.funcao ? `${a.nome} (${a.funcao})` : a.nome)).join(" · ")}</b>
-                  ) : (
-                    "nenhum responsável ativo no cadastro"
-                  )}{" "}
-                  e o destinatário. Para mudar, use{" "}
-                  <a href="/acompanhamentos/insumos/emprestimos/assinaturas" target="_blank" rel="noopener noreferrer" className="font-medium text-brand-700 hover:underline">
-                    Insumos › Empréstimos › Assinaturas
-                  </a>
-                  .
-                </p>
+                {form.id && form.assinaturas ? (
+                  <p className="text-[12px] text-muted md:col-span-3">
+                    Assinam esta Solicitação, nesta ordem (fixadas nela; mudar o cadastro não muda esta):{" "}
+                    <b className="font-medium text-ink">{textoAssinaturas(form.assinaturas)}</b> e o destinatário.
+                  </p>
+                ) : (
+                  <p className="text-[12px] text-muted md:col-span-3">
+                    {form.id ? "Vão assinar, ao gerar o comunicado pela 1ª vez (ficam fixadas na Solicitação):" : "Vão assinar, nesta ordem (ficam fixadas na Solicitação ao lançar):"}{" "}
+                    {assinaturas.length ? <b className="font-medium text-ink">{textoAssinaturas(assinaturas)}</b> : "nenhum responsável ativo no cadastro"} e o
+                    destinatário. O cadastro fica em{" "}
+                    <a href="/acompanhamentos/insumos/emprestimos/assinaturas" target="_blank" rel="noopener noreferrer" className="font-medium text-brand-700 hover:underline">
+                      Insumos › Empréstimos › Assinaturas
+                    </a>
+                    .
+                  </p>
+                )}
                 <div className="md:col-span-3">
                   <label className={ROTULO}>Observação</label>
                   <input value={form.obs} onChange={(e) => upd({ obs: e.target.value })} className={INPUT} />
@@ -994,9 +1021,15 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                           {e.baixaObs && <div className="sm:col-span-2">Baixa: {e.baixaObs}</div>}
                           {e.obs && <div className="sm:col-span-2">Obs.: {e.obs}</div>}
                           {e.boletim && <div className="sm:col-span-2">Boletim anterior (antes da Solicitação automática): {e.boletim}</div>}
+                          <div className="sm:col-span-2">
+                            {e.assinaturas
+                              ? `Assinam: ${textoAssinaturas(e.assinaturas)} e o destinatário`
+                              : "Assinaturas: as ativas no cadastro quando o comunicado for gerado pela 1ª vez (ficam fixadas na Solicitação)"}
+                            {e.emitidoEm ? ` · comunicado emitido em ${fmtDateBR(e.emitidoEm.slice(0, 10))}` : ""}
+                          </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          <button type="button" className={BOTAO} onClick={() => gerarComunicadoEmprestimoPdf(e, assinaturas)}>
+                          <button type="button" className={BOTAO} onClick={() => gerarComunicado(e)} disabled={emitindo === e.id}>
                             Gerar comunicado (PDF)
                           </button>
                           {podeGravar && (

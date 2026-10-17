@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { baixarEmprestimo, excluirEmprestimo, listarAssinaturas, listarEmprestimos, proximaSolicitacao, salvarEmprestimo } from "@/lib/db-emprestimos";
+import {
+  baixarEmprestimo,
+  emitirSolicitacao,
+  excluirEmprestimo,
+  listarAssinaturas,
+  listarEmprestimos,
+  proximaSolicitacao,
+  salvarEmprestimo,
+} from "@/lib/db-emprestimos";
 
 import { podeEditar } from "@/lib/permissoes";
 
@@ -50,15 +58,26 @@ export async function GET(req) {
   return NextResponse.json({ emprestimos, assinaturas });
 }
 
-/** Inclui (sem id) ou altera (com id) um empréstimo; `acao: "baixa"` dá baixa/reabre. */
+/**
+ * Inclui (sem id) ou altera (com id) um empréstimo; `acao: "baixa"` dá baixa/reabre; `acao: "emitir"` é a emissão do
+ * comunicado: devolve quem assina o termo (as assinaturas fixadas na Solicitação; nas antigas, fixa as ativas agora).
+ */
 export async function POST(req) {
   const usuario = await usuarioDaRequisicao(req);
-  if (!usuario || !podeEditar(usuario.perfil)) {
-    return NextResponse.json({ error: "Você não tem permissão para lançar empréstimos." }, { status: 403 });
-  }
+  if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Requisição inválida." }, { status: 400 });
   const id = body.id === undefined ? undefined : Number(body.id);
+  // gerar o comunicado vale para quem consulta (perfil de leitura também imprime)
+  if (body.acao === "emitir") {
+    if (!Number.isInteger(id)) return NextResponse.json({ error: "Informe a solicitação." }, { status: 400 });
+    const r = await emitirSolicitacao(id, usuario.nome);
+    if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 404 });
+    return NextResponse.json(r);
+  }
+  if (!podeEditar(usuario.perfil)) {
+    return NextResponse.json({ error: "Você não tem permissão para lançar empréstimos." }, { status: 403 });
+  }
 
   if (body.acao === "baixa") {
     if (!Number.isInteger(id)) return NextResponse.json({ error: "Informe o empréstimo." }, { status: 400 });
