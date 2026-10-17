@@ -3,7 +3,13 @@ import PlaceholderPage from "@/components/PlaceholderPage";
 import { CADASTROS } from "@/lib/cadastros";
 import { specPorSlug } from "@/lib/cadastros-spec";
 import { usuarioAtual } from "@/lib/db";
-import { carregarCadastrosExportados, carregarComplementoInsumos, CADASTROS_COM_CARGA_EXPORTADA } from "@/lib/db-cadastros-carga";
+import {
+  CADASTROS_COM_CARGA_EXPORTADA,
+  CADASTROS_EQUIPAMENTOS,
+  carregarCadastrosExportados,
+  carregarComplementoInsumos,
+  carregarEquipamentos,
+} from "@/lib/db-cadastros-carga";
 import { prepararGruposOperacoes } from "@/lib/db-dashboard-atividades";
 import { prepararOSAgr } from "@/lib/db-os-agr";
 import CadastroClient from "./CadastroClient";
@@ -26,6 +32,8 @@ export default async function CadastroPage({ params }) {
     if (slug === "grupos-operacoes" || slug === "grupos-dashboard") await prepararGruposOperacoes();
     // Material e Insumos: dados de aplicação dos insumos (arquivo t_ins.xls), uma vez
     if (slug === "materiais-insumos") await carregarComplementoInsumos();
+    // Equipamentos (Veículos, Modelos, Marcas, Especialidades, Tipos de Combustíveis): carga dos relatórios da frota, uma vez
+    if (CADASTROS_EQUIPAMENTOS.includes(slug)) await carregarEquipamentos();
     const usuario = await usuarioAtual();
     return <CadastroClient slug={slug} perfil={usuario?.perfil ?? "leitura"} />;
   }
