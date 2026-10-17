@@ -1166,7 +1166,7 @@ function JanelaEmprestimos({ insumos, base }) {
   const e = insumos.emprestimosAbertos;
   const lista = e.lista ?? [];
   const colunas = [
-    { rotulo: "Boletim", num: "cod", valor: (l) => l.boletim ?? null, classe: () => "font-medium text-ink" },
+    { rotulo: "Solicitação", num: "cod", valor: (l) => l.solicitacao ?? null, classe: () => "font-medium text-ink" },
     { rotulo: "Data Solicitação", valor: (l) => (l.dtSol ? fmtDateBR(l.dtSol) : null), classe: muted },
     { rotulo: "Data Saída", valor: (l) => (l.dtSaida ? fmtDateBR(l.dtSaida) : null), classe: muted },
     { rotulo: "Fornecedor", valor: (l) => l.fornecedor },

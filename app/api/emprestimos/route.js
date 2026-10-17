@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { usuarioDaRequisicao } from "@/lib/db";
-import { baixarEmprestimo, excluirEmprestimo, listarEmprestimos, proximoBoletimEmprestimo, salvarEmprestimo } from "@/lib/db-emprestimos";
+import { baixarEmprestimo, excluirEmprestimo, listarEmprestimos, proximaSolicitacao, salvarEmprestimo } from "@/lib/db-emprestimos";
 
 import { podeEditar } from "@/lib/permissoes";
 
@@ -13,7 +13,6 @@ const dataOuNull = (v) => (typeof v === "string" && v ? v : null);
 function lerEntrada(b) {
   const lista = (v) => (Array.isArray(v) ? v : []);
   return {
-    boletim: b.boletim === null || b.boletim === undefined || b.boletim === "" ? null : Number(b.boletim),
     fornCod: texto(b.fornCod),
     fornNm: texto(b.fornNm),
     doc: texto(b.doc),
@@ -42,7 +41,10 @@ function lerEntrada(b) {
 export async function GET(req) {
   const usuario = await usuarioDaRequisicao(req);
   if (!usuario) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
-  if (req.nextUrl.searchParams.get("proximo") !== null) return NextResponse.json({ boletim: await proximoBoletimEmprestimo() });
+  // `?proximo=1&dt=AAAA-MM-DD` a prévia do nº da Solicitação do mês da data (o nº de verdade é dado ao gravar)
+  if (req.nextUrl.searchParams.get("proximo") !== null) {
+    return NextResponse.json({ solicitacao: await proximaSolicitacao(req.nextUrl.searchParams.get("dt") ?? "") });
+  }
   return NextResponse.json({ emprestimos: await listarEmprestimos() });
 }
 
@@ -67,7 +69,7 @@ export async function POST(req) {
 
   const r = await salvarEmprestimo(lerEntrada(body), usuario.nome, id);
   if ("erro" in r) return NextResponse.json({ error: r.erro }, { status: 400 });
-  return NextResponse.json({ ok: true, id: r.id });
+  return NextResponse.json({ ok: true, id: r.id, solicitacao: r.solicitacao, anterior: r.anterior });
 }
 
 export async function DELETE(req) {

@@ -33,7 +33,7 @@ const TIPOS_RELATORIO = [
   {
     v: "sintetico",
     t: "Sintético",
-    d: "O resumo como na tela: os totais por situação e uma linha por empréstimo (boletim, datas, fornecedor, fazendas, insumos, valor e situação).",
+    d: "O resumo como na tela: os totais por situação e uma linha por empréstimo (solicitação, datas, fornecedor, fazendas, insumos, valor e situação).",
   },
   {
     v: "analitico",
@@ -42,11 +42,22 @@ const TIPOS_RELATORIO = [
   },
 ];
 
-/** O empréstimo bate com a busca da lista (fornecedor, fazenda, insumo ou nº)? */
+/** Nº da Solicitação do empréstimo (gerado pelo sistema: ANO + MÊS + sequência no mês); sem ele, o id. */
+const nSolicitacao = (e) => (e.solicitacao ? String(e.solicitacao) : `#${e.id}`);
+
+/** O empréstimo bate com a busca da lista (fornecedor, fazenda, insumo, nº da Solicitação ou o boletim antigo)? */
 function casaBusca(e, busca) {
   const q = busca.trim().toLowerCase();
   if (!q) return true;
-  return [e.fornNm, e.fornCod, ...e.faz.map((f) => `${f.cod} ${f.nome}`), ...e.itens.map((i) => `${i.cod} ${i.nm}`), String(e.id)]
+  return [
+    e.fornNm,
+    e.fornCod,
+    ...e.faz.map((f) => `${f.cod} ${f.nome}`),
+    ...e.itens.map((i) => `${i.cod} ${i.nm}`),
+    String(e.id),
+    String(e.solicitacao ?? ""),
+    String(e.boletim ?? ""),
+  ]
     .join(" ")
     .toLowerCase()
     .includes(q);
@@ -60,7 +71,6 @@ const fazVazia = () => ({ cod: "", nome: "", area: "" });
 
 function formVazio() {
   return {
-    boletim: "",
     fornCod: "",
     fornNm: "",
     doc: "",
@@ -78,7 +88,8 @@ function formVazio() {
 function formDe(e) {
   return {
     id: e.id,
-    boletim: e.boletim ? String(e.boletim) : "",
+    // só para mostrar: o nº é do sistema
+    solicitacao: e.solicitacao,
     fornCod: e.fornCod,
     fornNm: e.fornNm,
     doc: e.doc,
@@ -94,10 +105,13 @@ function formDe(e) {
   };
 }
 
-/** O que conta para saber se algo foi digitado ou alterado: o nº sugerido num empréstimo novo, os avisos do cadastro e a marca da linha gravada não contam. */
+/** O que conta para saber se algo foi digitado ou alterado: os avisos do cadastro e a marca da linha gravada não contam. */
 function conteudoForm(f) {
-  return JSON.stringify({ ...f, boletim: f.id ? f.boletim : "", itens: f.itens.map((i) => ({ ...i, cad: undefined, aviso: undefined, doBanco: undefined })) });
+  return JSON.stringify({ ...f, itens: f.itens.map((i) => ({ ...i, cad: undefined, aviso: undefined, doBanco: undefined })) });
 }
+
+/** AAAAMM da data do formulário que dá o mês da Solicitação (a da solicitação; sem ela, a da saída; sem as duas, hoje). */
+const mesDoForm = (f) => (f.dtSol || f.dt || todayISO()).slice(0, 7).replace("-", "");
 
 export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
   const podeGravar = podeEditar(perfil);
@@ -179,7 +193,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
 
   /** janela (detalhe) do card aberta: a situação (Aberto, Devolvido, Pago) */
   const [janela, setJanela] = useState(null);
-  /** Clique no boletim dentro da janela: a lista passa a mostrar o empréstimo, já aberto e à vista. */
+  /** Clique na solicitação dentro da janela: a lista passa a mostrar o empréstimo, já aberto e à vista. */
   function verNaLista(e) {
     if (filtroStatus && filtroStatus !== e.status) setFiltroStatus(e.status);
     if (!casaBusca(e, busca)) setBusca("");
@@ -206,19 +220,29 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
     return json;
   }
 
-  /** Formulário limpo para um empréstimo novo, já com o próximo nº de boletim. */
-  async function limparForm() {
+  /** Formulário limpo para um empréstimo novo (o nº da Solicitação aparece como prévia e é dado ao gravar). */
+  function limparForm() {
     const vazio = formVazio();
     setForm(vazio);
     setOrigem(conteudoForm(vazio));
-    try {
-      const res = await fetch("/api/emprestimos?proximo=1", { cache: "no-store" });
-      const json = await res.json();
-      if (res.ok) setForm((f) => (f && !f.id && !f.boletim ? { ...f, boletim: String(json.boletim) } : f));
-    } catch {
-      /* digita à mão */
-    }
   }
+
+  // prévia do nº da Solicitação: no novo, o próximo do mês da data; na edição, só quando a data foi para outro mês
+  const [previa, setPrevia] = useState(null);
+  const mesForm = form ? mesDoForm(form) : "";
+  const precisaPrevia = !!form && (!form.id || (!!form.solicitacao && String(form.solicitacao).slice(0, 6) !== mesForm));
+  useEffect(() => {
+    if (!precisaPrevia) return setPrevia(null);
+    let vale = true;
+    setPrevia(null);
+    fetch(`/api/emprestimos?proximo=1&dt=${mesForm.slice(0, 4)}-${mesForm.slice(4)}-01`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => vale && setPrevia(j?.solicitacao ?? null))
+      .catch(() => {});
+    return () => {
+      vale = false;
+    };
+  }, [precisaPrevia, mesForm]);
 
   /** Novo empréstimo: formulário limpo na janela. */
   function novoEmprestimo() {
@@ -268,7 +292,6 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
     try {
       const json = await chamar("POST", {
         id: form.id,
-        boletim: form.boletim ? Number(form.boletim) : null,
         fornCod: form.fornCod,
         fornNm: form.fornNm,
         doc: form.doc,
@@ -289,14 +312,19 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
         obs: form.obs,
       });
       const nm = (form.fornNm ?? "").trim();
-      const qual = `${form.boletim ? `nº ${form.boletim}` : `#${form.id ?? json.id}`}${nm ? ` (${nm})` : ""}`;
+      const qual = `${json.solicitacao ? `Solicitação nº ${json.solicitacao}` : `Empréstimo #${form.id ?? json.id}`}${nm ? ` (${nm})` : ""}`;
       if (form.id) {
         // edição: a janela fecha e a mensagem fica na página
         setForm(null);
-        setMsg({ texto: `Empréstimo ${qual} alterado.`, erro: false });
+        setMsg({
+          texto: json.anterior
+            ? `${qual} alterada. A data foi para outro mês: a Solicitação nº ${json.anterior} passou a ser a nº ${json.solicitacao}.`
+            : `${qual} alterada.`,
+          erro: false,
+        });
       } else {
         // novo: a janela fica aberta e limpa para lançar o próximo
-        setMsg({ texto: `Empréstimo ${qual} lançado.`, erro: false });
+        setMsg({ texto: `${qual} lançada.`, erro: false });
         limparForm();
         irAoTopo(true);
       }
@@ -326,7 +354,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
 
   function reabrir(e) {
     setConfirmar({
-      titulo: `Reabrir o empréstimo #${e.id} (${e.fornNm})?`,
+      titulo: `Reabrir a Solicitação nº ${nSolicitacao(e)} (${e.fornNm})?`,
       texto: "A baixa será desfeita.",
       botao: "Reabrir",
       acao: () => reabrirDeVez(e),
@@ -344,7 +372,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
 
   function excluir(e) {
     setConfirmar({
-      titulo: `Excluir o empréstimo #${e.id} (${e.fornNm})?`,
+      titulo: `Excluir a Solicitação nº ${nSolicitacao(e)} (${e.fornNm})?`,
       texto: "A exclusão fica registrada no Log de Alterações.",
       botao: "Excluir",
       perigo: true,
@@ -480,7 +508,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
         <JanelaFormulario
           aberto={!!form}
           rotulo={form?.id ? "Editar empréstimo" : "Novo empréstimo"}
-          titulo={form?.id ? `Editando o empréstimo ${form.boletim ? `nº ${form.boletim}` : `#${form.id}`}` : "Novo empréstimo"}
+          titulo={form?.id ? `Editando a Solicitação nº ${form.solicitacao ?? `#${form.id}`}` : "Novo empréstimo"}
           subtitulo="Solicitação de empréstimo de insumos a fornecedor · F2 grava · Esc fecha"
           aviso={msg && <Aviso msg={msg} onFechar={() => setMsg(null)} />}
           onFechar={fecharForm}
@@ -490,15 +518,23 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
           focoInicial={fornRef}
           topoDireita={
             form && (
-              <label className="campo-boletim">
-                Boletim nº
-                <input
-                  value={form.boletim}
-                  onChange={(e) => upd({ boletim: e.target.value.replace(/\D/g, "").slice(0, 9) })}
-                  inputMode="numeric"
-                  aria-label="Número do boletim"
-                />
-              </label>
+              // nº da Solicitação: do sistema (ANO + MÊS + sequência no mês); no novo, a prévia do próximo do mês
+              <div
+                className="campo-boletim"
+                title={
+                  form.id && !precisaPrevia
+                    ? "Gerado pelo sistema: ano + mês da solicitação + sequência no mês."
+                    : form.id
+                      ? "A data foi para outro mês: ao gravar, a Solicitação ganha o próximo nº do mês novo."
+                      : "Gerado ao gravar: ano + mês da solicitação + sequência no mês (este é o próximo livre agora)."
+                }
+              >
+                Solicitação nº
+                <span className={`px-1 py-0.5 text-[15px] font-semibold tabular ${precisaPrevia ? "text-muted" : "text-ink"}`}>
+                  {precisaPrevia ? (previa ?? "…") : (form.solicitacao ?? "—")}
+                </span>
+                {precisaPrevia && <span className="pr-1 text-[10.5px] text-muted">{form.id ? "novo nº" : "ao gravar"}</span>}
+              </div>
             )
           }
           rodape={
@@ -825,7 +861,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
           <table className="w-full min-w-[900px] text-[12.5px]">
             <thead>
               <tr className="border-b border-line bg-surface text-left text-muted">
-                <th className="px-3 py-2 font-semibold">Boletim</th>
+                <th className="px-3 py-2 font-semibold">Solicitação</th>
                 <th className="px-3 py-2 font-semibold">Data Solicitação</th>
                 <th className="px-3 py-2 font-semibold">Data Saída</th>
                 <th className="px-3 py-2 font-semibold">Fornecedor</th>
@@ -859,7 +895,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                     className="cursor-pointer border-b border-line hover:bg-surface/60"
                     onClick={() => setAberto(aberto === e.id ? null : e.id)}
                   >
-                    <td className="px-3 py-2 tabular font-medium text-ink">{e.boletim ?? <span className="text-muted">#{e.id}</span>}</td>
+                    <td className="px-3 py-2 tabular font-medium text-ink">{e.solicitacao ?? <span className="text-muted">#{e.id}</span>}</td>
                     <td className="px-3 py-2 tabular">{e.dtSol ? fmtDateBR(e.dtSol) : <span className="text-muted/60">—</span>}</td>
                     <td className="px-3 py-2 tabular">{e.dt ? fmtDateBR(e.dt) : <span className="text-muted/60">—</span>}</td>
                     <td className="px-3 py-2 font-semibold text-ink">
@@ -930,6 +966,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                           {e.baixaObs && <div className="sm:col-span-2">Baixa: {e.baixaObs}</div>}
                           {e.obs && <div className="sm:col-span-2">Obs.: {e.obs}</div>}
                           {e.ref && <div className="sm:col-span-2">Origem: {e.ref}</div>}
+                          {e.boletim && <div className="sm:col-span-2">Boletim anterior (antes da Solicitação automática): {e.boletim}</div>}
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button type="button" className={BOTAO} onClick={() => gerarComunicadoEmprestimoPdf(e)}>
@@ -1005,7 +1042,7 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div role="dialog" aria-modal="true" aria-label="Dar baixa no empréstimo" className="w-full max-w-md rounded-xl2 bg-card p-5 shadow-card">
             <h2 className="text-[15px] font-bold text-ink">
-              Dar baixa — empréstimo #{baixa.e.id} · {baixa.e.fornNm}
+              Dar baixa — Solicitação nº {nSolicitacao(baixa.e)} · {baixa.e.fornNm}
             </h2>
             <p className="mt-1 text-[12px] text-muted">
               {brl(baixa.e.total)} · {baixa.e.faz.map((f) => f.cod).join(" / ")}
@@ -1158,11 +1195,11 @@ function JanelaSituacao({ status, emprestimos, resumo, onVer, onFechar, rodape }
 
   const colunas = [
     {
-      rotulo: "Boletim",
-      valor: (e) => e.boletim ?? `#${e.id}`,
+      rotulo: "Solicitação",
+      valor: (e) => nSolicitacao(e),
       exibir: (e) => (
         <BotaoLink onClick={() => onVer(e)} title="Ver o empréstimo aberto na lista">
-          {e.boletim ?? `#${e.id}`}
+          {nSolicitacao(e)}
         </BotaoLink>
       ),
     },
@@ -1206,7 +1243,7 @@ function JanelaSituacao({ status, emprestimos, resumo, onVer, onFechar, rodape }
       exportar={{ nome, colunas, linhas: emprestimos }}
       rodape={rodape}
     >
-      <Nota>{NOTA_SITUACAO[status]} Clique no boletim para ver o empréstimo aberto na lista.</Nota>
+      <Nota>{NOTA_SITUACAO[status]} Clique na solicitação para ver o empréstimo aberto na lista.</Nota>
       <TabelaJanela
         colunas={colunas}
         linhas={emprestimos}
