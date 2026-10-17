@@ -218,6 +218,7 @@ export default function OrdensOSClient({ perfil }) {
                   return (
                     <Fragment key={k}>
                       <tr
+                        data-linha={k}
                         className={`cursor-pointer border-t border-line/60 hover:bg-surface/60 ${ab ? "bg-[#2E5FA8]/[0.06]" : ""}`}
                         onClick={() => setAberta(ab ? null : k)}
                       >
@@ -253,7 +254,8 @@ export default function OrdensOSClient({ perfil }) {
                         <td className="whitespace-nowrap px-3 py-1.5 text-muted">{o.usrOs}</td>
                       </tr>
                       {ab && (
-                        <tr className="border-t border-line/60 bg-surface/50">
+                        // acompanha a linha da O.S. quando a tabela é ordenada pelo título de uma coluna (OrdenarTabelas)
+                        <tr data-detalhe-de={k} className="border-t border-line/60 bg-surface/50">
                           <td />
                           <td colSpan={14} className="px-3 py-3">
                             <TalhoesOS emp={o.emp} os={o.os} />

@@ -2,8 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BotaoCartao, BotaoLink, JanelaCard, Nota, Secao, TabelaJanela, exportarTabela, int } from "@/app/(app)/acompanhamentos/insumos/janela-detalhe";
-import { IconMais } from "@/components/icons";
-import JanelaFormulario, { Aviso, JanelaConfirmar, useAtalhoTela, useJanela } from "@/components/janela";
+import { IconImprimir, IconMais } from "@/components/icons";
+import JanelaFormulario, { Aviso, JanelaConfirmar, JanelaInfo, useAtalhoTela, useJanela } from "@/components/janela";
 import { BarraFiltros, CabecalhoPagina, Comando, CorpoPagina, Indicador, Pagina } from "@/components/pagina";
 import { fmtDateBR, todayISO } from "@/lib/format";
 import { gerarComunicadoEmprestimoPdf } from "@/lib/comunicado-emprestimo-pdf";
@@ -27,6 +27,20 @@ const COR_STATUS = {
 /** Cor do indicador de cada situação: em aberto é pendente (laranja), devolvido azul e pago verde, como os selos da tabela. */
 const COR_RESUMO = { Aberto: "laranja", Devolvido: "azul", Pago: "verde" };
 const NOME_RESUMO = { Aberto: "Em aberto", Devolvido: "Devolvidos", Pago: "Pagos" };
+
+/** Tipos do gerador de relatório (PDF): o resumo da tela ou tudo de cada empréstimo. */
+const TIPOS_RELATORIO = [
+  {
+    v: "sintetico",
+    t: "Sintético",
+    d: "O resumo como na tela: os totais por situação e uma linha por empréstimo (boletim, datas, fornecedor, fazendas, insumos, valor e situação).",
+  },
+  {
+    v: "analitico",
+    t: "Analítico",
+    d: "Todos os detalhes de cada empréstimo: os insumos (código, U.M., dose, quantidade, valor unitário e total), destinatário, fazendas e área, volume, baixa, observação, origem e quem lançou, com o total de cada um.",
+  },
+];
 
 /** O empréstimo bate com a busca da lista (fornecedor, fazenda, insumo ou nº)? */
 function casaBusca(e, busca) {
@@ -85,7 +99,7 @@ function conteudoForm(f) {
   return JSON.stringify({ ...f, boletim: f.id ? f.boletim : "", itens: f.itens.map((i) => ({ ...i, cad: undefined, aviso: undefined, doBanco: undefined })) });
 }
 
-export default function EmprestimosClient({ perfil }) {
+export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
   const podeGravar = podeEditar(perfil);
   const [lista, setLista] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -140,6 +154,28 @@ export default function EmprestimosClient({ perfil }) {
   }, [lista]);
 
   const filtrada = useMemo(() => lista.filter((e) => (!filtroStatus || e.status === filtroStatus) && casaBusca(e, busca)), [lista, filtroStatus, busca]);
+  // os filtros da lista, no texto do relatório
+  const filtrosTexto = [`Situação: ${filtroStatus ? NOME_RESUMO[filtroStatus] : "todas"}`, busca.trim() && `busca "${busca.trim()}"`].filter(Boolean).join(" · ");
+
+  // gerador de relatório: o tipo escolhido (lembrado no aparelho) e a janela da escolha
+  const [relatorio, setRelatorio] = usarPersistido("insumos.emp.relatorio", "sintetico", ehTexto);
+  const [janelaRelatorio, setJanelaRelatorio] = useState(false);
+  const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
+  const [erroRelatorio, setErroRelatorio] = useState(null);
+  /** PDF dos empréstimos da lista (com os filtros da tela), sintético ou analítico. */
+  async function gerarRelatorio() {
+    setGerandoRelatorio(true);
+    setErroRelatorio(null);
+    try {
+      const { gerarRelatorioEmprestimosPdf } = await import("@/lib/relatorio-emprestimos-pdf");
+      await gerarRelatorioEmprestimosPdf({ emprestimos: filtrada, tipo: relatorio === "analitico" ? "analitico" : "sintetico", filtrosTexto, nomeUsuario });
+      setJanelaRelatorio(false);
+    } catch (e) {
+      setErroRelatorio(e instanceof Error ? e.message : "Não foi possível gerar o relatório.");
+    } finally {
+      setGerandoRelatorio(false);
+    }
+  }
 
   /** janela (detalhe) do card aberta: a situação (Aberto, Devolvido, Pago) */
   const [janela, setJanela] = useState(null);
@@ -419,6 +455,17 @@ export default function EmprestimosClient({ perfil }) {
                 Novo empréstimo
               </Comando>
             )}
+            <Comando
+              icone={<IconImprimir size={16} />}
+              onClick={() => {
+                setErroRelatorio(null);
+                setJanelaRelatorio(true);
+              }}
+              disabled={carregando || filtrada.length === 0}
+              title="Relatório em PDF dos empréstimos da lista (com os filtros da tela): sintético ou analítico"
+            >
+              Gerar relatório
+            </Comando>
           </>
         }
       />
@@ -808,6 +855,7 @@ export default function EmprestimosClient({ perfil }) {
                 <Fragment key={e.id}>
                   <tr
                     id={`emprestimo-${e.id}`}
+                    data-linha={e.id}
                     className="cursor-pointer border-b border-line hover:bg-surface/60"
                     onClick={() => setAberto(aberto === e.id ? null : e.id)}
                   >
@@ -835,7 +883,8 @@ export default function EmprestimosClient({ perfil }) {
                     </td>
                   </tr>
                   {aberto === e.id && (
-                    <tr className="border-b border-line bg-surface/40">
+                    // acompanha a linha dela quando a tabela é ordenada pelo título de uma coluna (OrdenarTabelas)
+                    <tr data-detalhe-de={e.id} className="border-b border-line bg-surface/40">
                       <td colSpan={9} className="px-4 py-3">
                         <table className="mb-3 w-full max-w-[860px] text-[12px]">
                           <thead>
@@ -994,6 +1043,58 @@ export default function EmprestimosClient({ perfil }) {
             </div>
           </div>
         </div>
+      )}
+
+      {janelaRelatorio && (
+        <JanelaInfo
+          titulo="Gerar relatório"
+          subtitulo={`${filtrada.length} empréstimo(s) da lista · ${filtrosTexto}`}
+          largura="lg"
+          onFechar={() => !gerandoRelatorio && setJanelaRelatorio(false)}
+          rodape={
+            <>
+              <button type="button" className={BOTAO} onClick={() => setJanelaRelatorio(false)} disabled={gerandoRelatorio}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={gerarRelatorio}
+                disabled={gerandoRelatorio || filtrada.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-navy-900 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-800 disabled:opacity-50"
+              >
+                <IconImprimir size={15} />
+                {gerandoRelatorio ? "Gerando…" : "Gerar PDF"}
+              </button>
+            </>
+          }
+        >
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-[12.5px] font-semibold text-ink">Tipo do relatório</legend>
+            {TIPOS_RELATORIO.map((o) => (
+              <label
+                key={o.v}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 ${
+                  relatorio === o.v ? "border-navy-900 bg-[#2E5FA8]/[0.06] dark:border-crv-acao" : "border-line hover:bg-surface"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="emp-relatorio"
+                  value={o.v}
+                  checked={relatorio === o.v}
+                  onChange={() => setRelatorio(o.v)}
+                  className="mt-1 h-4 w-4 flex-shrink-0 accent-[#23396B] dark:accent-[#7FA8E8]"
+                />
+                <span>
+                  <span className="block text-[13.5px] font-semibold text-ink">{o.t}</span>
+                  <span className="block text-[12px] leading-snug text-muted">{o.d}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          <p className="mt-3 text-[12px] text-muted">Entram os empréstimos da lista como estão na tela: a situação e a busca escolhidas valem para o relatório.</p>
+          {erroRelatorio && <p className="mt-3 rounded-md border border-alert-500/40 bg-alert-50 px-3 py-2 text-[12.5px] text-alert-700">{erroRelatorio}</p>}
+        </JanelaInfo>
       )}
 
       {confirmar && (

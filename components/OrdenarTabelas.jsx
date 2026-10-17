@@ -9,7 +9,11 @@ import { useEffect } from "react";
  * - linhas de grupo, subtotal e total (com células mescladas ou começando por "Total"/"Subtotal") ficam no lugar e a
  *   ordenação acontece dentro de cada bloco entre elas;
  * - vazio ("", "–") vai sempre para o fim;
- * - quando a tela redesenha a tabela (filtro, nova busca), a ordem escolhida é aplicada de novo.
+ * - quando a tela redesenha a tabela (filtro, nova busca), a ordem escolhida é aplicada de novo;
+ * - linha de detalhe que abre e fecha embaixo de outra (`data-detalhe-de="x"` na de detalhe e `data-linha="x"` na
+ *   dona) acompanha a dona: fica sempre logo abaixo dela. Sem isso, com a tabela ordenada, o React punha o detalhe na
+ *   posição da ordem dele (longe da linha clicada) e clicar de novo na linha de cima do detalhe abria outro em vez de
+ *   recolher.
  * Uma tabela fica de fora com o atributo `data-sem-ordenar`.
  */
 
@@ -86,7 +90,10 @@ function ordenar(tabela) {
   const colunas = Array.from(cab.cells).reduce((s, c) => s + (c.colSpan || 1), 0);
   est.ocupado = true;
   for (const corpo of Array.from(tabela.tBodies)) {
-    const linhas = Array.from(corpo.rows);
+    // as linhas de detalhe saem do caminho (para o fim) e, ordenado o resto, voltam para baixo da dona
+    const detalhes = Array.from(corpo.rows).filter((l) => l.dataset.detalheDe);
+    for (const d of detalhes) corpo.appendChild(d);
+    const linhas = Array.from(corpo.rows).filter((l) => !l.dataset.detalheDe);
     // blocos de linhas de dado entre as linhas fixas (grupo, subtotal, total, detalhe aberto)
     const blocos = [];
     let atual = [];
@@ -117,6 +124,10 @@ function ordenar(tabela) {
         corpo.insertBefore(l, ref ? ref.nextSibling : corpo.firstChild);
         ref = l;
       }
+    }
+    for (const d of detalhes) {
+      const dona = Array.from(corpo.rows).find((l) => l.dataset.linha === d.dataset.detalheDe);
+      if (dona) corpo.insertBefore(d, dona.nextSibling);
     }
   }
   // as mudanças feitas aqui não disparam nova ordenação; corpo novo (a tela trocou o tbody) passa a ser observado
@@ -151,8 +162,10 @@ export default function OrdenarTabelas() {
         est.observador = new MutationObserver(() => {
           const e2 = estados.get(tabela);
           if (!e2 || e2.ocupado) return;
-          cancelAnimationFrame(pendente);
-          pendente = requestAnimationFrame(() => ordenar(tabela));
+          // logo depois do React (setTimeout e não requestAnimationFrame: a aba em segundo plano não tem quadros, e o
+          // detalhe aberto ficaria fora do lugar até ela voltar)
+          clearTimeout(pendente);
+          pendente = setTimeout(() => ordenar(tabela), 0);
         });
         for (const corpo of Array.from(tabela.tBodies)) est.observador.observe(corpo, { childList: true });
         est.observador.observe(tabela, { childList: true });

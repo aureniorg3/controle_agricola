@@ -5,5 +5,5 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const usuario = await usuarioAtual();
-  return <EmprestimosClient perfil={usuario?.perfil ?? "leitura"} />;
+  return <EmprestimosClient perfil={usuario?.perfil ?? "leitura"} nomeUsuario={usuario ? `${usuario.nome} ${usuario.sobrenome ?? ""}`.trim() : ""} />;
 }
