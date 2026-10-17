@@ -972,13 +972,15 @@ export default function EmprestimosClient({ perfil, nomeUsuario = "" }) {
                             Volume de {e.volTipo}: {e.vol || "—"}
                           </div>
                           <div>Área: {e.faz.map((f) => `${f.cod}: ${f.area !== null ? `${f.area.toLocaleString("pt-BR")} ha` : "—"}`).join(" · ")}</div>
+                          {/* os da carga inicial ficam como os lançados no sistema: sem "lançado por Carga inicial" */}
                           <div>
-                            Lançado por {e.usr} em {fmtDateBR(e.criEm.slice(0, 10))}
-                            {e.atuUsr ? ` · alterado por ${e.atuUsr} em ${fmtDateBR((e.atuEm ?? "").slice(0, 10))}` : ""}
+                            {e.usr && e.usr !== "Carga inicial" ? `Lançado por ${e.usr} em ${fmtDateBR(e.criEm.slice(0, 10))}` : ""}
+                            {e.atuUsr && e.atuUsr !== "Carga inicial"
+                              ? `${e.usr && e.usr !== "Carga inicial" ? " · a" : "A"}lterado por ${e.atuUsr} em ${fmtDateBR((e.atuEm ?? "").slice(0, 10))}`
+                              : ""}
                           </div>
                           {e.baixaObs && <div className="sm:col-span-2">Baixa: {e.baixaObs}</div>}
                           {e.obs && <div className="sm:col-span-2">Obs.: {e.obs}</div>}
-                          {e.ref && <div className="sm:col-span-2">Origem: {e.ref}</div>}
                           {e.boletim && <div className="sm:col-span-2">Boletim anterior (antes da Solicitação automática): {e.boletim}</div>}
                         </div>
                         <div className="flex flex-wrap gap-2">
